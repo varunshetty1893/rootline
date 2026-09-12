@@ -505,21 +505,34 @@ export function computeLayout(allPeople, collapsedFamilyKeys = new Set()) {
     }
   }
 
-  // A descendant's partner belongs to the same visual family unit. If only
-  // the descendant is hidden, their partner becomes a disconnected root and
-  // jumps to the top of the tree after collapse (for example Praveen or
-  // Ganesh when Padmavathi's family is collapsed). Hide the complete partner
-  // unit, then continue down any children attached to that partner as well.
+  // A descendant's partner belongs to the same visual family unit when that
+  // partner is an external leaf. But NEVER hide a partner if that partner has
+  // their own visible parents in the tree (for example n, who is a child of
+  // p & b, must not be hidden just because her husband Praveen's branch was collapsed).
   const hiddenQueue = [...hidden];
   while (hiddenQueue.length) {
     const hiddenId = hiddenQueue.shift();
     for (const spouseId of spouseMap.get(hiddenId) || []) {
       if (hidden.has(spouseId)) continue;
+      const spousePerson = allById.get(spouseId);
+      const hasVisibleParent = (spousePerson?.parentIds || []).some(
+        (pId) => allById.has(pId) && !hidden.has(pId)
+      );
+      // If the spouse has visible parents, they belong to another visible branch — keep them!
+      if (hasVisibleParent) continue;
+
       hidden.add(spouseId);
       hiddenQueue.push(spouseId);
     }
     for (const childId of childrenMapFull.get(hiddenId) || []) {
       if (hidden.has(childId)) continue;
+      const childPerson = allById.get(childId);
+      const otherVisibleParent = (childPerson?.parentIds || []).some(
+        (pId) => pId !== hiddenId && allById.has(pId) && !hidden.has(pId)
+      );
+      // If the child has another parent who is visible in the tree, keep the child!
+      if (otherVisibleParent) continue;
+
       hidden.add(childId);
       hiddenQueue.push(childId);
     }
@@ -588,6 +601,14 @@ export function recommendedCollapsedFamilyKeys(allPeople, focusIds = new Set()) 
       if (protectedIds.has(parentId)) continue;
       protectedIds.add(parentId);
       queue.push(parentId);
+      // Also protect any spouse of an ancestor so in-law links stay visible
+      const parentPerson = byId.get(parentId);
+      for (const spouseId of parentPerson?.spouseIds || []) {
+        if (!protectedIds.has(spouseId)) {
+          protectedIds.add(spouseId);
+          queue.push(spouseId);
+        }
+      }
     }
   }
 
