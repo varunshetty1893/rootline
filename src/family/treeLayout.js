@@ -44,7 +44,7 @@ function unionFind(ids) {
   return { find, union };
 }
 
-function fullChildrenMap(people) {
+export function fullChildrenMap(people) {
   const map = new Map();
   for (const person of people) {
     for (const parentId of person.parentIds || []) {
@@ -498,43 +498,92 @@ export function computeLayout(allPeople, collapsedFamilyKeys = new Set()) {
   }
 
   const spouseMap = spouseMapFor(allPeople, allById);
+
+  // A person who is directly collapsed should NOT be hidden if they are married
+  // to a spouse whose parents' branch is NOT collapsed (i.e. an in-law marrying
+  // into an active, visible branch). Hiding them would tear apart the marriage,
+  // hide their children, and leave in-law parents floating at the top.
+  const isProtectedSpouse = (personId) => {
+    for (const spouseId of spouseMap.get(personId) || []) {
+      const spouse = allById.get(spouseId);
+      if (!spouse) continue;
+      const spouseParentFamilies = parentGroupsFor(spouse, allById);
+      if (!spouseParentFamilies.length) {
+        // Spouse is a top-level root person or standalone — they are visible!
+        return true;
+      }
+      const spouseHasUncollapsedParentFamily = spouseParentFamilies.some(
+        (parents) => !collapsedFamilyKeys.has(parents.join("|"))
+      );
+      if (spouseHasUncollapsedParentFamily) return true;
+    }
+    return false;
+  };
+
   for (const familyKey of collapsedFamilyKeys) {
     for (const childId of familyChildren.get(familyKey) || []) {
+      if (isProtectedSpouse(childId)) continue;
       hidden.add(childId);
-      descendantsOf(childId, childrenMapFull).forEach((descendantId) => hidden.add(descendantId));
+      descendantsOf(childId, childrenMapFull).forEach((descendantId) => {
+        // Never hide a descendant if they have another parent who is visible and uncollapsed
+        const descendant = allById.get(descendantId);
+        const otherParentVisible = (descendant?.parentIds || []).some(
+          (pId) => pId !== childId && !hidden.has(pId) && allById.has(pId)
+        );
+        if (!otherParentVisible) {
+          hidden.add(descendantId);
+        }
+      });
     }
   }
 
-  // A descendant's partner belongs to the same visual family unit when that
-  // partner is an external leaf. But NEVER hide a partner if that partner has
-  // their own visible parents in the tree (for example n, who is a child of
-  // p & b, must not be hidden just because her husband Praveen's branch was collapsed).
-  const hiddenQueue = [...hidden];
-  while (hiddenQueue.length) {
-    const hiddenId = hiddenQueue.shift();
-    for (const spouseId of spouseMap.get(hiddenId) || []) {
-      if (hidden.has(spouseId)) continue;
-      const spousePerson = allById.get(spouseId);
-      const hasVisibleParent = (spousePerson?.parentIds || []).some(
-        (pId) => allById.has(pId) && !hidden.has(pId)
+  // Second pass: ensure no spouse or child of a visible person remains hidden.
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const hiddenId of [...hidden]) {
+      // If this hidden person has a visible spouse who is not hidden, keep them!
+      // spouseMap values are Sets — spread to array before calling .some()
+      const hasVisibleSpouse = [...(spouseMap.get(hiddenId) || [])].some(
+        (spouseId) => !hidden.has(spouseId) && allById.has(spouseId)
       );
-      // If the spouse has visible parents, they belong to another visible branch — keep them!
-      if (hasVisibleParent) continue;
-
-      hidden.add(spouseId);
-      hiddenQueue.push(spouseId);
+      if (hasVisibleSpouse) {
+        hidden.delete(hiddenId);
+        changed = true;
+        continue;
+      }
+      // If this hidden child has a visible parent who is not hidden and whose family is uncollapsed, keep them!
+      const person = allById.get(hiddenId);
+      const parentFamilies = parentGroupsFor(person, allById);
+      const hasUncollapsedFamily = parentFamilies.some(
+        (parents) => !collapsedFamilyKeys.has(parents.join("|")) && parents.some((pId) => !hidden.has(pId))
+      );
+      if (hasUncollapsedFamily) {
+        hidden.delete(hiddenId);
+        changed = true;
+      }
     }
-    for (const childId of childrenMapFull.get(hiddenId) || []) {
-      if (hidden.has(childId)) continue;
-      const childPerson = allById.get(childId);
-      const otherVisibleParent = (childPerson?.parentIds || []).some(
-        (pId) => pId !== hiddenId && allById.has(pId) && !hidden.has(pId)
-      );
-      // If the child has another parent who is visible in the tree, keep the child!
-      if (otherVisibleParent) continue;
+  }
 
-      hidden.add(childId);
-      hiddenQueue.push(childId);
+  // Third pass: if an in-law couple has NO parents in the tree, and ALL of their
+  // children in allPeople are hidden, hide the in-law parents too so they don't
+  // float as disconnected orphan cards at the top row.
+  for (const person of allPeople) {
+    if (hidden.has(person.id)) continue;
+    const parentFamilies = parentGroupsFor(person, allById);
+    if (parentFamilies.length === 0) {
+      // Person has no parents. Are all their children hidden?
+      const children = childrenMapFull.get(person.id) || [];
+      if (children.length > 0 && children.every((cId) => hidden.has(cId))) {
+        // Also check if they are married to someone who has visible parents or visible children
+        const spouses = [...(spouseMap.get(person.id) || [])];
+        const hasVisibleSpouseWithLineage = spouses.some(
+          (sId) => !hidden.has(sId) && (parentGroupsFor(allById.get(sId), allById).length > 0 || (childrenMapFull.get(sId) || []).some((c) => !hidden.has(c)))
+        );
+        if (!hasVisibleSpouseWithLineage) {
+          hidden.add(person.id);
+        }
+      }
     }
   }
 
@@ -569,13 +618,16 @@ export function computeLayout(allPeople, collapsedFamilyKeys = new Set()) {
 }
 
 // Picks peripheral family branches to collapse on the first visit to a dense
-// tree. The focus person's lineage and immediate family stay open; branches
-// hanging off siblings are collapsed until the user expands them. This keeps
-// a large tree readable without changing the saved relationships.
+// tree. The focus person's lineage, descendants, and immediate family stay open;
+// distant branches hanging off distant cousins are collapsed until the user
+// expands them. This keeps a large tree readable without changing the saved relationships.
 export function recommendedCollapsedFamilyKeys(allPeople, focusIds = new Set()) {
-  if (allPeople.length < 10) return new Set();
+  // Trees under 25 people are compact enough to read without collapsing.
+  // Never hide family members automatically on small/medium trees.
+  if (allPeople.length < 25) return new Set();
 
   const byId = new Map(allPeople.map((person) => [person.id, person]));
+  const childrenMapFull = fullChildrenMap(allPeople);
   const familyChildren = new Map();
   for (const person of allPeople) {
     for (const parents of parentGroupsFor(person, byId)) {
@@ -585,28 +637,51 @@ export function recommendedCollapsedFamilyKeys(allPeople, focusIds = new Set()) 
     }
   }
 
+  // Protect the entire core lineage: the focus person(s), all their ancestors,
+  // all their descendants, all spouses along that chain, and in-law parents
+  // who connect to them.
   const protectedIds = new Set(focusIds);
+
+  // 1. Spouses of focusIds
   for (const id of [...protectedIds]) {
     const person = byId.get(id);
     for (const spouseId of person?.spouseIds || []) protectedIds.add(spouseId);
   }
 
-  // Keep the complete ancestor path visible for the focus person and their
-  // partner. A branch is safe to collapse only when neither its parents nor
-  // its children are part of that visible core.
-  const queue = [...protectedIds];
-  while (queue.length) {
-    const person = byId.get(queue.shift());
+  // 2. Descendants of protectedIds (children, grandchildren, etc.) and their spouses
+  const descendantQueue = [...protectedIds];
+  while (descendantQueue.length) {
+    const currentId = descendantQueue.shift();
+    for (const childId of childrenMapFull.get(currentId) || []) {
+      if (!protectedIds.has(childId)) {
+        protectedIds.add(childId);
+        descendantQueue.push(childId);
+        const childPerson = byId.get(childId);
+        for (const spouseId of childPerson?.spouseIds || []) {
+          if (!protectedIds.has(spouseId)) {
+            protectedIds.add(spouseId);
+            descendantQueue.push(spouseId);
+          }
+        }
+      }
+    }
+  }
+
+  // 3. Ancestors of protectedIds and their spouses
+  const ancestorQueue = [...protectedIds];
+  while (ancestorQueue.length) {
+    const currentId = ancestorQueue.shift();
+    const person = byId.get(currentId);
     for (const parentId of person?.parentIds || []) {
-      if (protectedIds.has(parentId)) continue;
-      protectedIds.add(parentId);
-      queue.push(parentId);
-      // Also protect any spouse of an ancestor so in-law links stay visible
-      const parentPerson = byId.get(parentId);
-      for (const spouseId of parentPerson?.spouseIds || []) {
-        if (!protectedIds.has(spouseId)) {
-          protectedIds.add(spouseId);
-          queue.push(spouseId);
+      if (!protectedIds.has(parentId)) {
+        protectedIds.add(parentId);
+        ancestorQueue.push(parentId);
+        const parentPerson = byId.get(parentId);
+        for (const spouseId of parentPerson?.spouseIds || []) {
+          if (!protectedIds.has(spouseId)) {
+            protectedIds.add(spouseId);
+            ancestorQueue.push(spouseId);
+          }
         }
       }
     }
@@ -616,7 +691,7 @@ export function recommendedCollapsedFamilyKeys(allPeople, focusIds = new Set()) 
     [...familyChildren.values()]
       .filter(
         ({ parents, children }) =>
-          children.length >= 2 &&
+          children.length >= 3 &&
           !parents.some((id) => protectedIds.has(id)) &&
           !children.some((id) => protectedIds.has(id))
       )

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   User,
@@ -596,8 +596,61 @@ export default function TreeView() {
     if (family) setQuickFamilyId(family.id);
   }, [quickPartnerId, selectedPerson]);
 
+  // Uncollapse any family branch that conceals this person, their spouse,
+  // their children, or their in-laws, ensuring their complete family is visible.
+  const uncollapseImmediateFamily = useCallback((personId) => {
+    if (!personId || !people.length) return;
+    const person = people.find((p) => p.id === personId);
+    if (!person) return;
+    const keysToExpand = new Set();
+
+    // 1. Person's parent families
+    for (const key of familyKeysFor(person)) keysToExpand.add(key);
+
+    // 2. Person's partner families (their children with spouses)
+    for (const fam of person.partnerFamilies || []) {
+      const key = [...(fam.partner_ids || [])].sort().join("|");
+      if (key) keysToExpand.add(key);
+    }
+
+    // 3. Person's spouses' parent families (in-laws! e.g. Praveen's parents for n)
+    for (const spouseId of person.spouseIds || []) {
+      const spouse = people.find((p) => p.id === spouseId);
+      if (spouse) {
+        for (const key of familyKeysFor(spouse)) keysToExpand.add(key);
+      }
+    }
+
+    // 4. Person's children's parent families
+    for (const other of people) {
+      if ((other.parentIds || []).includes(personId)) {
+        for (const key of familyKeysFor(other)) keysToExpand.add(key);
+      }
+    }
+
+    setCollapsedFamilyKeys((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const key of keysToExpand) {
+        if (next.has(key)) {
+          next.delete(key);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [people]);
+
+  // When Nearby family mode is active or focus person changes, keep their family expanded
+  useEffect(() => {
+    if (focusedView && focusId) {
+      uncollapseImmediateFamily(focusId);
+    }
+  }, [focusedView, focusId, uncollapseImmediateFamily]);
+
   // Reveal a person hidden behind a collapsed ancestor, then scroll to them.
   const revealAndFocus = (id) => {
+    uncollapseImmediateFamily(id);
     const ancestors = ancestorsOf(id, people);
     setCollapsedFamilyKeys((prev) => {
       let changed = false;
@@ -619,6 +672,9 @@ export default function TreeView() {
 
   const handleSelectPerson = (id) => {
     setSelectedId((cur) => (cur === id ? null : id));
+    if (id) {
+      uncollapseImmediateFamily(id);
+    }
   };
 
   const handleDeleteSelected = async () => {
@@ -745,6 +801,7 @@ export default function TreeView() {
     if (!match) return;
 
     // If an ancestor is collapsed, this person is hidden — reveal them first.
+    uncollapseImmediateFamily(match.id);
     const ancestors = ancestorsOf(match.id, people);
     setCollapsedFamilyKeys((prev) => {
       let changed = false;
@@ -1047,7 +1104,6 @@ export default function TreeView() {
                 </div>
 
                 <div className="border-t border-[#DCE3E1] mt-5 pt-4">
-                  <button type="button" onClick={() => setRootPersonId(selectedPerson.id)} className="w-full text-xs font-medium text-[#6B7280] rounded-md py-2 hover:bg-[#F0EDE3] mb-2">Set as root person</button>
                   <button type="button" onClick={handleDeleteSelected} className="flex items-center justify-center gap-1.5 w-full text-xs font-medium text-[#A65035] border border-[#E7C4B8] rounded-md py-2 hover:bg-[#FBEAE1]"><Trash2 className="w-3.5 h-3.5" /> Delete person</button>
                 </div>
               </div>
@@ -1080,6 +1136,25 @@ export default function TreeView() {
                   className="text-xs rounded-lg border border-[#D9D3C3] bg-white pl-8 pr-2.5 py-1.5 w-36 focus:outline-none focus:ring-2 focus:ring-[#1C4B3C]/30 focus:border-[#1C4B3C]"
                 />
               </form>
+
+              {rootPersonId && selectedId !== rootPersonId && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedId(rootPersonId);
+                      uncollapseImmediateFamily(rootPersonId);
+                      requestAnimationFrame(() => centerPerson(rootPersonId));
+                    }}
+                    title="Go back to my family"
+                    className="flex items-center gap-1.5 text-xs font-semibold rounded-lg px-3 py-1.5 bg-[#1C4B3C] text-white hover:bg-[#163C30] shadow-sm"
+                  >
+                    <LocateFixed className="w-3.5 h-3.5" />
+                    My family
+                  </button>
+                  <span className="w-px h-5 bg-[#D9D3C3]" />
+                </>
+              )}
 
               <button
                 type="button"
@@ -1127,7 +1202,7 @@ export default function TreeView() {
                 Fit
               </button>
 
-              <button type="button" onClick={() => centerPerson(selectedId || rootPersonId)} title="Center selected person" className="p-1.5 text-[#374151] border border-[#D9D3C3] rounded-lg bg-white hover:bg-[#F0EDE3]"><LocateFixed className="w-3.5 h-3.5" /></button>
+              <button type="button" onClick={() => centerPerson(selectedId || rootPersonId)} title="Centre selected person" className="p-1.5 text-[#374151] border border-[#D9D3C3] rounded-lg bg-white hover:bg-[#F0EDE3]"><LocateFixed className="w-3.5 h-3.5" /></button>
               <button type="button" onClick={toggleFullscreen} title="Fullscreen canvas" className="p-1.5 text-[#374151] border border-[#D9D3C3] rounded-lg bg-white hover:bg-[#F0EDE3]"><Focus className="w-3.5 h-3.5" /></button>
 
               <button
