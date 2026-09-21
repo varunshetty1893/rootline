@@ -1,0 +1,92 @@
+{
+  "Frontend Initial Page Load (GET /)": {
+    "endpoint": "Frontend Initial Page Load (GET /)",
+    "iterations": 5,
+    "mean_ms": 7.07,
+    "median_ms": 6.12,
+    "min_ms": 4.21,
+    "max_ms": 12.7,
+    "payload_bytes": 647,
+    "status_code": 200
+  },
+  "Backend Health Check (GET /health)": {
+    "endpoint": "Backend Health Check (GET /health)",
+    "iterations": 5,
+    "mean_ms": 250.93,
+    "median_ms": 245.74,
+    "min_ms": 222.28,
+    "max_ms": 301.89,
+    "payload_bytes": 38,
+    "status_code": 200
+  },
+  "Login Response (POST /auth/login)": {
+    "endpoint": "Login Response (POST /auth/login)",
+    "iterations": 5,
+    "mean_ms": 729.07,
+    "median_ms": 463.34,
+    "min_ms": 415.27,
+    "max_ms": 1823.94,
+    "payload_bytes": 168,
+    "status_code": 200
+  },
+  "Current User Profile (GET /auth/me)": {
+    "endpoint": "Current User Profile (GET /auth/me)",
+    "iterations": 5,
+    "mean_ms": 255.94,
+    "median_ms": 235.42,
+    "min_ms": 217.84,
+    "max_ms": 303.66,
+    "payload_bytes": 159,
+    "status_code": 200
+  },
+  "Tree List Response (GET /trees)": {
+    "endpoint": "Tree List Response (GET /trees)",
+    "iterations": 5,
+    "mean_ms": 700.15,
+    "median_ms": 651.71,
+    "min_ms": 511.09,
+    "max_ms": 1002.21,
+    "payload_bytes": 343,
+    "status_code": 200
+  },
+  "Tree Metadata (GET /trees/{id})": {
+    "endpoint": "Tree Metadata (GET /trees/{id})",
+    "iterations": 5,
+    "mean_ms": 412.27,
+    "median_ms": 377.93,
+    "min_ms": 365.87,
+    "max_ms": 482.6,
+    "payload_bytes": 307,
+    "status_code": 200
+  },
+  "People List Response (GET /people - 117 records)": {
+    "endpoint": "People List Response (GET /people - 117 records)",
+    "iterations": 5,
+    "mean_ms": 1090.9,
+    "median_ms": 1120.58,
+    "min_ms": 799.56,
+    "max_ms": 1422.58,
+    "payload_bytes": 94870,
+    "status_code": 200
+  },
+  "Tree Shares (GET /trees/{id}/shares)": {
+    "endpoint": "Tree Shares (GET /trees/{id}/shares)",
+    "iterations": 5,
+    "mean_ms": 758.93,
+    "median_ms": 599.79,
+    "min_ms": 479.59,
+    "max_ms": 1267.55,
+    "payload_bytes": 460,
+    "status_code": 200
+  },
+  "Tree Activities (GET /trees/{id}/activities)": {
+    "endpoint": "Tree Activities (GET /trees/{id}/activities)",
+    "iterations": 5,
+    "mean_ms": 1004.83,
+    "median_ms": 687.61,
+    "min_ms": 614.75,
+    "max_ms": 2254.76,
+    "payload_bytes": 2541,
+    "status_code": 200
+  }
+}

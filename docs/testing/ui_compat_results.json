@@ -1,0 +1,1835 @@
+{
+  "timestamp": "2026-09-18 22:49:41",
+  "viewports_tested": 8,
+  "results": {
+    "Desktop_1920x1080": {
+      "category": "Desktop",
+      "width": 1920,
+      "height": 1080,
+      "pages": {
+        "login": {
+          "audit": {
+            "viewport": {
+              "width": 1920,
+              "height": 1080
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 1920,
+            "docClientW": 1920,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Desktop_1920x1080_login.png",
+          "status": "PASS"
+        },
+        "register": {
+          "audit": {
+            "viewport": {
+              "width": 1920,
+              "height": 1080
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 1920,
+            "docClientW": 1920,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Desktop_1920x1080_register.png",
+          "status": "PASS"
+        },
+        "dashboard": {
+          "audit": {
+            "viewport": {
+              "width": 1920,
+              "height": 1080
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 1920,
+            "docClientW": 1920,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Desktop_1920x1080_dashboard.png",
+          "status": "PASS"
+        },
+        "people": {
+          "audit": {
+            "viewport": {
+              "width": 1920,
+              "height": 1080
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 1920,
+            "docClientW": 1920,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Desktop_1920x1080_people.png",
+          "status": "PASS"
+        },
+        "person_form": {
+          "audit": {
+            "viewport": {
+              "width": 1920,
+              "height": 1080
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 1920,
+            "docClientW": 1920,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "date_grid_info": [
+            {
+              "placeholder": "date",
+              "width": 185,
+              "parentWidth": 187
+            },
+            {
+              "placeholder": "date",
+              "width": 185,
+              "parentWidth": 187
+            }
+          ],
+          "screenshot": "docs/testing/ui_compat_screenshots/Desktop_1920x1080_person_form.png",
+          "status": "PASS"
+        },
+        "tree": {
+          "audit": {
+            "viewport": {
+              "width": 1920,
+              "height": 1080
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 1920,
+            "docClientW": 1920,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "tree_layout": {
+            "asideWidth": 329,
+            "asideHeight": 1011,
+            "toolbarHeight": 86,
+            "isAsideStacked": false,
+            "canvasHeight": 924
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Desktop_1920x1080_tree_initial.png",
+          "status": "PASS"
+        }
+      },
+      "modals": {
+        "share_modal": {
+          "audit": {
+            "dialogWidth": 512,
+            "dialogHeight": 386,
+            "overflowX": false,
+            "overflowY": false,
+            "isClippedTopBottom": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Desktop_1920x1080_modal_share.png",
+          "status": "PASS"
+        },
+        "profile_modal": {
+          "audit": {
+            "dialogWidth": 448,
+            "dialogHeight": 430,
+            "overflowX": false,
+            "overflowY": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Desktop_1920x1080_modal_profile.png",
+          "status": "PASS"
+        },
+        "reset_password_modal": {
+          "audit": {
+            "dialogWidth": 448,
+            "dialogHeight": 276,
+            "overflowX": false,
+            "overflowY": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Desktop_1920x1080_modal_reset_password.png",
+          "status": "PASS"
+        },
+        "quickadd_modal": {
+          "audit": {
+            "width": 384,
+            "height": 484,
+            "overflowX": false,
+            "overflowY": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Desktop_1920x1080_modal_quickadd.png",
+          "status": "PASS"
+        }
+      },
+      "interactions": {
+        "screenshot_node_selected": "docs/testing/ui_compat_screenshots/Desktop_1920x1080_tree_node_selected.png",
+        "zoom": {
+          "zoom_in_clicked": true,
+          "zoom_out_clicked": true,
+          "zoom_levels": [
+            "18%",
+            "33%",
+            "18%"
+          ]
+        },
+        "pan": {
+          "panned": true
+        },
+        "node_selected": true
+      },
+      "navigation": {
+        "isNavVisible": true,
+        "navLinksCount": 3,
+        "navLinks": [
+          "Overview",
+          "People",
+          "Tree"
+        ],
+        "hasProfileBtn": true,
+        "hasHamburgerMenu": true,
+        "headerWidth": 1920,
+        "headerScrollW": 1920
+      },
+      "ai_dialog": {
+        "present": false,
+        "note": "Feature absent from UI implementation"
+      },
+      "overall_status": "PASS"
+    },
+    "Desktop_1440x900": {
+      "category": "Desktop",
+      "width": 1440,
+      "height": 900,
+      "pages": {
+        "login": {
+          "audit": {
+            "viewport": {
+              "width": 1440,
+              "height": 900
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 1440,
+            "docClientW": 1440,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Desktop_1440x900_login.png",
+          "status": "PASS"
+        },
+        "register": {
+          "audit": {
+            "viewport": {
+              "width": 1440,
+              "height": 900
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 1440,
+            "docClientW": 1440,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Desktop_1440x900_register.png",
+          "status": "PASS"
+        },
+        "dashboard": {
+          "audit": {
+            "viewport": {
+              "width": 1440,
+              "height": 900
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 1440,
+            "docClientW": 1440,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Desktop_1440x900_dashboard.png",
+          "status": "PASS"
+        },
+        "people": {
+          "audit": {
+            "viewport": {
+              "width": 1440,
+              "height": 900
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 1440,
+            "docClientW": 1440,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Desktop_1440x900_people.png",
+          "status": "PASS"
+        },
+        "person_form": {
+          "audit": {
+            "viewport": {
+              "width": 1440,
+              "height": 900
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 1440,
+            "docClientW": 1440,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "date_grid_info": [
+            {
+              "placeholder": "date",
+              "width": 185,
+              "parentWidth": 187
+            },
+            {
+              "placeholder": "date",
+              "width": 185,
+              "parentWidth": 187
+            }
+          ],
+          "screenshot": "docs/testing/ui_compat_screenshots/Desktop_1440x900_person_form.png",
+          "status": "PASS"
+        },
+        "tree": {
+          "audit": {
+            "viewport": {
+              "width": 1440,
+              "height": 900
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 1440,
+            "docClientW": 1440,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "tree_layout": {
+            "asideWidth": 329,
+            "asideHeight": 831,
+            "toolbarHeight": 132,
+            "isAsideStacked": false,
+            "canvasHeight": 698
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Desktop_1440x900_tree_initial.png",
+          "status": "PASS"
+        }
+      },
+      "modals": {
+        "share_modal": {
+          "audit": {
+            "dialogWidth": 512,
+            "dialogHeight": 386,
+            "overflowX": false,
+            "overflowY": false,
+            "isClippedTopBottom": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Desktop_1440x900_modal_share.png",
+          "status": "PASS"
+        },
+        "profile_modal": {
+          "audit": {
+            "dialogWidth": 448,
+            "dialogHeight": 430,
+            "overflowX": false,
+            "overflowY": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Desktop_1440x900_modal_profile.png",
+          "status": "PASS"
+        },
+        "reset_password_modal": {
+          "audit": {
+            "dialogWidth": 448,
+            "dialogHeight": 276,
+            "overflowX": false,
+            "overflowY": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Desktop_1440x900_modal_reset_password.png",
+          "status": "PASS"
+        },
+        "quickadd_modal": {
+          "audit": {
+            "width": 384,
+            "height": 484,
+            "overflowX": false,
+            "overflowY": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Desktop_1440x900_modal_quickadd.png",
+          "status": "PASS"
+        }
+      },
+      "interactions": {
+        "screenshot_node_selected": "docs/testing/ui_compat_screenshots/Desktop_1440x900_tree_node_selected.png",
+        "zoom": {
+          "zoom_in_clicked": true,
+          "zoom_out_clicked": true,
+          "zoom_levels": [
+            "13%",
+            "28%",
+            "15%"
+          ]
+        },
+        "pan": {
+          "panned": true
+        },
+        "node_selected": true
+      },
+      "navigation": {
+        "isNavVisible": true,
+        "navLinksCount": 3,
+        "navLinks": [
+          "Overview",
+          "People",
+          "Tree"
+        ],
+        "hasProfileBtn": true,
+        "hasHamburgerMenu": true,
+        "headerWidth": 1440,
+        "headerScrollW": 1440
+      },
+      "ai_dialog": {
+        "present": false,
+        "note": "Feature absent from UI implementation"
+      },
+      "overall_status": "PASS"
+    },
+    "Desktop_1366x768": {
+      "category": "Desktop",
+      "width": 1366,
+      "height": 768,
+      "pages": {
+        "login": {
+          "audit": {
+            "viewport": {
+              "width": 1366,
+              "height": 768
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 1366,
+            "docClientW": 1366,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Desktop_1366x768_login.png",
+          "status": "PASS"
+        },
+        "register": {
+          "audit": {
+            "viewport": {
+              "width": 1366,
+              "height": 768
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 1366,
+            "docClientW": 1366,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Desktop_1366x768_register.png",
+          "status": "PASS"
+        },
+        "dashboard": {
+          "audit": {
+            "viewport": {
+              "width": 1366,
+              "height": 768
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 1366,
+            "docClientW": 1366,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Desktop_1366x768_dashboard.png",
+          "status": "PASS"
+        },
+        "people": {
+          "audit": {
+            "viewport": {
+              "width": 1366,
+              "height": 768
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 1366,
+            "docClientW": 1366,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Desktop_1366x768_people.png",
+          "status": "PASS"
+        },
+        "person_form": {
+          "audit": {
+            "viewport": {
+              "width": 1366,
+              "height": 768
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 1366,
+            "docClientW": 1366,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "date_grid_info": [
+            {
+              "placeholder": "date",
+              "width": 185,
+              "parentWidth": 187
+            },
+            {
+              "placeholder": "date",
+              "width": 185,
+              "parentWidth": 187
+            }
+          ],
+          "screenshot": "docs/testing/ui_compat_screenshots/Desktop_1366x768_person_form.png",
+          "status": "PASS"
+        },
+        "tree": {
+          "audit": {
+            "viewport": {
+              "width": 1366,
+              "height": 768
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 1366,
+            "docClientW": 1366,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "tree_layout": {
+            "asideWidth": 329,
+            "asideHeight": 799,
+            "toolbarHeight": 132,
+            "isAsideStacked": false,
+            "canvasHeight": 666
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Desktop_1366x768_tree_initial.png",
+          "status": "PASS"
+        }
+      },
+      "modals": {
+        "share_modal": {
+          "audit": {
+            "dialogWidth": 512,
+            "dialogHeight": 386,
+            "overflowX": false,
+            "overflowY": false,
+            "isClippedTopBottom": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Desktop_1366x768_modal_share.png",
+          "status": "PASS"
+        },
+        "profile_modal": {
+          "audit": {
+            "dialogWidth": 448,
+            "dialogHeight": 430,
+            "overflowX": false,
+            "overflowY": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Desktop_1366x768_modal_profile.png",
+          "status": "PASS"
+        },
+        "reset_password_modal": {
+          "audit": {
+            "dialogWidth": 448,
+            "dialogHeight": 276,
+            "overflowX": false,
+            "overflowY": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Desktop_1366x768_modal_reset_password.png",
+          "status": "PASS"
+        },
+        "quickadd_modal": {
+          "audit": {
+            "width": 384,
+            "height": 484,
+            "overflowX": false,
+            "overflowY": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Desktop_1366x768_modal_quickadd.png",
+          "status": "PASS"
+        }
+      },
+      "interactions": {
+        "screenshot_node_selected": "docs/testing/ui_compat_screenshots/Desktop_1366x768_tree_node_selected.png",
+        "zoom": {
+          "zoom_in_clicked": true,
+          "zoom_out_clicked": true,
+          "zoom_levels": [
+            "12%",
+            "27%",
+            "15%"
+          ]
+        },
+        "pan": {
+          "panned": true
+        },
+        "node_selected": true
+      },
+      "navigation": {
+        "isNavVisible": true,
+        "navLinksCount": 3,
+        "navLinks": [
+          "Overview",
+          "People",
+          "Tree"
+        ],
+        "hasProfileBtn": true,
+        "hasHamburgerMenu": true,
+        "headerWidth": 1366,
+        "headerScrollW": 1366
+      },
+      "ai_dialog": {
+        "present": false,
+        "note": "Feature absent from UI implementation"
+      },
+      "overall_status": "PASS"
+    },
+    "Tablet_1024x768": {
+      "category": "Tablet",
+      "width": 1024,
+      "height": 768,
+      "pages": {
+        "login": {
+          "audit": {
+            "viewport": {
+              "width": 1024,
+              "height": 768
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 1024,
+            "docClientW": 1024,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Tablet_1024x768_login.png",
+          "status": "PASS"
+        },
+        "register": {
+          "audit": {
+            "viewport": {
+              "width": 1024,
+              "height": 768
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 1024,
+            "docClientW": 1024,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Tablet_1024x768_register.png",
+          "status": "PASS"
+        },
+        "dashboard": {
+          "audit": {
+            "viewport": {
+              "width": 1024,
+              "height": 768
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 1024,
+            "docClientW": 1024,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Tablet_1024x768_dashboard.png",
+          "status": "PASS"
+        },
+        "people": {
+          "audit": {
+            "viewport": {
+              "width": 1024,
+              "height": 768
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 1024,
+            "docClientW": 1024,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Tablet_1024x768_people.png",
+          "status": "PASS"
+        },
+        "person_form": {
+          "audit": {
+            "viewport": {
+              "width": 1024,
+              "height": 768
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 1024,
+            "docClientW": 1024,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "date_grid_info": [
+            {
+              "placeholder": "date",
+              "width": 185,
+              "parentWidth": 187
+            },
+            {
+              "placeholder": "date",
+              "width": 185,
+              "parentWidth": 187
+            }
+          ],
+          "screenshot": "docs/testing/ui_compat_screenshots/Tablet_1024x768_person_form.png",
+          "status": "PASS"
+        },
+        "tree": {
+          "audit": {
+            "viewport": {
+              "width": 1024,
+              "height": 768
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 1024,
+            "docClientW": 1024,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "tree_layout": {
+            "asideWidth": 329,
+            "asideHeight": 837,
+            "toolbarHeight": 170,
+            "isAsideStacked": false,
+            "canvasHeight": 666
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Tablet_1024x768_tree_initial.png",
+          "status": "PASS"
+        }
+      },
+      "modals": {
+        "share_modal": {
+          "audit": {
+            "dialogWidth": 512,
+            "dialogHeight": 386,
+            "overflowX": false,
+            "overflowY": false,
+            "isClippedTopBottom": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Tablet_1024x768_modal_share.png",
+          "status": "PASS"
+        },
+        "profile_modal": {
+          "audit": {
+            "dialogWidth": 448,
+            "dialogHeight": 430,
+            "overflowX": false,
+            "overflowY": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Tablet_1024x768_modal_profile.png",
+          "status": "PASS"
+        },
+        "reset_password_modal": {
+          "audit": {
+            "dialogWidth": 448,
+            "dialogHeight": 276,
+            "overflowX": false,
+            "overflowY": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Tablet_1024x768_modal_reset_password.png",
+          "status": "PASS"
+        },
+        "quickadd_modal": {
+          "audit": {
+            "width": 384,
+            "height": 484,
+            "overflowX": false,
+            "overflowY": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Tablet_1024x768_modal_quickadd.png",
+          "status": "PASS"
+        }
+      },
+      "interactions": {
+        "screenshot_node_selected": "docs/testing/ui_compat_screenshots/Tablet_1024x768_tree_node_selected.png",
+        "zoom": {
+          "zoom_in_clicked": true,
+          "zoom_out_clicked": true,
+          "zoom_levels": [
+            "8%",
+            "23%",
+            "15%"
+          ]
+        },
+        "pan": {
+          "panned": true
+        },
+        "node_selected": true
+      },
+      "navigation": {
+        "isNavVisible": true,
+        "navLinksCount": 3,
+        "navLinks": [
+          "Overview",
+          "People",
+          "Tree"
+        ],
+        "hasProfileBtn": true,
+        "hasHamburgerMenu": true,
+        "headerWidth": 1024,
+        "headerScrollW": 1024
+      },
+      "ai_dialog": {
+        "present": false,
+        "note": "Feature absent from UI implementation"
+      },
+      "overall_status": "PASS"
+    },
+    "Tablet_768x1024": {
+      "category": "Tablet",
+      "width": 768,
+      "height": 1024,
+      "pages": {
+        "login": {
+          "audit": {
+            "viewport": {
+              "width": 768,
+              "height": 1024
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 768,
+            "docClientW": 768,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Tablet_768x1024_login.png",
+          "status": "PASS"
+        },
+        "register": {
+          "audit": {
+            "viewport": {
+              "width": 768,
+              "height": 1024
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 768,
+            "docClientW": 768,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Tablet_768x1024_register.png",
+          "status": "PASS"
+        },
+        "dashboard": {
+          "audit": {
+            "viewport": {
+              "width": 768,
+              "height": 1024
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 768,
+            "docClientW": 768,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Tablet_768x1024_dashboard.png",
+          "status": "PASS"
+        },
+        "people": {
+          "audit": {
+            "viewport": {
+              "width": 768,
+              "height": 1024
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 768,
+            "docClientW": 768,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Tablet_768x1024_people.png",
+          "status": "PASS"
+        },
+        "person_form": {
+          "audit": {
+            "viewport": {
+              "width": 768,
+              "height": 1024
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 768,
+            "docClientW": 768,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "date_grid_info": [
+            {
+              "placeholder": "date",
+              "width": 217,
+              "parentWidth": 219
+            },
+            {
+              "placeholder": "date",
+              "width": 217,
+              "parentWidth": 219
+            }
+          ],
+          "screenshot": "docs/testing/ui_compat_screenshots/Tablet_768x1024_person_form.png",
+          "status": "PASS"
+        },
+        "tree": {
+          "audit": {
+            "viewport": {
+              "width": 768,
+              "height": 1024
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 768,
+            "docClientW": 768,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "tree_layout": {
+            "asideWidth": 768,
+            "asideHeight": 646,
+            "toolbarHeight": 170,
+            "isAsideStacked": true,
+            "canvasHeight": 666
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Tablet_768x1024_tree_initial.png",
+          "status": "PASS"
+        }
+      },
+      "modals": {
+        "share_modal": {
+          "audit": {
+            "dialogWidth": 512,
+            "dialogHeight": 386,
+            "overflowX": false,
+            "overflowY": false,
+            "isClippedTopBottom": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Tablet_768x1024_modal_share.png",
+          "status": "PASS"
+        },
+        "profile_modal": {
+          "audit": {
+            "dialogWidth": 448,
+            "dialogHeight": 430,
+            "overflowX": false,
+            "overflowY": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Tablet_768x1024_modal_profile.png",
+          "status": "PASS"
+        },
+        "reset_password_modal": {
+          "audit": {
+            "dialogWidth": 448,
+            "dialogHeight": 276,
+            "overflowX": false,
+            "overflowY": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Tablet_768x1024_modal_reset_password.png",
+          "status": "PASS"
+        },
+        "quickadd_modal": {
+          "audit": {
+            "width": 384,
+            "height": 484,
+            "overflowX": false,
+            "overflowY": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Tablet_768x1024_modal_quickadd.png",
+          "status": "PASS"
+        }
+      },
+      "interactions": {
+        "screenshot_node_selected": "docs/testing/ui_compat_screenshots/Tablet_768x1024_tree_node_selected.png",
+        "zoom": {
+          "zoom_in_clicked": true,
+          "zoom_out_clicked": true,
+          "zoom_levels": [
+            "9%",
+            "24%",
+            "15%"
+          ]
+        },
+        "pan": {
+          "panned": true
+        },
+        "node_selected": true
+      },
+      "navigation": {
+        "isNavVisible": true,
+        "navLinksCount": 3,
+        "navLinks": [
+          "Overview",
+          "People",
+          "Tree"
+        ],
+        "hasProfileBtn": true,
+        "hasHamburgerMenu": true,
+        "headerWidth": 768,
+        "headerScrollW": 768
+      },
+      "ai_dialog": {
+        "present": false,
+        "note": "Feature absent from UI implementation"
+      },
+      "overall_status": "PASS"
+    },
+    "Mobile_430x932": {
+      "category": "Mobile",
+      "width": 430,
+      "height": 932,
+      "pages": {
+        "login": {
+          "audit": {
+            "viewport": {
+              "width": 430,
+              "height": 932
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 430,
+            "docClientW": 430,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Mobile_430x932_login.png",
+          "status": "PASS"
+        },
+        "register": {
+          "audit": {
+            "viewport": {
+              "width": 430,
+              "height": 932
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 430,
+            "docClientW": 430,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Mobile_430x932_register.png",
+          "status": "PASS"
+        },
+        "dashboard": {
+          "audit": {
+            "viewport": {
+              "width": 430,
+              "height": 932
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 430,
+            "docClientW": 430,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Mobile_430x932_dashboard.png",
+          "status": "PASS"
+        },
+        "people": {
+          "audit": {
+            "viewport": {
+              "width": 430,
+              "height": 932
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 430,
+            "docClientW": 430,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 20,
+            "textOverflow": [
+              {
+                "tag": "P",
+                "text": "Birth date unknown \u00b7 child of Father & M",
+                "scrollW": 370,
+                "clientW": 204
+              },
+              {
+                "tag": "P",
+                "text": "Birth date unknown \u00b7 child of babu & shu",
+                "scrollW": 250,
+                "clientW": 204
+              },
+              {
+                "tag": "P",
+                "text": "Birth date unknown \u00b7 married to Mother",
+                "scrollW": 222,
+                "clientW": 204
+              },
+              {
+                "tag": "P",
+                "text": "Birth date unknown \u00b7 married to Father",
+                "scrollW": 218,
+                "clientW": 204
+              },
+              {
+                "tag": "P",
+                "text": "Birth date unknown \u00b7 married to rama",
+                "scrollW": 210,
+                "clientW": 204
+              },
+              {
+                "tag": "P",
+                "text": "Birth date unknown \u00b7 child of x & x \u00b7 ma",
+                "scrollW": 307,
+                "clientW": 204
+              },
+              {
+                "tag": "P",
+                "text": "Birth date unknown \u00b7 child of rama & sul",
+                "scrollW": 343,
+                "clientW": 204
+              },
+              {
+                "tag": "P",
+                "text": "Birth date unknown \u00b7 child of x & ss \u00b7 m",
+                "scrollW": 276,
+                "clientW": 204
+              },
+              {
+                "tag": "P",
+                "text": "Birth date unknown \u00b7 child of ananda & p",
+                "scrollW": 308,
+                "clientW": 204
+              },
+              {
+                "tag": "P",
+                "text": "Birth date unknown \u00b7 child of k & m \u00b7 ma",
+                "scrollW": 276,
+                "clientW": 204
+              }
+            ]
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Mobile_430x932_people.png",
+          "status": "PASS"
+        },
+        "person_form": {
+          "audit": {
+            "viewport": {
+              "width": 430,
+              "height": 932
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 430,
+            "docClientW": 430,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "date_grid_info": [
+            {
+              "placeholder": "date",
+              "width": 144,
+              "parentWidth": 146
+            },
+            {
+              "placeholder": "date",
+              "width": 144,
+              "parentWidth": 146
+            }
+          ],
+          "screenshot": "docs/testing/ui_compat_screenshots/Mobile_430x932_person_form.png",
+          "status": "PASS"
+        },
+        "tree": {
+          "audit": {
+            "viewport": {
+              "width": 430,
+              "height": 932
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 430,
+            "docClientW": 430,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "tree_layout": {
+            "asideWidth": 430,
+            "asideHeight": 646,
+            "toolbarHeight": 224,
+            "isAsideStacked": true,
+            "canvasHeight": 666
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Mobile_430x932_tree_initial.png",
+          "status": "PASS"
+        }
+      },
+      "modals": {
+        "share_modal": {
+          "audit": {
+            "dialogWidth": 398,
+            "dialogHeight": 386,
+            "overflowX": false,
+            "overflowY": false,
+            "isClippedTopBottom": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Mobile_430x932_modal_share.png",
+          "status": "PASS"
+        },
+        "profile_modal": {
+          "audit": {
+            "dialogWidth": 398,
+            "dialogHeight": 430,
+            "overflowX": false,
+            "overflowY": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Mobile_430x932_modal_profile.png",
+          "status": "PASS"
+        },
+        "reset_password_modal": {
+          "audit": {
+            "dialogWidth": 398,
+            "dialogHeight": 276,
+            "overflowX": false,
+            "overflowY": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Mobile_430x932_modal_reset_password.png",
+          "status": "PASS"
+        },
+        "quickadd_modal": {
+          "audit": {
+            "width": 384,
+            "height": 484,
+            "overflowX": false,
+            "overflowY": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Mobile_430x932_modal_quickadd.png",
+          "status": "PASS"
+        }
+      },
+      "interactions": {
+        "screenshot_node_selected": "docs/testing/ui_compat_screenshots/Mobile_430x932_tree_node_selected.png",
+        "zoom": {
+          "zoom_in_clicked": true,
+          "zoom_out_clicked": true,
+          "zoom_levels": [
+            "8%",
+            "23%",
+            "15%"
+          ]
+        },
+        "pan": {
+          "panned": true
+        },
+        "node_selected": true
+      },
+      "navigation": {
+        "isNavVisible": false,
+        "navLinksCount": 3,
+        "navLinks": [
+          "Overview",
+          "People",
+          "Tree"
+        ],
+        "hasProfileBtn": true,
+        "hasHamburgerMenu": true,
+        "headerWidth": 430,
+        "headerScrollW": 430
+      },
+      "ai_dialog": {
+        "present": false,
+        "note": "Feature absent from UI implementation"
+      },
+      "overall_status": "PASS"
+    },
+    "Mobile_390x844": {
+      "category": "Mobile",
+      "width": 390,
+      "height": 844,
+      "pages": {
+        "login": {
+          "audit": {
+            "viewport": {
+              "width": 390,
+              "height": 844
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 390,
+            "docClientW": 390,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Mobile_390x844_login.png",
+          "status": "PASS"
+        },
+        "register": {
+          "audit": {
+            "viewport": {
+              "width": 390,
+              "height": 844
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 390,
+            "docClientW": 390,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Mobile_390x844_register.png",
+          "status": "PASS"
+        },
+        "dashboard": {
+          "audit": {
+            "viewport": {
+              "width": 390,
+              "height": 844
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 390,
+            "docClientW": 390,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Mobile_390x844_dashboard.png",
+          "status": "PASS"
+        },
+        "people": {
+          "audit": {
+            "viewport": {
+              "width": 390,
+              "height": 844
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 390,
+            "docClientW": 390,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 57,
+            "textOverflow": [
+              {
+                "tag": "P",
+                "text": "Birth date unknown \u00b7 child of Father & M",
+                "scrollW": 370,
+                "clientW": 164
+              },
+              {
+                "tag": "P",
+                "text": "Birth date unknown \u00b7 child of babu & shu",
+                "scrollW": 250,
+                "clientW": 164
+              },
+              {
+                "tag": "P",
+                "text": "Birth date unknown \u00b7 married to Mother",
+                "scrollW": 222,
+                "clientW": 164
+              },
+              {
+                "tag": "P",
+                "text": "Birth date unknown \u00b7 married to Father",
+                "scrollW": 218,
+                "clientW": 164
+              },
+              {
+                "tag": "P",
+                "text": "Birth date unknown \u00b7 married to rama",
+                "scrollW": 210,
+                "clientW": 164
+              },
+              {
+                "tag": "P",
+                "text": "Birth date unknown \u00b7 child of x & x \u00b7 ma",
+                "scrollW": 307,
+                "clientW": 164
+              },
+              {
+                "tag": "P",
+                "text": "Birth date unknown \u00b7 child of rama & sul",
+                "scrollW": 343,
+                "clientW": 164
+              },
+              {
+                "tag": "P",
+                "text": "Birth date unknown \u00b7 child of x & ss \u00b7 m",
+                "scrollW": 276,
+                "clientW": 164
+              },
+              {
+                "tag": "P",
+                "text": "Birth date unknown \u00b7 married to a",
+                "scrollW": 188,
+                "clientW": 164
+              },
+              {
+                "tag": "P",
+                "text": "Birth date unknown \u00b7 child of a & r",
+                "scrollW": 191,
+                "clientW": 164
+              }
+            ]
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Mobile_390x844_people.png",
+          "status": "PASS"
+        },
+        "person_form": {
+          "audit": {
+            "viewport": {
+              "width": 390,
+              "height": 844
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 390,
+            "docClientW": 390,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "date_grid_info": [
+            {
+              "placeholder": "date",
+              "width": 124,
+              "parentWidth": 126
+            },
+            {
+              "placeholder": "date",
+              "width": 124,
+              "parentWidth": 126
+            }
+          ],
+          "screenshot": "docs/testing/ui_compat_screenshots/Mobile_390x844_person_form.png",
+          "status": "PASS"
+        },
+        "tree": {
+          "audit": {
+            "viewport": {
+              "width": 390,
+              "height": 844
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 390,
+            "docClientW": 390,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "tree_layout": {
+            "asideWidth": 390,
+            "asideHeight": 646,
+            "toolbarHeight": 224,
+            "isAsideStacked": true,
+            "canvasHeight": 666
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Mobile_390x844_tree_initial.png",
+          "status": "PASS"
+        }
+      },
+      "modals": {
+        "share_modal": {
+          "audit": {
+            "dialogWidth": 358,
+            "dialogHeight": 386,
+            "overflowX": false,
+            "overflowY": false,
+            "isClippedTopBottom": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Mobile_390x844_modal_share.png",
+          "status": "PASS"
+        },
+        "profile_modal": {
+          "audit": {
+            "dialogWidth": 358,
+            "dialogHeight": 430,
+            "overflowX": false,
+            "overflowY": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Mobile_390x844_modal_profile.png",
+          "status": "PASS"
+        },
+        "reset_password_modal": {
+          "audit": {
+            "dialogWidth": 358,
+            "dialogHeight": 276,
+            "overflowX": false,
+            "overflowY": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Mobile_390x844_modal_reset_password.png",
+          "status": "PASS"
+        },
+        "quickadd_modal": {
+          "audit": {
+            "width": 358,
+            "height": 500,
+            "overflowX": false,
+            "overflowY": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Mobile_390x844_modal_quickadd.png",
+          "status": "PASS"
+        }
+      },
+      "interactions": {
+        "screenshot_node_selected": "docs/testing/ui_compat_screenshots/Mobile_390x844_tree_node_selected.png",
+        "zoom": {
+          "zoom_in_clicked": true,
+          "zoom_out_clicked": true,
+          "zoom_levels": [
+            "8%",
+            "23%",
+            "15%"
+          ]
+        },
+        "pan": {
+          "panned": true
+        },
+        "node_selected": true
+      },
+      "navigation": {
+        "isNavVisible": false,
+        "navLinksCount": 3,
+        "navLinks": [
+          "Overview",
+          "People",
+          "Tree"
+        ],
+        "hasProfileBtn": true,
+        "hasHamburgerMenu": true,
+        "headerWidth": 390,
+        "headerScrollW": 390
+      },
+      "ai_dialog": {
+        "present": false,
+        "note": "Feature absent from UI implementation"
+      },
+      "overall_status": "PASS"
+    },
+    "Mobile_375x667": {
+      "category": "Mobile",
+      "width": 375,
+      "height": 667,
+      "pages": {
+        "login": {
+          "audit": {
+            "viewport": {
+              "width": 375,
+              "height": 667
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 375,
+            "docClientW": 375,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Mobile_375x667_login.png",
+          "status": "PASS"
+        },
+        "register": {
+          "audit": {
+            "viewport": {
+              "width": 375,
+              "height": 667
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 375,
+            "docClientW": 375,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Mobile_375x667_register.png",
+          "status": "PASS"
+        },
+        "dashboard": {
+          "audit": {
+            "viewport": {
+              "width": 375,
+              "height": 667
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 375,
+            "docClientW": 375,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Mobile_375x667_dashboard.png",
+          "status": "PASS"
+        },
+        "people": {
+          "audit": {
+            "viewport": {
+              "width": 375,
+              "height": 667
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 375,
+            "docClientW": 375,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 57,
+            "textOverflow": [
+              {
+                "tag": "P",
+                "text": "Birth date unknown \u00b7 child of Father & M",
+                "scrollW": 370,
+                "clientW": 149
+              },
+              {
+                "tag": "P",
+                "text": "Birth date unknown \u00b7 child of babu & shu",
+                "scrollW": 250,
+                "clientW": 149
+              },
+              {
+                "tag": "P",
+                "text": "Birth date unknown \u00b7 married to Mother",
+                "scrollW": 222,
+                "clientW": 149
+              },
+              {
+                "tag": "P",
+                "text": "Birth date unknown \u00b7 married to Father",
+                "scrollW": 218,
+                "clientW": 149
+              },
+              {
+                "tag": "P",
+                "text": "Birth date unknown \u00b7 married to rama",
+                "scrollW": 210,
+                "clientW": 149
+              },
+              {
+                "tag": "P",
+                "text": "Birth date unknown \u00b7 child of x & x \u00b7 ma",
+                "scrollW": 307,
+                "clientW": 149
+              },
+              {
+                "tag": "P",
+                "text": "Birth date unknown \u00b7 child of rama & sul",
+                "scrollW": 343,
+                "clientW": 149
+              },
+              {
+                "tag": "P",
+                "text": "Birth date unknown \u00b7 child of x & ss \u00b7 m",
+                "scrollW": 276,
+                "clientW": 149
+              },
+              {
+                "tag": "P",
+                "text": "Birth date unknown \u00b7 married to a",
+                "scrollW": 188,
+                "clientW": 149
+              },
+              {
+                "tag": "P",
+                "text": "Birth date unknown \u00b7 child of a & r",
+                "scrollW": 191,
+                "clientW": 149
+              }
+            ]
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Mobile_375x667_people.png",
+          "status": "PASS"
+        },
+        "person_form": {
+          "audit": {
+            "viewport": {
+              "width": 375,
+              "height": 667
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 375,
+            "docClientW": 375,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "date_grid_info": [
+            {
+              "placeholder": "date",
+              "width": 117,
+              "parentWidth": 119
+            },
+            {
+              "placeholder": "date",
+              "width": 117,
+              "parentWidth": 119
+            }
+          ],
+          "screenshot": "docs/testing/ui_compat_screenshots/Mobile_375x667_person_form.png",
+          "status": "PASS"
+        },
+        "tree": {
+          "audit": {
+            "viewport": {
+              "width": 375,
+              "height": 667
+            },
+            "hasHorizScroll": false,
+            "docScrollW": 375,
+            "docClientW": 375,
+            "clippedCount": 0,
+            "clippedElements": [],
+            "textOverflowCount": 0,
+            "textOverflow": []
+          },
+          "tree_layout": {
+            "asideWidth": 375,
+            "asideHeight": 646,
+            "toolbarHeight": 224,
+            "isAsideStacked": true,
+            "canvasHeight": 666
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Mobile_375x667_tree_initial.png",
+          "status": "PASS"
+        }
+      },
+      "modals": {
+        "share_modal": {
+          "audit": {
+            "dialogWidth": 343,
+            "dialogHeight": 386,
+            "overflowX": false,
+            "overflowY": false,
+            "isClippedTopBottom": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Mobile_375x667_modal_share.png",
+          "status": "PASS"
+        },
+        "profile_modal": {
+          "audit": {
+            "dialogWidth": 343,
+            "dialogHeight": 430,
+            "overflowX": false,
+            "overflowY": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Mobile_375x667_modal_profile.png",
+          "status": "PASS"
+        },
+        "reset_password_modal": {
+          "audit": {
+            "dialogWidth": 343,
+            "dialogHeight": 276,
+            "overflowX": false,
+            "overflowY": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Mobile_375x667_modal_reset_password.png",
+          "status": "PASS"
+        },
+        "quickadd_modal": {
+          "audit": {
+            "width": 343,
+            "height": 500,
+            "overflowX": false,
+            "overflowY": false
+          },
+          "screenshot": "docs/testing/ui_compat_screenshots/Mobile_375x667_modal_quickadd.png",
+          "status": "PASS"
+        }
+      },
+      "interactions": {
+        "screenshot_node_selected": "docs/testing/ui_compat_screenshots/Mobile_375x667_tree_node_selected.png",
+        "zoom": {
+          "zoom_in_clicked": true,
+          "zoom_out_clicked": true,
+          "zoom_levels": [
+            "8%",
+            "23%",
+            "15%"
+          ]
+        },
+        "pan": {
+          "panned": true
+        },
+        "node_selected": true
+      },
+      "navigation": {
+        "isNavVisible": false,
+        "navLinksCount": 3,
+        "navLinks": [
+          "Overview",
+          "People",
+          "Tree"
+        ],
+        "hasProfileBtn": true,
+        "hasHamburgerMenu": true,
+        "headerWidth": 375,
+        "headerScrollW": 375
+      },
+      "ai_dialog": {
+        "present": false,
+        "note": "Feature absent from UI implementation"
+      },
+      "overall_status": "PASS"
+    }
+  },
+  "summary": {
+    "total_checks": 0,
+    "passed_checks": 0,
+    "failed_checks": 0,
+    "issues": []
+  }
+}

@@ -1,0 +1,42 @@
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies and build output
+node_modules/
+dist/
+build/
+
+# Local databases, logs, and runtime files
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# Python tooling accidentally created during local development
+.venv/
+venv/
+env/
+myvenv/
+myenv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local/editor/OS files
+.cache/
+.local/
+.agents/
+.snapshots/
+scratch/
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~

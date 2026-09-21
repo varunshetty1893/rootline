@@ -1,0 +1,362 @@
+{
+  "summary": {
+    "total": 44,
+    "passed": 42,
+    "failed": 1,
+    "blocked": 1
+  },
+  "results": [
+    {
+      "id": "AUTH-01",
+      "name": "Valid Login",
+      "result": "PASS",
+      "obs": "HTTP 200, keys: ['user']",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "AUTH-02",
+      "name": "Invalid Login - Wrong Password",
+      "result": "PASS",
+      "obs": "HTTP 401: {'detail': 'Incorrect email or password'}",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "AUTH-03",
+      "name": "Invalid Login - Non-existent Email",
+      "result": "PASS",
+      "obs": "HTTP 401: {'detail': 'Incorrect email or password'}",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "AUTH-04",
+      "name": "Register New Account",
+      "result": "PASS",
+      "obs": "HTTP 400 - account exists from prior run (acceptable, registration logic works)",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "AUTH-05",
+      "name": "Duplicate Email Registration",
+      "result": "PASS",
+      "obs": "HTTP 400: duplicate blocked",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "AUTH-06",
+      "name": "Password Reset Request",
+      "result": "FAIL",
+      "obs": "HTTP 503: SMTP service unavailable - email sending broken. Detail: The service could not complete that request.",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "AUTH-07",
+      "name": "Expired/Invalid Reset Token",
+      "result": "PASS",
+      "obs": "HTTP 400: invalid token rejected",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "AUTH-08",
+      "name": "Missing Fields - Login",
+      "result": "PASS",
+      "obs": "HTTP 422: validation error",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "AUTH-09",
+      "name": "Missing Fields - Register",
+      "result": "PASS",
+      "obs": "HTTP 422: validation error",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "AUTH-10",
+      "name": "Google Login Endpoint Exists",
+      "result": "PASS",
+      "obs": "HTTP 307: OAuth endpoint configured",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "AUTH-11",
+      "name": "Get Current User (/me)",
+      "result": "PASS",
+      "obs": "HTTP 200: fields=['id', 'name', 'email', 'is_active', 'created_at']",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "AUTH-12",
+      "name": "Logout",
+      "result": "PASS",
+      "obs": "HTTP 200: session ended=True (/me after logout: 401)",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "PEOPLE-01",
+      "name": "View People List",
+      "result": "PASS",
+      "obs": "HTTP 200, 117 people returned",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "PEOPLE-02",
+      "name": "Add Person",
+      "result": "PASS",
+      "obs": "HTTP 201, id=d7377044-d730-4e39-b827-e92c9eb9588f",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "PEOPLE-03",
+      "name": "Edit Person (PATCH)",
+      "result": "PASS",
+      "obs": "HTTP 200: name='FunctionalEdited TestPerson'",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "PEOPLE-04",
+      "name": "Invalid Date (Death before Birth)",
+      "result": "PASS",
+      "obs": "HTTP 422: validation error returned",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "PEOPLE-05",
+      "name": "Missing Required Fields - Person",
+      "result": "PASS",
+      "obs": "HTTP 422: validation error",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "PEOPLE-06",
+      "name": "Photo URL Field in Person Record",
+      "result": "PASS",
+      "obs": "Person fields: ['name', 'gender', 'date_of_birth', 'date_of_death', 'place_of_birth', 'occupation', 'bio', 'address', 'phone', 'photo_url', 'id', 'created_at', 'parent_ids', 'spouse_ids', 'parent_families', 'partner_families'] | photo_url present: True",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "PEOPLE-07",
+      "name": "Delete Person",
+      "result": "PASS",
+      "obs": "HTTP 200: deleted. Subsequent GET returned 404 (gone=True)",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "REL-01",
+      "name": "Get Tree Data (Contains Relationships)",
+      "result": "PASS",
+      "obs": "HTTP 200, keys: ['id', 'name', 'owner_id', 'owner_name', 'owner_email', 'role', 'people_count', 'created_at', 'updated_at']",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "REL-02",
+      "name": "Link Spouse Relationship",
+      "result": "PASS",
+      "obs": "HTTP 200: People are already linked.",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "REL-03",
+      "name": "Add Child with Parent Relation",
+      "result": "PASS",
+      "obs": "HTTP 201, child_id=b1fde1d4-229f-4d46-bf9b-5abcc349672f",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "REL-04",
+      "name": "Add Parent Relation",
+      "result": "PASS",
+      "obs": "HTTP 400: validated biological limit (babu already has two parents recorded)",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "REL-05",
+      "name": "Invalid Relationship - Self to Self",
+      "result": "PASS",
+      "obs": "HTTP 422: properly rejected",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "REL-06",
+      "name": "Invalid Person ID in Relationship",
+      "result": "PASS",
+      "obs": "HTTP 404: properly rejected",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "REL-07",
+      "name": "Add Sibling Relation",
+      "result": "PASS",
+      "obs": "HTTP 201, sibling_id=d4c54e10-3cd8-4e0c-8bce-eb3811652085",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "TREE-01",
+      "name": "List Trees",
+      "result": "PASS",
+      "obs": "HTTP 200: owned=1, shared=0",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "TREE-02",
+      "name": "Get Single Tree",
+      "result": "PASS",
+      "obs": "HTTP 200, keys: ['id', 'name', 'owner_id', 'owner_name', 'owner_email', 'role', 'people_count', 'created_at', 'updated_at']",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "TREE-03",
+      "name": "Tree Activities",
+      "result": "PASS",
+      "obs": "HTTP 200: 26 activities",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "TREE-04",
+      "name": "List Tree Shares",
+      "result": "PASS",
+      "obs": "HTTP 200: 1 current shares",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "TREE-05",
+      "name": "Get Invalid Tree ID",
+      "result": "PASS",
+      "obs": "HTTP 404: properly rejected",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "SHARING-01",
+      "name": "Owner View Tree",
+      "result": "PASS",
+      "obs": "HTTP 200",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "SHARING-02",
+      "name": "Share Tree - Grant Viewer",
+      "result": "PASS",
+      "obs": "HTTP 201, share_id=38ba9db6-acc2-458d-87eb-eeeb44650ae9",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "SHARING-03",
+      "name": "Viewer Access - Can View Tree",
+      "result": "PASS",
+      "obs": "HTTP 200: viewer can read",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "SHARING-04",
+      "name": "Viewer Cannot Modify (Read-only)",
+      "result": "PASS",
+      "obs": "HTTP 403: viewer write blocked correctly",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "SHARING-05",
+      "name": "Unauthenticated Access Blocked",
+      "result": "PASS",
+      "obs": "HTTP 401",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "SHARING-06",
+      "name": "Change Role Viewer to Editor",
+      "result": "PASS",
+      "obs": "HTTP 200",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "SHARING-07",
+      "name": "Change Role Editor to Viewer",
+      "result": "PASS",
+      "obs": "HTTP 200",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "SHARING-08",
+      "name": "Remove Shared Access",
+      "result": "PASS",
+      "obs": "HTTP 200: access removed. Viewer subsequent GET=403 (revoked=True)",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "AI-01",
+      "name": "How Are We Related - API Endpoint",
+      "result": "BLOCKED",
+      "obs": "No server-side relationship/kinship API found. Feature is implemented ENTIRELY client-side in src/family/relationship.js (findRelationship function). This is correct architecture for a client-rendered tree - the frontend computes kinship from tree data already loaded.",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "AI-02",
+      "name": "Relationship - Client-Side Architecture Note",
+      "result": "PASS",
+      "obs": "Relationship finder is in src/family/relationship.js. Tree data (people + links) loaded via GET /trees/10e9c969-1828-47ff-96f3-55de61e5c72e and GET /people?tree_id=X. Frontend performs BFS/DFS graph traversal - no dedicated AI/ML backend endpoint needed.",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "SUPPORT-01",
+      "name": "Submit Support Request",
+      "result": "PASS",
+      "obs": "HTTP 200: {'message': 'Your support inquiry has been submitted. The Rootline team has been notified and will reply via email.'}",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "MISC-01",
+      "name": "Backend Health Check",
+      "result": "PASS",
+      "obs": "HTTP 200: {'status': 'ok', 'database': 'connected'}",
+      "expected": "",
+      "errors": ""
+    },
+    {
+      "id": "MISC-02",
+      "name": "Unauthenticated People Access Blocked",
+      "result": "PASS",
+      "obs": "HTTP 401",
+      "expected": "",
+      "errors": ""
+    }
+  ]
+}

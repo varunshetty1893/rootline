@@ -1,0 +1,599 @@
+{
+  "summary": {
+    "total": 20,
+    "passed": 20,
+    "failed": 0
+  },
+  "results": [
+    {
+      "caseNum": 1,
+      "caseTitle": "One person",
+      "peopleCount": 1,
+      "rowsCount": 1,
+      "edgesCount": 0,
+      "passed": true,
+      "checks": {
+        "peopleAppear": "PASS",
+        "noOverlaps": "PASS",
+        "generations": "PASS",
+        "edges": "PASS",
+        "spousePlacement": "PASS",
+        "relationship": "PASS ('This is you')",
+        "collapseExpand": "PASS (N/A (No children to collapse))",
+        "searchSelection": "PASS"
+      },
+      "overlaps": [],
+      "generationErrors": [],
+      "edgeErrors": [],
+      "spousePlacementErrors": [],
+      "relationship": {
+        "label": "This is you",
+        "path": [
+          "p1"
+        ]
+      }
+    },
+    {
+      "caseNum": 2,
+      "caseTitle": "Parent + child",
+      "peopleCount": 2,
+      "rowsCount": 2,
+      "edgesCount": 1,
+      "passed": true,
+      "checks": {
+        "peopleAppear": "PASS",
+        "noOverlaps": "PASS",
+        "generations": "PASS",
+        "edges": "PASS",
+        "spousePlacement": "PASS",
+        "relationship": "PASS ('daughter')",
+        "collapseExpand": "PASS (Uncollapsed: 2 nodes -> Collapsed branch 'p1': 0 nodes)",
+        "searchSelection": "PASS"
+      },
+      "overlaps": [],
+      "generationErrors": [],
+      "edgeErrors": [],
+      "spousePlacementErrors": [],
+      "relationship": {
+        "label": "daughter",
+        "path": [
+          "p1",
+          "p2"
+        ]
+      }
+    },
+    {
+      "caseNum": 3,
+      "caseTitle": "Two parents + child",
+      "peopleCount": 3,
+      "rowsCount": 2,
+      "edgesCount": 2,
+      "passed": true,
+      "checks": {
+        "peopleAppear": "PASS",
+        "noOverlaps": "PASS",
+        "generations": "PASS",
+        "edges": "PASS",
+        "spousePlacement": "PASS",
+        "relationship": "PASS ('son')",
+        "collapseExpand": "PASS (Uncollapsed: 3 nodes -> Collapsed branch 'f1|m1': 0 nodes)",
+        "searchSelection": "PASS"
+      },
+      "overlaps": [],
+      "generationErrors": [],
+      "edgeErrors": [],
+      "spousePlacementErrors": [],
+      "relationship": {
+        "label": "son",
+        "path": [
+          "f1",
+          "c1"
+        ]
+      }
+    },
+    {
+      "caseNum": 4,
+      "caseTitle": "Three generations",
+      "peopleCount": 5,
+      "rowsCount": 3,
+      "edgesCount": 4,
+      "passed": true,
+      "checks": {
+        "peopleAppear": "PASS",
+        "noOverlaps": "PASS",
+        "generations": "PASS",
+        "edges": "PASS",
+        "spousePlacement": "PASS",
+        "relationship": "PASS ('grandfather')",
+        "collapseExpand": "PASS (Uncollapsed: 5 nodes -> Collapsed branch 'gf|gm': 5 nodes)",
+        "searchSelection": "PASS"
+      },
+      "overlaps": [],
+      "generationErrors": [],
+      "edgeErrors": [],
+      "spousePlacementErrors": [],
+      "relationship": {
+        "label": "grandfather",
+        "path": [
+          "me",
+          "dad",
+          "gf"
+        ]
+      }
+    },
+    {
+      "caseNum": 5,
+      "caseTitle": "Four generations",
+      "peopleCount": 4,
+      "rowsCount": 4,
+      "edgesCount": 3,
+      "passed": true,
+      "checks": {
+        "peopleAppear": "PASS",
+        "noOverlaps": "PASS",
+        "generations": "PASS",
+        "edges": "PASS",
+        "spousePlacement": "PASS",
+        "relationship": "PASS ('great-grandfather')",
+        "collapseExpand": "PASS (Uncollapsed: 4 nodes -> Collapsed branch 'ggf': 0 nodes)",
+        "searchSelection": "PASS"
+      },
+      "overlaps": [],
+      "generationErrors": [],
+      "edgeErrors": [],
+      "spousePlacementErrors": [],
+      "relationship": {
+        "label": "great-grandfather",
+        "path": [
+          "son",
+          "dad",
+          "gf",
+          "ggf"
+        ]
+      }
+    },
+    {
+      "caseNum": 6,
+      "caseTitle": "Siblings",
+      "peopleCount": 5,
+      "rowsCount": 2,
+      "edgesCount": 2,
+      "passed": true,
+      "checks": {
+        "peopleAppear": "PASS",
+        "noOverlaps": "PASS",
+        "generations": "PASS",
+        "edges": "PASS",
+        "spousePlacement": "PASS",
+        "relationship": "PASS ('brother')",
+        "collapseExpand": "PASS (Uncollapsed: 5 nodes -> Collapsed branch 'p_dad|p_mom': 0 nodes)",
+        "searchSelection": "PASS"
+      },
+      "overlaps": [],
+      "generationErrors": [],
+      "edgeErrors": [],
+      "spousePlacementErrors": [],
+      "relationship": {
+        "label": "brother",
+        "path": [
+          "sib1",
+          "p_dad",
+          "sib2"
+        ]
+      }
+    },
+    {
+      "caseNum": 7,
+      "caseTitle": "Half siblings",
+      "peopleCount": 5,
+      "rowsCount": 2,
+      "edgesCount": 4,
+      "passed": true,
+      "checks": {
+        "peopleAppear": "PASS",
+        "noOverlaps": "PASS",
+        "generations": "PASS",
+        "edges": "PASS",
+        "spousePlacement": "PASS",
+        "relationship": "PASS ('sister')",
+        "collapseExpand": "PASS (Uncollapsed: 5 nodes -> Collapsed branch 'common_dad|mom1': 4 nodes)",
+        "searchSelection": "PASS"
+      },
+      "overlaps": [],
+      "generationErrors": [],
+      "edgeErrors": [],
+      "spousePlacementErrors": [],
+      "relationship": {
+        "label": "sister",
+        "path": [
+          "half_child1",
+          "common_dad",
+          "half_child2"
+        ]
+      }
+    },
+    {
+      "caseNum": 8,
+      "caseTitle": "Multiple parent families",
+      "peopleCount": 5,
+      "rowsCount": 2,
+      "edgesCount": 4,
+      "passed": true,
+      "checks": {
+        "peopleAppear": "PASS",
+        "noOverlaps": "PASS",
+        "generations": "PASS",
+        "edges": "PASS",
+        "spousePlacement": "PASS",
+        "relationship": "PASS ('father')",
+        "collapseExpand": "PASS (Uncollapsed: 5 nodes -> Collapsed branch 'bio_father|bio_mother': 5 nodes)",
+        "searchSelection": "PASS"
+      },
+      "overlaps": [],
+      "generationErrors": [],
+      "edgeErrors": [],
+      "spousePlacementErrors": [],
+      "relationship": {
+        "label": "father",
+        "path": [
+          "child_multi",
+          "bio_father"
+        ]
+      }
+    },
+    {
+      "caseNum": 9,
+      "caseTitle": "Spouse + children",
+      "peopleCount": 5,
+      "rowsCount": 2,
+      "edgesCount": 2,
+      "passed": true,
+      "checks": {
+        "peopleAppear": "PASS",
+        "noOverlaps": "PASS",
+        "generations": "PASS",
+        "edges": "PASS",
+        "spousePlacement": "PASS",
+        "relationship": "PASS ('wife')",
+        "collapseExpand": "PASS (Uncollapsed: 5 nodes -> Collapsed branch 'husb|wife': 0 nodes)",
+        "searchSelection": "PASS"
+      },
+      "overlaps": [],
+      "generationErrors": [],
+      "edgeErrors": [],
+      "spousePlacementErrors": [],
+      "relationship": {
+        "label": "wife",
+        "path": [
+          "husb",
+          "wife"
+        ]
+      }
+    },
+    {
+      "caseNum": 10,
+      "caseTitle": "Multiple marriages",
+      "peopleCount": 3,
+      "rowsCount": 1,
+      "edgesCount": 2,
+      "passed": true,
+      "checks": {
+        "peopleAppear": "PASS",
+        "noOverlaps": "PASS",
+        "generations": "PASS",
+        "edges": "PASS",
+        "spousePlacement": "PASS",
+        "relationship": "PASS ('wife')",
+        "collapseExpand": "PASS (N/A (No children to collapse))",
+        "searchSelection": "PASS"
+      },
+      "overlaps": [],
+      "generationErrors": [],
+      "edgeErrors": [],
+      "spousePlacementErrors": [],
+      "relationship": {
+        "label": "wife",
+        "path": [
+          "m_person",
+          "m_wife2"
+        ]
+      }
+    },
+    {
+      "caseNum": 11,
+      "caseTitle": "In-laws",
+      "peopleCount": 6,
+      "rowsCount": 2,
+      "edgesCount": 5,
+      "passed": true,
+      "checks": {
+        "peopleAppear": "PASS",
+        "noOverlaps": "PASS",
+        "generations": "PASS",
+        "edges": "PASS",
+        "spousePlacement": "PASS",
+        "relationship": "PASS ('father-in-law')",
+        "collapseExpand": "PASS (Uncollapsed: 6 nodes -> Collapsed branch 'my_dad|my_mom': 6 nodes)",
+        "searchSelection": "PASS"
+      },
+      "overlaps": [],
+      "generationErrors": [],
+      "edgeErrors": [],
+      "spousePlacementErrors": [],
+      "relationship": {
+        "label": "father-in-law",
+        "path": [
+          "me_inlaw",
+          "my_spouse",
+          "inlaw_dad"
+        ]
+      }
+    },
+    {
+      "caseNum": 12,
+      "caseTitle": "Large family (16 members across 3 branches)",
+      "peopleCount": 16,
+      "rowsCount": 3,
+      "edgesCount": 8,
+      "passed": true,
+      "checks": {
+        "peopleAppear": "PASS",
+        "noOverlaps": "PASS",
+        "generations": "PASS",
+        "edges": "PASS",
+        "spousePlacement": "PASS",
+        "relationship": "PASS ('first cousin')",
+        "collapseExpand": "PASS (Uncollapsed: 16 nodes -> Collapsed branch 'g1|g2': 16 nodes)",
+        "searchSelection": "PASS"
+      },
+      "overlaps": [],
+      "generationErrors": [],
+      "edgeErrors": [],
+      "spousePlacementErrors": [],
+      "relationship": {
+        "label": "first cousin",
+        "path": [
+          "c_b1",
+          "p_b",
+          "g1",
+          "p_a",
+          "c_a1"
+        ]
+      }
+    },
+    {
+      "caseNum": 13,
+      "caseTitle": "Deep family branch (6 generations)",
+      "peopleCount": 6,
+      "rowsCount": 6,
+      "edgesCount": 5,
+      "passed": true,
+      "checks": {
+        "peopleAppear": "PASS",
+        "noOverlaps": "PASS",
+        "generations": "PASS",
+        "edges": "PASS",
+        "spousePlacement": "PASS",
+        "relationship": "PASS ('great-great-great-grandfather')",
+        "collapseExpand": "PASS (Uncollapsed: 6 nodes -> Collapsed branch 'g_gen1': 0 nodes)",
+        "searchSelection": "PASS"
+      },
+      "overlaps": [],
+      "generationErrors": [],
+      "edgeErrors": [],
+      "spousePlacementErrors": [],
+      "relationship": {
+        "label": "great-great-great-grandfather",
+        "path": [
+          "g_gen6",
+          "g_gen5",
+          "g_gen4",
+          "g_gen3",
+          "g_gen2",
+          "g_gen1"
+        ]
+      }
+    },
+    {
+      "caseNum": 14,
+      "caseTitle": "Wide family branch (Couple + 8 children)",
+      "peopleCount": 10,
+      "rowsCount": 2,
+      "edgesCount": 2,
+      "passed": true,
+      "checks": {
+        "peopleAppear": "PASS",
+        "noOverlaps": "PASS",
+        "generations": "PASS",
+        "edges": "PASS",
+        "spousePlacement": "PASS",
+        "relationship": "PASS ('daughter')",
+        "collapseExpand": "PASS (Uncollapsed: 10 nodes -> Collapsed branch 'wide_dad|wide_mom': 0 nodes)",
+        "searchSelection": "PASS"
+      },
+      "overlaps": [],
+      "generationErrors": [],
+      "edgeErrors": [],
+      "spousePlacementErrors": [],
+      "relationship": {
+        "label": "daughter",
+        "path": [
+          "wide_dad",
+          "wide_child_8"
+        ]
+      }
+    },
+    {
+      "caseNum": 15,
+      "caseTitle": "Missing relationship data",
+      "peopleCount": 3,
+      "rowsCount": 2,
+      "edgesCount": 1,
+      "passed": true,
+      "checks": {
+        "peopleAppear": "PASS",
+        "noOverlaps": "PASS",
+        "generations": "PASS",
+        "edges": "PASS",
+        "spousePlacement": "PASS",
+        "relationship": "PASS ('unconnected')",
+        "collapseExpand": "PASS (Uncollapsed: 3 nodes -> Collapsed branch 'conn_p1': 1 nodes)",
+        "searchSelection": "PASS"
+      },
+      "overlaps": [],
+      "generationErrors": [],
+      "edgeErrors": [],
+      "spousePlacementErrors": [],
+      "relationship": {
+        "label": "unconnected",
+        "path": []
+      }
+    },
+    {
+      "caseNum": 16,
+      "caseTitle": "Unknown gender",
+      "peopleCount": 3,
+      "rowsCount": 2,
+      "edgesCount": 2,
+      "passed": true,
+      "checks": {
+        "peopleAppear": "PASS",
+        "noOverlaps": "PASS",
+        "generations": "PASS",
+        "edges": "PASS",
+        "spousePlacement": "PASS",
+        "relationship": "PASS ('parent')",
+        "collapseExpand": "PASS (Uncollapsed: 3 nodes -> Collapsed branch 'unk_p1|unk_p2': 0 nodes)",
+        "searchSelection": "PASS"
+      },
+      "overlaps": [],
+      "generationErrors": [],
+      "edgeErrors": [],
+      "spousePlacementErrors": [],
+      "relationship": {
+        "label": "parent",
+        "path": [
+          "unk_c",
+          "unk_p1"
+        ]
+      }
+    },
+    {
+      "caseNum": 17,
+      "caseTitle": "Missing dates",
+      "peopleCount": 2,
+      "rowsCount": 2,
+      "edgesCount": 1,
+      "passed": true,
+      "checks": {
+        "peopleAppear": "PASS",
+        "noOverlaps": "PASS",
+        "generations": "PASS",
+        "edges": "PASS",
+        "spousePlacement": "PASS",
+        "relationship": "PASS ('son')",
+        "collapseExpand": "PASS (Uncollapsed: 2 nodes -> Collapsed branch 'nodate_p1': 0 nodes)",
+        "searchSelection": "PASS"
+      },
+      "overlaps": [],
+      "generationErrors": [],
+      "edgeErrors": [],
+      "spousePlacementErrors": [],
+      "relationship": {
+        "label": "son",
+        "path": [
+          "nodate_p1",
+          "nodate_c1"
+        ]
+      }
+    },
+    {
+      "caseNum": 18,
+      "caseTitle": "Deleted person (Post-deletion state)",
+      "peopleCount": 3,
+      "rowsCount": 2,
+      "edgesCount": 2,
+      "passed": true,
+      "checks": {
+        "peopleAppear": "PASS",
+        "noOverlaps": "PASS",
+        "generations": "PASS",
+        "edges": "PASS",
+        "spousePlacement": "PASS",
+        "relationship": "PASS ('daughter')",
+        "collapseExpand": "PASS (Uncollapsed: 3 nodes -> Collapsed branch 'del_dad|del_mom': 0 nodes)",
+        "searchSelection": "PASS"
+      },
+      "overlaps": [],
+      "generationErrors": [],
+      "edgeErrors": [],
+      "spousePlacementErrors": [],
+      "relationship": {
+        "label": "daughter",
+        "path": [
+          "del_dad",
+          "del_child1"
+        ]
+      }
+    },
+    {
+      "caseNum": 19,
+      "caseTitle": "Edited relationship (Updated partnership)",
+      "peopleCount": 3,
+      "rowsCount": 2,
+      "edgesCount": 2,
+      "passed": true,
+      "checks": {
+        "peopleAppear": "PASS",
+        "noOverlaps": "PASS",
+        "generations": "PASS",
+        "edges": "PASS",
+        "spousePlacement": "PASS",
+        "relationship": "PASS ('wife')",
+        "collapseExpand": "PASS (Uncollapsed: 3 nodes -> Collapsed branch 'ed_p1|ed_p2': 0 nodes)",
+        "searchSelection": "PASS"
+      },
+      "overlaps": [],
+      "generationErrors": [],
+      "edgeErrors": [],
+      "spousePlacementErrors": [],
+      "relationship": {
+        "label": "wife",
+        "path": [
+          "ed_p1",
+          "ed_p2"
+        ]
+      }
+    },
+    {
+      "caseNum": 20,
+      "caseTitle": "Complex mixed family (Step-parents, half-siblings, in-laws)",
+      "peopleCount": 11,
+      "rowsCount": 4,
+      "edgesCount": 10,
+      "passed": true,
+      "checks": {
+        "peopleAppear": "PASS",
+        "noOverlaps": "PASS",
+        "generations": "PASS",
+        "edges": "PASS",
+        "spousePlacement": "PASS",
+        "relationship": "PASS ('brother')",
+        "collapseExpand": "PASS (Uncollapsed: 11 nodes -> Collapsed branch 'pat_gf|pat_gm': 11 nodes)",
+        "searchSelection": "PASS"
+      },
+      "overlaps": [],
+      "generationErrors": [],
+      "edgeErrors": [],
+      "spousePlacementErrors": [],
+      "relationship": {
+        "label": "brother",
+        "path": [
+          "child_full",
+          "dad_blended",
+          "half_sibling"
+        ]
+      }
+    }
+  ]
+}

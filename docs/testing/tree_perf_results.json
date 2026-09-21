@@ -1,0 +1,146 @@
+[
+  {
+    "targetSize": 10,
+    "actualSize": 10,
+    "generations": 3,
+    "edgesCount": 5,
+    "layoutWidthPx": 1182.404880061924,
+    "layoutTimeMs": {
+      "avg": 2.41,
+      "min": 0.28,
+      "max": 9.61
+    },
+    "relationshipTimeMs": {
+      "avg": 0.025,
+      "label": "grandson"
+    },
+    "searchTimeMs": {
+      "avg": 0.002
+    },
+    "memoryMb": {
+      "heapBefore": 5.02,
+      "heapAfter": 5.85,
+      "delta": 0.83
+    }
+  },
+  {
+    "targetSize": 50,
+    "actualSize": 50,
+    "generations": 6,
+    "edgesCount": 30,
+    "layoutWidthPx": 4336.575290675102,
+    "layoutTimeMs": {
+      "avg": 1.51,
+      "min": 1.09,
+      "max": 2.14
+    },
+    "relationshipTimeMs": {
+      "avg": 0.012,
+      "label": "great-great-great-granddaughter"
+    },
+    "searchTimeMs": {
+      "avg": 0.005
+    },
+    "memoryMb": {
+      "heapBefore": 5.49,
+      "heapAfter": 8.14,
+      "delta": 2.65
+    }
+  },
+  {
+    "targetSize": 100,
+    "actualSize": 100,
+    "generations": 6,
+    "edgesCount": 60,
+    "layoutWidthPx": 7806.254969601179,
+    "layoutTimeMs": {
+      "avg": 3.04,
+      "min": 2.19,
+      "max": 4.42
+    },
+    "relationshipTimeMs": {
+      "avg": 0.018,
+      "label": "husband of your great-great-great-granddaughter"
+    },
+    "searchTimeMs": {
+      "avg": 0.005
+    },
+    "memoryMb": {
+      "heapBefore": 7.27,
+      "heapAfter": 7.15,
+      "delta": 0
+    }
+  },
+  {
+    "targetSize": 250,
+    "actualSize": 250,
+    "generations": 7,
+    "edgesCount": 150,
+    "layoutWidthPx": 13333.773670091343,
+    "layoutTimeMs": {
+      "avg": 6.38,
+      "min": 6.07,
+      "max": 7.31
+    },
+    "relationshipTimeMs": {
+      "avg": 0.012,
+      "label": "wife of your great-great-great-great-grandson"
+    },
+    "searchTimeMs": {
+      "avg": 0.012
+    },
+    "memoryMb": {
+      "heapBefore": 7.76,
+      "heapAfter": 11.83,
+      "delta": 4.07
+    }
+  },
+  {
+    "targetSize": 500,
+    "actualSize": 500,
+    "generations": 7,
+    "edgesCount": 305,
+    "layoutWidthPx": 27145.451028876145,
+    "layoutTimeMs": {
+      "avg": 19.09,
+      "min": 17.94,
+      "max": 19.88
+    },
+    "relationshipTimeMs": {
+      "avg": 0.027,
+      "label": "great-great-great-great-grandson"
+    },
+    "searchTimeMs": {
+      "avg": 0.025
+    },
+    "memoryMb": {
+      "heapBefore": 11.83,
+      "heapAfter": 12.54,
+      "delta": 0.71
+    }
+  },
+  {
+    "targetSize": 1000,
+    "actualSize": 1000,
+    "generations": 11,
+    "edgesCount": 601,
+    "layoutWidthPx": 44321.38803190614,
+    "layoutTimeMs": {
+      "avg": 63.66,
+      "min": 61.78,
+      "max": 67.49
+    },
+    "relationshipTimeMs": {
+      "avg": 0.06,
+      "label": "great-great-great-great-great-great-great-great-grandson"
+    },
+    "searchTimeMs": {
+      "avg": 0.051
+    },
+    "memoryMb": {
+      "heapBefore": 12.54,
+      "heapAfter": 23.56,
+      "delta": 11.02
+    }
+  }
+]

@@ -1,0 +1,6 @@
+{
+  "name": "Rootline",
+  "description": "Interactive family tree builder and genealogy visualizer with relationships, spouse linking, and kinship pathfinding.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

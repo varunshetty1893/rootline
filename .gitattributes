@@ -1,0 +1,12 @@
+# Exclude development/environment files from git archive / export bundles
+.env export-ignore
+.env.* export-ignore
+backend/.env export-ignore
+backend/.env.* export-ignore
+backend/.venv/ export-ignore
+backend/venv/ export-ignore
+backend/myvenv/ export-ignore
+node_modules/ export-ignore
+.pytest_cache/ export-ignore
+__pycache__/ export-ignore
+*.pyc export-ignore

@@ -1,0 +1,816 @@
+{
+  "summary": {
+    "total": 115,
+    "passed": 110,
+    "failed": 5,
+    "skipped": 0,
+    "bugs": 3
+  },
+  "results": [
+    {
+      "id": "HEALTH-01",
+      "name": "GET /health \u2014 unauthenticated",
+      "result": "PASS",
+      "obs": "HTTP 200: {'status': 'ok', 'database': 'connected'}",
+      "bug": false
+    },
+    {
+      "id": "REG-01",
+      "name": "POST /auth/register \u2014 valid",
+      "result": "PASS",
+      "obs": "HTTP 201: ['user']",
+      "bug": false
+    },
+    {
+      "id": "REG-02",
+      "name": "POST /auth/register \u2014 duplicate email",
+      "result": "PASS",
+      "obs": "HTTP 400: Unable to create an account with these details",
+      "bug": false
+    },
+    {
+      "id": "REG-03",
+      "name": "POST /auth/register \u2014 missing name",
+      "result": "PASS",
+      "obs": "HTTP 422",
+      "bug": false
+    },
+    {
+      "id": "REG-04",
+      "name": "POST /auth/register \u2014 missing email",
+      "result": "PASS",
+      "obs": "HTTP 422",
+      "bug": false
+    },
+    {
+      "id": "REG-05",
+      "name": "POST /auth/register \u2014 missing password",
+      "result": "PASS",
+      "obs": "HTTP 422",
+      "bug": false
+    },
+    {
+      "id": "REG-06",
+      "name": "POST /auth/register \u2014 invalid email format",
+      "result": "PASS",
+      "obs": "HTTP 422",
+      "bug": false
+    },
+    {
+      "id": "REG-07",
+      "name": "POST /auth/register \u2014 empty body",
+      "result": "PASS",
+      "obs": "HTTP 422",
+      "bug": false
+    },
+    {
+      "id": "LOGIN-01",
+      "name": "POST /auth/login \u2014 valid credentials",
+      "result": "PASS",
+      "obs": "HTTP 200: keys=['user']",
+      "bug": false
+    },
+    {
+      "id": "LOGIN-02",
+      "name": "POST /auth/login \u2014 wrong password",
+      "result": "PASS",
+      "obs": "HTTP 401: Incorrect email or password",
+      "bug": false
+    },
+    {
+      "id": "LOGIN-03",
+      "name": "POST /auth/login \u2014 non-existent email",
+      "result": "PASS",
+      "obs": "HTTP 401: Incorrect email or password",
+      "bug": false
+    },
+    {
+      "id": "LOGIN-04",
+      "name": "POST /auth/login \u2014 missing password",
+      "result": "PASS",
+      "obs": "HTTP 422",
+      "bug": false
+    },
+    {
+      "id": "LOGIN-05",
+      "name": "POST /auth/login \u2014 empty body",
+      "result": "PASS",
+      "obs": "HTTP 422",
+      "bug": false
+    },
+    {
+      "id": "ME-01",
+      "name": "GET /auth/me \u2014 authenticated",
+      "result": "PASS",
+      "obs": "HTTP 200: fields=['id', 'name', 'email', 'is_active', 'created_at']",
+      "bug": false
+    },
+    {
+      "id": "ME-02",
+      "name": "GET /auth/me \u2014 unauthenticated",
+      "result": "FAIL",
+      "obs": "HTTP 200",
+      "bug": true
+    },
+    {
+      "id": "LOGOUT-01",
+      "name": "POST /auth/logout \u2014 authenticated",
+      "result": "PASS",
+      "obs": "HTTP 200",
+      "bug": false
+    },
+    {
+      "id": "LOGOUT-02",
+      "name": "GET /auth/me after logout \u2014 session dead",
+      "result": "PASS",
+      "obs": "HTTP 401",
+      "bug": false
+    },
+    {
+      "id": "LOGOUT-03",
+      "name": "POST /auth/logout \u2014 unauthenticated",
+      "result": "PASS",
+      "obs": "HTTP 200",
+      "bug": false
+    },
+    {
+      "id": "PWRESET-01",
+      "name": "POST /auth/forgot-password \u2014 valid email",
+      "result": "FAIL",
+      "obs": "HTTP 503: {'detail': 'The service could not complete that request.'}",
+      "bug": false
+    },
+    {
+      "id": "PWRESET-02",
+      "name": "POST /auth/forgot-password \u2014 non-existent email",
+      "result": "PASS",
+      "obs": "HTTP 200:  (200=safe enumeration, 404=leaks existence)",
+      "bug": false
+    },
+    {
+      "id": "PWRESET-03",
+      "name": "POST /auth/forgot-password \u2014 empty body",
+      "result": "PASS",
+      "obs": "HTTP 422",
+      "bug": false
+    },
+    {
+      "id": "PWRESET-04",
+      "name": "POST /auth/reset-password \u2014 invalid token",
+      "result": "PASS",
+      "obs": "HTTP 400: This reset link is invalid or has expired",
+      "bug": false
+    },
+    {
+      "id": "PWRESET-05",
+      "name": "POST /auth/reset-password \u2014 missing new_password",
+      "result": "PASS",
+      "obs": "HTTP 422",
+      "bug": false
+    },
+    {
+      "id": "PWRESET-06",
+      "name": "POST /auth/reset-password \u2014 empty body",
+      "result": "PASS",
+      "obs": "HTTP 422",
+      "bug": false
+    },
+    {
+      "id": "GOOGLE-01",
+      "name": "GET /auth/google/login \u2014 redirects to Google",
+      "result": "PASS",
+      "obs": "HTTP 307",
+      "bug": false
+    },
+    {
+      "id": "GOOGLE-02",
+      "name": "GET /auth/google/callback \u2014 no code param (should reject)",
+      "result": "PASS",
+      "obs": "HTTP 422: {\"detail\":\"Invalid request data.\"}",
+      "bug": false
+    },
+    {
+      "id": "GOOGLE-03",
+      "name": "GET /auth/google/callback \u2014 invalid code",
+      "result": "PASS",
+      "obs": "HTTP 422: {\"detail\":\"Invalid request data.\"}",
+      "bug": false
+    },
+    {
+      "id": "TREE-01",
+      "name": "GET /trees \u2014 authenticated owner",
+      "result": "PASS",
+      "obs": "HTTP 200: owned=1, shared=0",
+      "bug": false
+    },
+    {
+      "id": "TREE-02",
+      "name": "GET /trees \u2014 unauthenticated",
+      "result": "PASS",
+      "obs": "HTTP 401",
+      "bug": false
+    },
+    {
+      "id": "TREE-03",
+      "name": "GET /trees/{id} \u2014 valid authenticated",
+      "result": "PASS",
+      "obs": "HTTP 200: keys=['id', 'name', 'owner_id', 'owner_name', 'owner_email', 'role', 'people_count', 'created_at', 'updated_at']",
+      "bug": false
+    },
+    {
+      "id": "TREE-04",
+      "name": "GET /trees/{id} \u2014 unauthenticated",
+      "result": "PASS",
+      "obs": "HTTP 401",
+      "bug": false
+    },
+    {
+      "id": "TREE-05",
+      "name": "GET /trees/{id} \u2014 null UUID (not found)",
+      "result": "PASS",
+      "obs": "HTTP 404",
+      "bug": false
+    },
+    {
+      "id": "TREE-06",
+      "name": "GET /trees/{id} \u2014 malformed UUID",
+      "result": "PASS",
+      "obs": "HTTP 422",
+      "bug": false
+    },
+    {
+      "id": "TREE-07",
+      "name": "PATCH /trees/{id} \u2014 valid update",
+      "result": "PASS",
+      "obs": "HTTP 200: Updated Seed Tree",
+      "bug": false
+    },
+    {
+      "id": "TREE-08",
+      "name": "PATCH /trees/{id} \u2014 unauthenticated",
+      "result": "PASS",
+      "obs": "HTTP 401",
+      "bug": false
+    },
+    {
+      "id": "TREE-09",
+      "name": "PATCH /trees/{id} \u2014 wrong user (viewer of another tree)",
+      "result": "PASS",
+      "obs": "HTTP 403",
+      "bug": false
+    },
+    {
+      "id": "TREE-10",
+      "name": "PATCH /trees/{id} \u2014 not found",
+      "result": "PASS",
+      "obs": "HTTP 404",
+      "bug": false
+    },
+    {
+      "id": "ACT-01",
+      "name": "GET /trees/{id}/activities \u2014 valid",
+      "result": "PASS",
+      "obs": "HTTP 200: type=list, count=27",
+      "bug": false
+    },
+    {
+      "id": "ACT-02",
+      "name": "GET /trees/{id}/activities \u2014 unauthenticated",
+      "result": "PASS",
+      "obs": "HTTP 401",
+      "bug": false
+    },
+    {
+      "id": "ACT-03",
+      "name": "GET /trees/{id}/activities \u2014 not found",
+      "result": "PASS",
+      "obs": "HTTP 404",
+      "bug": false
+    },
+    {
+      "id": "ACT-04",
+      "name": "GET /trees/{id}/activities \u2014 viewer of another tree (no access)",
+      "result": "PASS",
+      "obs": "HTTP 403",
+      "bug": false
+    },
+    {
+      "id": "SHARE-01",
+      "name": "GET /trees/{id}/shares \u2014 owner",
+      "result": "PASS",
+      "obs": "HTTP 200: keys=['owner', 'shares']",
+      "bug": false
+    },
+    {
+      "id": "SHARE-02",
+      "name": "GET /trees/{id}/shares \u2014 unauthenticated",
+      "result": "PASS",
+      "obs": "HTTP 401",
+      "bug": false
+    },
+    {
+      "id": "SHARE-03",
+      "name": "GET /trees/{id}/shares \u2014 non-owner viewer (other tree)",
+      "result": "PASS",
+      "obs": "HTTP 403",
+      "bug": false
+    },
+    {
+      "id": "SHARE-04",
+      "name": "GET /trees/{id}/shares \u2014 not found",
+      "result": "PASS",
+      "obs": "HTTP 404",
+      "bug": false
+    },
+    {
+      "id": "SHARE-05",
+      "name": "POST /trees/{id}/shares \u2014 valid share grant",
+      "result": "PASS",
+      "obs": "HTTP 201: share_id=d2534e86-907b-4596-a595-2d898a62a18d",
+      "bug": false
+    },
+    {
+      "id": "SHARE-06",
+      "name": "POST /trees/{id}/shares \u2014 missing email",
+      "result": "PASS",
+      "obs": "HTTP 422",
+      "bug": false
+    },
+    {
+      "id": "SHARE-07",
+      "name": "POST /trees/{id}/shares \u2014 missing permission (defaults ok?)",
+      "result": "PASS",
+      "obs": "HTTP 201: {\"id\":\"d2534e86-907b-4596-a595-2d898a62a18d\",\"tree_id\":\"10e9c969-1828-47ff-96f3-55de61e5c72e\",\"user_id\":\"4ff5e9d6-2ea6-4ac3-bcfd-fe995bf52ab9\",\"user_n",
+      "bug": false
+    },
+    {
+      "id": "SHARE-08",
+      "name": "POST /trees/{id}/shares \u2014 invalid permission value",
+      "result": "PASS",
+      "obs": "HTTP 422",
+      "bug": false
+    },
+    {
+      "id": "SHARE-09",
+      "name": "POST /trees/{id}/shares \u2014 non-existent user email",
+      "result": "PASS",
+      "obs": "HTTP 404: That user does not have a Rootline account.",
+      "bug": false
+    },
+    {
+      "id": "SHARE-10",
+      "name": "POST /trees/{id}/shares \u2014 unauthenticated",
+      "result": "PASS",
+      "obs": "HTTP 401",
+      "bug": false
+    },
+    {
+      "id": "SHARE-11",
+      "name": "POST /trees/{id}/shares \u2014 share with yourself (owner)",
+      "result": "PASS",
+      "obs": "HTTP 400: You already own this family tree.",
+      "bug": false
+    },
+    {
+      "id": "SHARE-12",
+      "name": "POST /trees/{id}/shares \u2014 non-owner trying to share",
+      "result": "PASS",
+      "obs": "HTTP 403",
+      "bug": false
+    },
+    {
+      "id": "SHARE-13",
+      "name": "PATCH /trees/{id}/shares/{sid} \u2014 valid role change to editor",
+      "result": "PASS",
+      "obs": "HTTP 200: permission=editor",
+      "bug": false
+    },
+    {
+      "id": "SHARE-14",
+      "name": "PATCH /trees/{id}/shares/{sid} \u2014 unauthenticated",
+      "result": "PASS",
+      "obs": "HTTP 401",
+      "bug": false
+    },
+    {
+      "id": "SHARE-15",
+      "name": "PATCH /trees/{id}/shares/{sid} \u2014 invalid permission value",
+      "result": "PASS",
+      "obs": "HTTP 422",
+      "bug": false
+    },
+    {
+      "id": "SHARE-16",
+      "name": "PATCH /trees/{id}/shares/{sid} \u2014 empty body",
+      "result": "PASS",
+      "obs": "HTTP 422",
+      "bug": false
+    },
+    {
+      "id": "SHARE-17",
+      "name": "PATCH /trees/{id}/shares/{sid} \u2014 not found share_id",
+      "result": "PASS",
+      "obs": "HTTP 404",
+      "bug": false
+    },
+    {
+      "id": "SHARE-18",
+      "name": "DELETE /trees/{id}/shares/{sid} \u2014 unauthenticated",
+      "result": "PASS",
+      "obs": "HTTP 401",
+      "bug": false
+    },
+    {
+      "id": "SHARE-19",
+      "name": "DELETE /trees/{id}/shares/{sid} \u2014 non-owner",
+      "result": "FAIL",
+      "obs": "HTTP 200",
+      "bug": true
+    },
+    {
+      "id": "SHARE-20",
+      "name": "DELETE /trees/{id}/shares/{sid} \u2014 valid delete",
+      "result": "FAIL",
+      "obs": "HTTP 404",
+      "bug": false
+    },
+    {
+      "id": "SHARE-21",
+      "name": "DELETE /trees/{id}/shares/{sid} \u2014 delete again (already removed)",
+      "result": "PASS",
+      "obs": "HTTP 404",
+      "bug": false
+    },
+    {
+      "id": "VPERM-01",
+      "name": "Setup: Grant viewer access",
+      "result": "PASS",
+      "obs": "HTTP 201",
+      "bug": false
+    },
+    {
+      "id": "VPERM-02",
+      "name": "Viewer GET /trees/{id} \u2014 should succeed (200)",
+      "result": "PASS",
+      "obs": "HTTP 200",
+      "bug": false
+    },
+    {
+      "id": "VPERM-03",
+      "name": "Viewer GET /people?tree_id \u2014 should succeed (200)",
+      "result": "PASS",
+      "obs": "HTTP 200",
+      "bug": false
+    },
+    {
+      "id": "VPERM-04",
+      "name": "Viewer POST /people \u2014 must be BLOCKED (403)",
+      "result": "FAIL",
+      "obs": "HTTP 201",
+      "bug": true
+    },
+    {
+      "id": "VPERM-05",
+      "name": "Viewer PATCH /trees/{id} \u2014 must be BLOCKED (403)",
+      "result": "PASS",
+      "obs": "HTTP 403",
+      "bug": false
+    },
+    {
+      "id": "VPERM-06",
+      "name": "Viewer POST /trees/{id}/shares \u2014 must be BLOCKED",
+      "result": "PASS",
+      "obs": "HTTP 403",
+      "bug": false
+    },
+    {
+      "id": "VPERM-07",
+      "name": "Viewer POST /people/link \u2014 must be BLOCKED",
+      "result": "PASS",
+      "obs": "HTTP 403",
+      "bug": false
+    },
+    {
+      "id": "PPL-01",
+      "name": "POST /people \u2014 valid person",
+      "result": "PASS",
+      "obs": "HTTP 201: id=87494195-66d8-480c-bfed-2e8b003a042e",
+      "bug": false
+    },
+    {
+      "id": "PPL-02",
+      "name": "POST /people \u2014 unauthenticated",
+      "result": "PASS",
+      "obs": "HTTP 401",
+      "bug": false
+    },
+    {
+      "id": "PPL-03",
+      "name": "POST /people \u2014 empty body (missing name)",
+      "result": "PASS",
+      "obs": "HTTP 422",
+      "bug": false
+    },
+    {
+      "id": "PPL-04",
+      "name": "POST /people \u2014 invalid gender value",
+      "result": "PASS",
+      "obs": "HTTP 422",
+      "bug": false
+    },
+    {
+      "id": "PPL-05",
+      "name": "POST /people \u2014 death before birth",
+      "result": "PASS",
+      "obs": "HTTP 422: validated correctly",
+      "bug": false
+    },
+    {
+      "id": "PPL-06",
+      "name": "POST /people \u2014 name too long (>120 chars)",
+      "result": "PASS",
+      "obs": "HTTP 422",
+      "bug": false
+    },
+    {
+      "id": "PPL-07",
+      "name": "GET /people/{id} \u2014 valid",
+      "result": "PASS",
+      "obs": "HTTP 200: fields=['name', 'gender', 'date_of_birth', 'date_of_death', 'place_of_birth', 'occupation', 'bio', 'address', 'phone', 'photo_url', 'id', 'created_at', 'parent_ids', 'spouse_ids', 'parent_families', 'partner_families']",
+      "bug": false
+    },
+    {
+      "id": "PPL-08",
+      "name": "GET /people/{id} \u2014 unauthenticated",
+      "result": "PASS",
+      "obs": "HTTP 401",
+      "bug": false
+    },
+    {
+      "id": "PPL-09",
+      "name": "GET /people/{id} \u2014 different user (no access)",
+      "result": "PASS",
+      "obs": "HTTP 403",
+      "bug": false
+    },
+    {
+      "id": "PPL-10",
+      "name": "GET /people/{id} \u2014 null UUID not found",
+      "result": "PASS",
+      "obs": "HTTP 404",
+      "bug": false
+    },
+    {
+      "id": "PPL-11",
+      "name": "GET /people/{id} \u2014 malformed UUID",
+      "result": "PASS",
+      "obs": "HTTP 422",
+      "bug": false
+    },
+    {
+      "id": "PPL-12",
+      "name": "PATCH /people/{id} \u2014 valid update",
+      "result": "PASS",
+      "obs": "HTTP 200: name=APITest Updated",
+      "bug": false
+    },
+    {
+      "id": "PPL-13",
+      "name": "PATCH /people/{id} \u2014 unauthenticated",
+      "result": "PASS",
+      "obs": "HTTP 401",
+      "bug": false
+    },
+    {
+      "id": "PPL-14",
+      "name": "PATCH /people/{id} \u2014 wrong user",
+      "result": "PASS",
+      "obs": "HTTP 403",
+      "bug": false
+    },
+    {
+      "id": "PPL-15",
+      "name": "PATCH /people/{id} \u2014 invalid gender value",
+      "result": "PASS",
+      "obs": "HTTP 422",
+      "bug": false
+    },
+    {
+      "id": "PPL-16",
+      "name": "PATCH /people/{id} \u2014 not found",
+      "result": "PASS",
+      "obs": "HTTP 404",
+      "bug": false
+    },
+    {
+      "id": "PPL-17",
+      "name": "DELETE /people/{id} \u2014 unauthenticated",
+      "result": "PASS",
+      "obs": "HTTP 401",
+      "bug": false
+    },
+    {
+      "id": "PPL-18",
+      "name": "DELETE /people/{id} \u2014 wrong user",
+      "result": "PASS",
+      "obs": "HTTP 403",
+      "bug": false
+    },
+    {
+      "id": "PPL-19",
+      "name": "DELETE /people/{id} \u2014 valid delete",
+      "result": "PASS",
+      "obs": "HTTP 200",
+      "bug": false
+    },
+    {
+      "id": "PPL-20",
+      "name": "DELETE /people/{id} \u2014 delete again (already deleted)",
+      "result": "PASS",
+      "obs": "HTTP 404",
+      "bug": false
+    },
+    {
+      "id": "PPL-21",
+      "name": "DELETE /people/{id} \u2014 not found",
+      "result": "PASS",
+      "obs": "HTTP 404",
+      "bug": false
+    },
+    {
+      "id": "PPL-22",
+      "name": "GET /people?tree_id \u2014 valid",
+      "result": "PASS",
+      "obs": "HTTP 200: count=117",
+      "bug": false
+    },
+    {
+      "id": "PPL-23",
+      "name": "GET /people?tree_id \u2014 unauthenticated",
+      "result": "PASS",
+      "obs": "HTTP 401",
+      "bug": false
+    },
+    {
+      "id": "PPL-24",
+      "name": "GET /people \u2014 no tree_id param",
+      "result": "PASS",
+      "obs": "HTTP 200: [{\"name\":\"babu\",\"gender\":\"male\",\"date_of_birth\":null,\"date_of_death\":null,\"place_of_birth\":null,\"occ",
+      "bug": false
+    },
+    {
+      "id": "PPL-25",
+      "name": "GET /people?tree_id=null_uuid \u2014 not found",
+      "result": "PASS",
+      "obs": "HTTP 404: {'detail': 'Family tree not found'}",
+      "bug": false
+    },
+    {
+      "id": "LINK-01",
+      "name": "POST /people/link \u2014 valid spouse link",
+      "result": "PASS",
+      "obs": "HTTP 200: {'message': 'People are already linked.'}",
+      "bug": false
+    },
+    {
+      "id": "LINK-02",
+      "name": "POST /people/link \u2014 unauthenticated",
+      "result": "PASS",
+      "obs": "HTTP 401",
+      "bug": false
+    },
+    {
+      "id": "LINK-03",
+      "name": "POST /people/link \u2014 self-link (same person)",
+      "result": "PASS",
+      "obs": "HTTP 422",
+      "bug": false
+    },
+    {
+      "id": "LINK-04",
+      "name": "POST /people/link \u2014 invalid first_person_id (null UUID)",
+      "result": "PASS",
+      "obs": "HTTP 404",
+      "bug": false
+    },
+    {
+      "id": "LINK-05",
+      "name": "POST /people/link \u2014 invalid second_person_id (null UUID)",
+      "result": "PASS",
+      "obs": "HTTP 404",
+      "bug": false
+    },
+    {
+      "id": "LINK-06",
+      "name": "POST /people/link \u2014 parent type (only spouse supported)",
+      "result": "PASS",
+      "obs": "HTTP 400: Only spouse / partner links between existing people are supported",
+      "bug": false
+    },
+    {
+      "id": "LINK-07",
+      "name": "POST /people/link \u2014 sibling type",
+      "result": "PASS",
+      "obs": "HTTP 400: Only spouse / partner links between existing people are supported",
+      "bug": false
+    },
+    {
+      "id": "LINK-08",
+      "name": "POST /people/link \u2014 invalid relationship_type",
+      "result": "PASS",
+      "obs": "HTTP 422",
+      "bug": false
+    },
+    {
+      "id": "LINK-09",
+      "name": "POST /people/link \u2014 missing second_person_id",
+      "result": "PASS",
+      "obs": "HTTP 422",
+      "bug": false
+    },
+    {
+      "id": "LINK-10",
+      "name": "POST /people/link \u2014 empty body",
+      "result": "PASS",
+      "obs": "HTTP 422",
+      "bug": false
+    },
+    {
+      "id": "LINK-11",
+      "name": "POST /people/link \u2014 wrong user (viewer, no ownership)",
+      "result": "PASS",
+      "obs": "HTTP 403",
+      "bug": false
+    },
+    {
+      "id": "FAM-01",
+      "name": "GET /families/trees \u2014 authenticated",
+      "result": "PASS",
+      "obs": "HTTP 200: keys=['owned_trees', 'shared_trees']",
+      "bug": false
+    },
+    {
+      "id": "FAM-02",
+      "name": "GET /families/trees \u2014 unauthenticated",
+      "result": "PASS",
+      "obs": "HTTP 401",
+      "bug": false
+    },
+    {
+      "id": "FAM-03",
+      "name": "GET /families/trees/{id} \u2014 valid",
+      "result": "PASS",
+      "obs": "HTTP 200",
+      "bug": false
+    },
+    {
+      "id": "FAM-04",
+      "name": "GET /families/trees/{id} \u2014 not found",
+      "result": "PASS",
+      "obs": "HTTP 404",
+      "bug": false
+    },
+    {
+      "id": "FAM-05",
+      "name": "GET /families/trees/{id}/activities \u2014 valid",
+      "result": "PASS",
+      "obs": "HTTP 200",
+      "bug": false
+    },
+    {
+      "id": "FAM-06",
+      "name": "GET /families/trees/{id}/shares \u2014 valid",
+      "result": "PASS",
+      "obs": "HTTP 200",
+      "bug": false
+    },
+    {
+      "id": "SUP-01",
+      "name": "POST /support \u2014 authenticated valid",
+      "result": "PASS",
+      "obs": "HTTP 200: Your support inquiry has been submitted. The Rootline team has been notified and will reply via email.",
+      "bug": false
+    },
+    {
+      "id": "SUP-02",
+      "name": "POST /support \u2014 unauthenticated",
+      "result": "PASS",
+      "obs": "HTTP 401",
+      "bug": false
+    },
+    {
+      "id": "SUP-03",
+      "name": "POST /support \u2014 empty body",
+      "result": "PASS",
+      "obs": "HTTP 422",
+      "bug": false
+    },
+    {
+      "id": "SUP-04",
+      "name": "POST /support \u2014 missing message",
+      "result": "PASS",
+      "obs": "HTTP 422: {\"detail\":\"Invalid request data.\"}",
+      "bug": false
+    }
+  ]
+}

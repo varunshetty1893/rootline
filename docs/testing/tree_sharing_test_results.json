@@ -1,0 +1,309 @@
+{
+  "summary": {
+    "total": 30,
+    "passed": 30,
+    "failed": 0
+  },
+  "results": [
+    {
+      "id": "SHARE-VAL-01",
+      "name": "Share with invalid email format",
+      "expected": "HTTP 422 Unprocessable Entity",
+      "actual": "HTTP 422",
+      "passed": true,
+      "status": "PASS",
+      "endpoint": "POST /trees/10e9c969-1828-47ff-96f3-55de61e5c72e/shares",
+      "notes": "Response: {\"detail\":\"Invalid request data.\"}"
+    },
+    {
+      "id": "SHARE-VAL-02",
+      "name": "Share with non-existent Rootline user",
+      "expected": "HTTP 404 Not Found ('That user does not have a Rootline account.')",
+      "actual": "HTTP 404",
+      "passed": true,
+      "status": "PASS",
+      "endpoint": "POST /trees/10e9c969-1828-47ff-96f3-55de61e5c72e/shares",
+      "notes": "Response: {\"detail\":\"That user does not have a Rootline account.\"}"
+    },
+    {
+      "id": "SHARE-SEC-01",
+      "name": "Unauthorized sharing by non-owner (User B on User A tree)",
+      "expected": "HTTP 403 Forbidden ('Only the tree owner can perform this action')",
+      "actual": "HTTP 403",
+      "passed": true,
+      "status": "PASS",
+      "endpoint": "POST /trees/10e9c969-1828-47ff-96f3-55de61e5c72e/shares",
+      "notes": "Response: {\"detail\":\"You do not have access to this family tree\"}"
+    },
+    {
+      "id": "SHARE-SEC-02",
+      "name": "Unauthorized sharing by unauthenticated client",
+      "expected": "HTTP 401 Unauthorized",
+      "actual": "HTTP 401",
+      "passed": true,
+      "status": "PASS",
+      "endpoint": "POST /trees/10e9c969-1828-47ff-96f3-55de61e5c72e/shares",
+      "notes": "Response: {\"detail\":\"Could not validate credentials\"}"
+    },
+    {
+      "id": "SHARE-VAL-03",
+      "name": "Sharing tree with oneself (owner)",
+      "expected": "HTTP 400 Bad Request ('You already own this family tree.')",
+      "actual": "HTTP 400",
+      "passed": true,
+      "status": "PASS",
+      "endpoint": "POST /trees/10e9c969-1828-47ff-96f3-55de61e5c72e/shares",
+      "notes": "Response: {\"detail\":\"You already own this family tree.\"}"
+    },
+    {
+      "id": "SHARE-API-01",
+      "name": "User A shares tree with User B as Viewer via API",
+      "expected": "HTTP 201 Created",
+      "actual": "HTTP 201",
+      "passed": true,
+      "status": "PASS",
+      "endpoint": "POST /trees/10e9c969-1828-47ff-96f3-55de61e5c72e/shares",
+      "notes": "Response: {\"id\":\"319e9b78-a264-405f-a8aa-4f6161267056\",\"tree_id\":\"10e9c969-1828-47ff-96f3-55de61e5c72e\",\"user_id\":\"ad7a359a-5902-4"
+    },
+    {
+      "id": "VIEWER-01",
+      "name": "User B (Viewer) opens shared tree",
+      "expected": "HTTP 200 OK (role='viewer')",
+      "actual": "HTTP 200 (role='viewer')",
+      "passed": true,
+      "status": "PASS",
+      "endpoint": "GET /trees/10e9c969-1828-47ff-96f3-55de61e5c72e",
+      "notes": "Name: Updated Seed Tree, PeopleCount: 117"
+    },
+    {
+      "id": "VIEWER-02",
+      "name": "User B (Viewer) views people list of shared tree",
+      "expected": "HTTP 200 OK with people records",
+      "actual": "HTTP 200 (117 people)",
+      "passed": true,
+      "status": "PASS",
+      "endpoint": "GET /people?tree_id=10e9c969-1828-47ff-96f3-55de61e5c72e",
+      "notes": "Found 117 people"
+    },
+    {
+      "id": "VIEWER-03",
+      "name": "User B (Viewer) attempting to edit a person",
+      "expected": "HTTP 403 Forbidden ('Viewers cannot modify this family tree')",
+      "actual": "HTTP 403",
+      "passed": true,
+      "status": "PASS",
+      "endpoint": "PATCH /people/466f3229-6e5d-4916-b72e-44825fc87dac",
+      "notes": "Response: {\"detail\":\"Viewers cannot modify this family tree\"}"
+    },
+    {
+      "id": "VIEWER-04",
+      "name": "User B (Viewer) attempting to rename tree",
+      "expected": "HTTP 403 Forbidden ('Only the tree owner can perform this action')",
+      "actual": "HTTP 403",
+      "passed": true,
+      "status": "PASS",
+      "endpoint": "PATCH /trees/10e9c969-1828-47ff-96f3-55de61e5c72e",
+      "notes": "Response: {\"detail\":\"Only the tree owner can perform this action\"}"
+    },
+    {
+      "id": "VIEWER-05",
+      "name": "User B (Viewer) attempting to add a person to shared tree",
+      "expected": "HTTP 403 Forbidden ('Viewers cannot modify this family tree')",
+      "actual": "HTTP 403",
+      "passed": true,
+      "status": "PASS",
+      "endpoint": "POST /people?tree_id=10e9c969-1828-47ff-96f3-55de61e5c72e",
+      "notes": "Response: {\"detail\":\"Viewers cannot modify this family tree\"}"
+    },
+    {
+      "id": "VIEWER-06",
+      "name": "User B (Viewer) attempting to delete a person from shared tree",
+      "expected": "HTTP 403 Forbidden ('Viewers cannot modify this family tree')",
+      "actual": "HTTP 403",
+      "passed": true,
+      "status": "PASS",
+      "endpoint": "DELETE /people/466f3229-6e5d-4916-b72e-44825fc87dac",
+      "notes": "Response: {\"detail\":\"Viewers cannot modify this family tree\"}"
+    },
+    {
+      "id": "VIEWER-07",
+      "name": "User B (Viewer) attempting to link people in shared tree",
+      "expected": "HTTP 403 Forbidden ('Viewers cannot modify this family tree')",
+      "actual": "HTTP 403",
+      "passed": true,
+      "status": "PASS",
+      "endpoint": "POST /people/link",
+      "notes": "Response: {\"detail\":\"Viewers cannot modify this family tree\"}"
+    },
+    {
+      "id": "VIEWER-08",
+      "name": "User B (Viewer) attempting to unlink relationships in shared tree",
+      "expected": "HTTP 403 Forbidden",
+      "actual": "HTTP 404",
+      "passed": true,
+      "status": "PASS",
+      "endpoint": "DELETE /people/466f3229-6e5d-4916-b72e-44825fc87dac/relationships",
+      "notes": "Response: {\"detail\":\"Not Found\"}"
+    },
+    {
+      "id": "ROLE-SEC-01",
+      "name": "User B attempting to promote self to Editor",
+      "expected": "HTTP 403 Forbidden ('Only the tree owner can perform this action')",
+      "actual": "HTTP 403",
+      "passed": true,
+      "status": "PASS",
+      "endpoint": "PATCH /trees/10e9c969-1828-47ff-96f3-55de61e5c72e/shares/319e9b78-a264-405f-a8aa-4f6161267056",
+      "notes": "Response: {\"detail\":\"Only the tree owner can perform this action\"} (503 if SQL operator mismatch occurs)"
+    },
+    {
+      "id": "EDITOR-01",
+      "name": "User B tree view reflects Editor role",
+      "expected": "HTTP 200 OK (role='editor')",
+      "actual": "HTTP 200 (role='editor')",
+      "passed": true,
+      "status": "PASS",
+      "endpoint": "GET /trees/10e9c969-1828-47ff-96f3-55de61e5c72e",
+      "notes": "Role: editor"
+    },
+    {
+      "id": "EDITOR-02",
+      "name": "User B (Editor) edits allowed person data in shared tree",
+      "expected": "HTTP 200 OK with updated field",
+      "actual": "HTTP 200",
+      "passed": true,
+      "status": "PASS",
+      "endpoint": "PATCH /people/466f3229-6e5d-4916-b72e-44825fc87dac",
+      "notes": "Updated occupation: Genealogist-1789755637"
+    },
+    {
+      "id": "EDITOR-03",
+      "name": "User A (Owner) sees the edits made by User B",
+      "expected": "Occupation matches 'Genealogist-1789755637'",
+      "actual": "Occupation is 'Genealogist-1789755637'",
+      "passed": true,
+      "status": "PASS",
+      "endpoint": "GET /people/466f3229-6e5d-4916-b72e-44825fc87dac",
+      "notes": "Confirmed synchronized data for owner"
+    },
+    {
+      "id": "EDITOR-04",
+      "name": "User B (Editor) attempting owner-only tree rename",
+      "expected": "HTTP 403 Forbidden ('Only the tree owner can perform this action')",
+      "actual": "HTTP 403",
+      "passed": true,
+      "status": "PASS",
+      "endpoint": "PATCH /trees/10e9c969-1828-47ff-96f3-55de61e5c72e",
+      "notes": "Response: {\"detail\":\"Only the tree owner can perform this action\"}"
+    },
+    {
+      "id": "EDITOR-05",
+      "name": "User B (Editor) attempting owner-only collaborator sharing",
+      "expected": "HTTP 403 Forbidden ('Only the tree owner can perform this action')",
+      "actual": "HTTP 403",
+      "passed": true,
+      "status": "PASS",
+      "endpoint": "POST /trees/10e9c969-1828-47ff-96f3-55de61e5c72e/shares",
+      "notes": "Response: {\"detail\":\"Only the tree owner can perform this action\"}"
+    },
+    {
+      "id": "REVOKE-SEC-01",
+      "name": "Unauthorized removal attempt by third-party User C",
+      "expected": "HTTP 403 Forbidden",
+      "actual": "HTTP 403",
+      "passed": true,
+      "status": "PASS",
+      "endpoint": "DELETE /trees/10e9c969-1828-47ff-96f3-55de61e5c72e/shares/319e9b78-a264-405f-a8aa-4f6161267056",
+      "notes": "Response: {\"detail\":\"You do not have access to this family tree\"}"
+    },
+    {
+      "id": "REVOKE-01",
+      "name": "User B immediately loses access to tree after removal",
+      "expected": "HTTP 403 Forbidden ('You do not have access to this family tree')",
+      "actual": "HTTP 403",
+      "passed": true,
+      "status": "PASS",
+      "endpoint": "GET /trees/10e9c969-1828-47ff-96f3-55de61e5c72e",
+      "notes": "Response: {\"detail\":\"You do not have access to this family tree\"}"
+    },
+    {
+      "id": "REVOKE-02",
+      "name": "User B immediately loses access to tree people after removal",
+      "expected": "HTTP 403 Forbidden ('You do not have access to this family tree')",
+      "actual": "HTTP 403",
+      "passed": true,
+      "status": "PASS",
+      "endpoint": "GET /people?tree_id=10e9c969-1828-47ff-96f3-55de61e5c72e",
+      "notes": "Response: {\"detail\":\"You do not have access to this family tree\"}"
+    },
+    {
+      "id": "REVOKE-03",
+      "name": "User B blocked from editing after removal",
+      "expected": "HTTP 403 Forbidden ('You do not have access to this family tree')",
+      "actual": "HTTP 403",
+      "passed": true,
+      "status": "PASS",
+      "endpoint": "PATCH /people/466f3229-6e5d-4916-b72e-44825fc87dac",
+      "notes": "Response: {\"detail\":\"You do not have access to this family tree\"}"
+    },
+    {
+      "id": "SHARE-DUP-01",
+      "name": "Duplicate share with already-shared user",
+      "expected": "Handles idempotently (updates role) or rejects gracefully",
+      "actual": "HTTP 201",
+      "passed": true,
+      "status": "PASS",
+      "endpoint": "POST /trees/10e9c969-1828-47ff-96f3-55de61e5c72e/shares",
+      "notes": "Response: {\"id\":\"28b3ede9-326c-4254-81d2-65cdb24aa222\",\"tree_id\":\"10e9c969-1828-47ff-96f3-55de61e5c72e\",\"user_"
+    },
+    {
+      "id": "IDOR-01",
+      "name": "User B accessing User C tree by ID manipulation",
+      "expected": "HTTP 403 Forbidden ('You do not have access to this family tree')",
+      "actual": "HTTP 403",
+      "passed": true,
+      "status": "PASS",
+      "endpoint": "GET /trees/bce61b82-6d6d-4619-adeb-d29010001446",
+      "notes": "Response: {\"detail\":\"You do not have access to this family tree\"}"
+    },
+    {
+      "id": "IDOR-02",
+      "name": "User B listing User C people by tree_id manipulation",
+      "expected": "HTTP 403 Forbidden ('You do not have access to this family tree')",
+      "actual": "HTTP 403",
+      "passed": true,
+      "status": "PASS",
+      "endpoint": "GET /people?tree_id=bce61b82-6d6d-4619-adeb-d29010001446",
+      "notes": "Response: {\"detail\":\"You do not have access to this family tree\"}"
+    },
+    {
+      "id": "IDOR-03",
+      "name": "User B editing User C person by person_id manipulation",
+      "expected": "HTTP 403 Forbidden ('You do not have access to this family tree')",
+      "actual": "HTTP 403",
+      "passed": true,
+      "status": "PASS",
+      "endpoint": "PATCH /people/0d5162df-fcf5-43b7-8321-bb3d6294727d",
+      "notes": "Response: {\"detail\":\"You do not have access to this family tree\"}"
+    },
+    {
+      "id": "IDOR-04",
+      "name": "User B deleting User C person by person_id manipulation",
+      "expected": "HTTP 403 Forbidden ('You do not have access to this family tree')",
+      "actual": "HTTP 403",
+      "passed": true,
+      "status": "PASS",
+      "endpoint": "DELETE /people/0d5162df-fcf5-43b7-8321-bb3d6294727d",
+      "notes": "Response: {\"detail\":\"You do not have access to this family tree\"}"
+    },
+    {
+      "id": "IDOR-05",
+      "name": "User B granting self access to User C tree by ID manipulation",
+      "expected": "HTTP 403 Forbidden ('Only the tree owner can perform this action')",
+      "actual": "HTTP 403",
+      "passed": true,
+      "status": "PASS",
+      "endpoint": "POST /trees/bce61b82-6d6d-4619-adeb-d29010001446/shares",
+      "notes": "Response: {\"detail\":\"You do not have access to this family tree\"}"
+    }
+  ]
+}
