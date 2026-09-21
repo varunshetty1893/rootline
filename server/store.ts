@@ -227,6 +227,17 @@ export interface FamilyStatistics {
   youngest_person: { id: string; name: string; date_of_birth: string; age?: number } | null;
 }
 
+export function normalizeToIsoString(dateVal: any): string {
+  if (!dateVal) return "";
+  if (typeof dateVal === "string") return dateVal;
+  if (dateVal instanceof Date) return dateVal.toISOString();
+  try {
+    return new Date(dateVal).toISOString();
+  } catch {
+    return String(dateVal);
+  }
+}
+
 export class MemoryStore {
   users: Map<string, User> = new Map();
   resetTokens: Map<string, PasswordResetToken> = new Map();
@@ -585,7 +596,7 @@ export class MemoryStore {
 
   getPeopleForOwner(ownerId: string, options?: { fullPhoto?: boolean }): PersonOut[] {
     const ownerPeople = Array.from(this.people.values()).filter((p) => p.owner_id === ownerId);
-    ownerPeople.sort((a, b) => a.created_at.localeCompare(b.created_at));
+    ownerPeople.sort((a, b) => normalizeToIsoString(a.created_at).localeCompare(normalizeToIsoString(b.created_at)));
 
     return ownerPeople.map((person) => this.serializePerson(person, options));
   }
@@ -860,7 +871,7 @@ export class MemoryStore {
             f.owner_id === ownerId &&
             (f.partner1_id === related.id || f.partner2_id === related.id)
         );
-        partnerFamilies.sort((a, b) => a.created_at.localeCompare(b.created_at));
+        partnerFamilies.sort((a, b) => normalizeToIsoString(a.created_at).localeCompare(normalizeToIsoString(b.created_at)));
         const complete = partnerFamilies.filter((f) => f.partner1_id && f.partner2_id);
         if (complete.length === 1) {
           fu = complete[0];
@@ -978,7 +989,7 @@ export class MemoryStore {
       const aMissing = a.partner1_id === null || a.partner2_id === null ? 0 : 1;
       const bMissing = b.partner1_id === null || b.partner2_id === null ? 0 : 1;
       if (aMissing !== bMissing) return aMissing - bMissing;
-      return a.created_at.localeCompare(b.created_at);
+      return normalizeToIsoString(a.created_at).localeCompare(normalizeToIsoString(b.created_at));
     });
 
     for (const family of candidateUnits) {

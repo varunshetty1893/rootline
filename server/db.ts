@@ -235,17 +235,54 @@ export async function loadInitialData() {
       pool.query<any>("SELECT * FROM chat_messages ORDER BY timestamp ASC"),
     ]);
 
+    const toIso = (val: any) => {
+      if (!val) return val;
+      if (val instanceof Date) return val.toISOString();
+      return typeof val === "string" ? val : String(val);
+    };
+
     return {
-      users: usersRes.rows,
-      resetTokens: tokensRes.rows,
-      families: familiesRes.rows,
-      familyMembers: membersRes.rows,
-      people: peopleRes.rows,
-      familyUnits: unitsRes.rows,
-      familyChildren: childrenRes.rows,
-      treeShares: treeSharesRes.rows,
-      activityLogs: activitiesRes.rows,
-      chatMessages: chatsRes.rows,
+      users: usersRes.rows.map((u: any) => ({
+        ...u,
+        created_at: toIso(u.created_at),
+      })),
+      resetTokens: tokensRes.rows.map((t: any) => ({
+        ...t,
+        created_at: toIso(t.created_at),
+        expires_at: toIso(t.expires_at),
+      })),
+      families: familiesRes.rows.map((f: any) => ({
+        ...f,
+        created_at: toIso(f.created_at),
+      })),
+      familyMembers: membersRes.rows.map((m: any) => ({
+        ...m,
+        joined_at: toIso(m.joined_at),
+      })),
+      people: peopleRes.rows.map((p: any) => ({
+        ...p,
+        created_at: toIso(p.created_at),
+      })),
+      familyUnits: unitsRes.rows.map((u: any) => ({
+        ...u,
+        created_at: toIso(u.created_at),
+      })),
+      familyChildren: childrenRes.rows.map((c: any) => ({
+        ...c,
+        created_at: toIso(c.created_at),
+      })),
+      treeShares: treeSharesRes.rows.map((s: any) => ({
+        ...s,
+        created_at: toIso(s.created_at),
+      })),
+      activityLogs: activitiesRes.rows.map((a: any) => ({
+        ...a,
+        created_at: toIso(a.created_at),
+      })),
+      chatMessages: chatsRes.rows.map((m: any) => ({
+        ...m,
+        timestamp: toIso(m.timestamp),
+      })),
     };
   } catch (err) {
     logger.error("Error loading initial data from PostgreSQL:", err);

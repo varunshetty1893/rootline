@@ -1,22 +1,26 @@
 // The local Express/Vite server listens on port 3000. In production this is
-// set to the public Render API URL through Vercel's VITE_API_URL variable.
-const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000").replace(/\/+$/, "");
+// set to the public API URL if configured, or relative origin by default.
+const API_URL = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
 
 /**
  * Central fetch wrapper.
  *
- * Authentication is now handled via an HttpOnly session cookie set by the
- * backend — no token is passed as an argument or stored in JavaScript.
- * `credentials: "include"` ensures the browser attaches the cookie on every
- * cross-origin request to the API.
+ * Authentication is handled via session cookies and optional Bearer token header
+ * (ensuring seamless support within iframe preview environments).
  */
 async function request(path, { method = "GET", body } = {}) {
+  const token = typeof window !== "undefined" ? localStorage.getItem("rootline_token") : null;
+  const headers = {
+    "Content-Type": "application/json",
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
   const res = await fetch(`${API_URL}${path}`, {
     method,
-    credentials: "include",          // send the HttpOnly session cookie
-    headers: {
-      "Content-Type": "application/json",
-    },
+    credentials: "include",          // send the session cookie
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   });
 
@@ -40,9 +44,26 @@ function withTree(path, treeId) {
 
 export const api = {
   // ── Auth ──────────────────────────────────────────────────────────────────
-  register: (payload) => request("/auth/register", { method: "POST", body: payload }),
-  login: (payload) => request("/auth/login", { method: "POST", body: payload }),
-  logout: () => request("/auth/logout", { method: "POST" }),
+  register: async (payload) => {
+    const data = await request("/auth/register", { method: "POST", body: payload });
+    if (data?.token && typeof window !== "undefined") {
+      localStorage.setItem("rootline_token", data.token);
+    }
+    return data;
+  },
+  login: async (payload) => {
+    const data = await request("/auth/login", { method: "POST", body: payload });
+    if (data?.token && typeof window !== "undefined") {
+      localStorage.setItem("rootline_token", data.token);
+    }
+    return data;
+  },
+  logout: async () => {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("rootline_token");
+    }
+    return request("/auth/logout", { method: "POST" });
+  },
   me: () => request("/auth/me"),
   updateProfile: (payload) => request("/auth/me", { method: "PATCH", body: payload }),
   forgotPassword: (email) =>
