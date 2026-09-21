@@ -6,6 +6,7 @@ import {
   dbSaveUser,
   dbSaveResetToken,
   dbSaveFamily,
+  dbDeleteFamily,
   dbSaveFamilyMember,
   dbDeleteFamilyMember,
   dbSavePerson,
@@ -35,6 +36,11 @@ export interface User {
   is_active: boolean;
   created_at: string;
   password_version: number;
+  photo_url?: string | null;
+  dob?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  bio?: string | null;
 }
 
 export interface PasswordResetToken {
@@ -155,6 +161,8 @@ export type ActivityAction =
   | "RELATIONSHIP_UPDATED"
   | "RELATIONSHIP_REMOVED"
   | "FAMILY_CREATED"
+  | "FAMILY_UPDATED"
+  | "FAMILY_DELETED"
   | "TREE_SHARED"
   | "SHARE_UPDATED"
   | "SHARE_PERMISSION_CHANGED"
@@ -357,6 +365,43 @@ export class MemoryStore {
     if (!user) return null;
     user.hashed_password = bcrypt.hashSync(newPassword, BCRYPT_ROUNDS);
     user.password_version += 1;
+    dbSaveUser(user).catch((e) => logger.error("dbSaveUser error:", e));
+    return user;
+  }
+
+  updateUserProfile(
+    userId: string,
+    updates: {
+      name?: string;
+      photo_url?: string | null;
+      dob?: string | null;
+      phone?: string | null;
+      address?: string | null;
+      bio?: string | null;
+    }
+  ): User | null {
+    const user = this.users.get(userId);
+    if (!user) return null;
+
+    if (updates.name !== undefined && updates.name.trim()) {
+      user.name = updates.name.trim();
+    }
+    if (updates.photo_url !== undefined) {
+      user.photo_url = updates.photo_url;
+    }
+    if (updates.dob !== undefined) {
+      user.dob = updates.dob ? updates.dob.trim() : null;
+    }
+    if (updates.phone !== undefined) {
+      user.phone = updates.phone ? updates.phone.trim() : null;
+    }
+    if (updates.address !== undefined) {
+      user.address = updates.address ? updates.address.trim() : null;
+    }
+    if (updates.bio !== undefined) {
+      user.bio = updates.bio ? updates.bio.trim() : null;
+    }
+
     dbSaveUser(user).catch((e) => logger.error("dbSaveUser error:", e));
     return user;
   }
@@ -1304,12 +1349,24 @@ export class MemoryStore {
 
   getUserTrees(userId: string): {
     owned: { family: Family; role: "owner" };
+    ownedList: Family[];
     shared: { family: Family; role: SharePermission; owner: { id: string; name: string; email: string } }[];
   } {
     const user = this.users.get(userId);
-    const ownFamily = user
-      ? this.getOrCreateFamilyForUser(user)
-      : { id: userId, owner_id: userId, name: "My Family Tree", created_at: new Date().toISOString() };
+    const ownedList: Family[] = [];
+    for (const fam of this.families.values()) {
+      if (fam.owner_id === userId) {
+        ownedList.push(fam);
+      }
+    }
+    if (ownedList.length === 0 && user) {
+      ownedList.push(this.getOrCreateFamilyForUser(user));
+    }
+    const defaultOwnFamily =
+      ownedList[0] ||
+      (user
+        ? this.getOrCreateFamilyForUser(user)
+        : { id: userId, owner_id: userId, name: "My Family Tree", created_at: new Date().toISOString() });
 
     const shared: { family: Family; role: SharePermission; owner: { id: string; name: string; email: string } }[] = [];
 
@@ -1328,9 +1385,137 @@ export class MemoryStore {
     }
 
     return {
-      owned: { family: ownFamily, role: "owner" },
+      owned: { family: defaultOwnFamily, role: "owner" },
+      ownedList,
       shared,
     };
+  }
+
+  createFamily(user: User, name: string): Family {
+    const family: Family = {
+      id: crypto.randomUUID(),
+      owner_id: user.id,
+      name: name.trim(),
+      created_at: new Date().toISOString(),
+    };
+    this.families.set(family.id, family);
+    dbSaveFamily(family).catch((e) => logger.error("dbSaveFamily error:", e));
+
+    const memberId = `${family.id}-${user.id}`;
+    const member: FamilyMember = {
+      id: memberId,
+      family_id: family.id,
+      user_id: user.id,
+      role: "owner",
+      joined_at: family.created_at,
+    };
+    this.familyMembers.set(memberId, member);
+    dbSaveFamilyMember(member).catch((e) => logger.error("dbSaveFamilyMember error:", e));
+
+    this.logActivity({
+      family_id: family.id,
+      actor_id: user.id,
+      actor_name: user.name,
+      action: "FAMILY_CREATED",
+      target_type: "family",
+      target_id: family.id,
+      target_name: family.name,
+      description: `${user.name} created family tree "${family.name}"`,
+    });
+
+    return family;
+  }
+
+  renameFamily(userId: string, familyId: string, name: string): Family {
+    const family = this.families.get(familyId);
+    if (!family) throw new Error("Family tree not found.");
+    if (family.owner_id !== userId) {
+      throw new Error("Only the tree owner can rename this family tree.");
+    }
+    family.name = name.trim();
+    dbSaveFamily(family).catch((e) => logger.error("dbSaveFamily error:", e));
+
+    this.logActivity({
+      family_id: family.id,
+      actor_id: userId,
+      actor_name: this.users.get(userId)?.name || "Owner",
+      action: "FAMILY_UPDATED",
+      target_type: "family",
+      target_id: family.id,
+      target_name: family.name,
+      description: `Renamed family tree to "${family.name}"`,
+    });
+
+    return family;
+  }
+
+  deleteFamily(userId: string, familyId: string): boolean {
+    const family = this.families.get(familyId);
+    if (!family) throw new Error("Family tree not found.");
+    if (family.owner_id !== userId) {
+      throw new Error("Only the tree owner can delete this family tree.");
+    }
+
+    let ownedCount = 0;
+    for (const f of this.families.values()) {
+      if (f.owner_id === userId) ownedCount++;
+    }
+    if (ownedCount <= 1) {
+      throw new Error("You cannot delete your only family tree.");
+    }
+
+    this.families.delete(familyId);
+
+    for (const [key, m] of this.familyMembers.entries()) {
+      if (m.family_id === familyId) {
+        this.familyMembers.delete(key);
+      }
+    }
+
+    for (const [key, s] of this.treeShares.entries()) {
+      if (s.family_id === familyId) {
+        this.treeShares.delete(key);
+      }
+    }
+
+    const personIdsToDelete: string[] = [];
+    for (const p of this.people.values()) {
+      if (p.owner_id === familyId) {
+        personIdsToDelete.push(p.id);
+      }
+    }
+    for (const pid of personIdsToDelete) {
+      this.people.delete(pid);
+    }
+
+    const unitIdsToDelete: string[] = [];
+    for (const u of this.familyUnits.values()) {
+      if (u.owner_id === familyId) {
+        unitIdsToDelete.push(u.id);
+      }
+    }
+    for (const uid of unitIdsToDelete) {
+      this.familyUnits.delete(uid);
+      for (const [cid, c] of this.familyChildren.entries()) {
+        if (c.family_unit_id === uid) {
+          this.familyChildren.delete(cid);
+        }
+      }
+    }
+
+    dbDeleteFamily(familyId).catch((e) => logger.error("dbDeleteFamily error:", e));
+    return true;
+  }
+
+  removeSharedTreeForUser(userId: string, familyId: string): boolean {
+    for (const [key, s] of this.treeShares.entries()) {
+      if (s.family_id === familyId && s.user_id === userId) {
+        this.treeShares.delete(key);
+        dbDeleteTreeShare(s.id).catch((e) => logger.error("dbDeleteTreeShare error:", e));
+        return true;
+      }
+    }
+    return false;
   }
 
   createOrUpdateTreeShare(params: {

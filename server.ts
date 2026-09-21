@@ -307,7 +307,7 @@ export async function createExpressApp() {
     return res.json({ message: "Logged out successfully" });
   });
 
-  app.get("/auth/me", requireAuth, (req: AuthRequest, res) => {
+  const handleGetMe = (req: AuthRequest, res: any) => {
     const user = req.user!;
     return res.json({
       id: user.id,
@@ -315,8 +315,76 @@ export async function createExpressApp() {
       email: user.email,
       is_active: user.is_active,
       created_at: user.created_at,
+      photo_url: user.photo_url || null,
+      dob: user.dob || null,
+      phone: user.phone || null,
+      address: user.address || null,
+      bio: user.bio || null,
     });
-  });
+  };
+
+  app.get("/auth/me", requireAuth, handleGetMe);
+  app.get("/api/auth/me", requireAuth, handleGetMe);
+
+  const handleUpdateProfile = (req: AuthRequest, res: any) => {
+    try {
+      const user = req.user!;
+      if (!isRecord(req.body)) {
+        return res.status(422).json({ detail: "Invalid profile payload." });
+      }
+      const { name, photo_url, dob, phone, address, bio } = req.body;
+
+      if (name !== undefined && !isText(name, 120, 1)) {
+        return res.status(422).json({ detail: "Name must be between 1 and 120 characters." });
+      }
+      if (photo_url !== undefined && photo_url !== null && typeof photo_url === "string" && photo_url.length > 3_000_000) {
+        return res.status(422).json({ detail: "Photo payload is too large. Max 2MB." });
+      }
+      if (dob !== undefined && dob !== null && !isText(dob, 50)) {
+        return res.status(422).json({ detail: "Date of birth format is invalid." });
+      }
+      if (phone !== undefined && phone !== null && !isText(phone, 50)) {
+        return res.status(422).json({ detail: "Phone number is invalid or too long." });
+      }
+      if (address !== undefined && address !== null && !isText(address, 500)) {
+        return res.status(422).json({ detail: "Address is too long." });
+      }
+      if (bio !== undefined && bio !== null && !isText(bio, 5000)) {
+        return res.status(422).json({ detail: "Bio is too long." });
+      }
+
+      const updated = store.updateUserProfile(user.id, {
+        name: typeof name === "string" ? name : undefined,
+        photo_url: typeof photo_url === "string" ? photo_url : photo_url === null ? null : undefined,
+        dob: typeof dob === "string" ? dob : dob === null ? null : undefined,
+        phone: typeof phone === "string" ? phone : phone === null ? null : undefined,
+        address: typeof address === "string" ? address : address === null ? null : undefined,
+        bio: typeof bio === "string" ? bio : bio === null ? null : undefined,
+      });
+
+      if (!updated) {
+        return res.status(404).json({ detail: "User not found." });
+      }
+
+      return res.json({
+        id: updated.id,
+        name: updated.name,
+        email: updated.email,
+        is_active: updated.is_active,
+        created_at: updated.created_at,
+        photo_url: updated.photo_url || null,
+        dob: updated.dob || null,
+        phone: updated.phone || null,
+        address: updated.address || null,
+        bio: updated.bio || null,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ detail: err.message || "Failed to update profile." });
+    }
+  };
+
+  app.patch("/auth/me", requireAuth, handleUpdateProfile);
+  app.patch("/api/auth/me", requireAuth, handleUpdateProfile);
 
   async function sendPasswordResetEmail(toEmail: string, resetToken: string, req: Request) {
     const host = process.env.SMTP_HOST;
@@ -705,7 +773,7 @@ export async function createExpressApp() {
   // People endpoints with Multi-Family Collaboration & Activity Tracking
   app.get("/people", requireAuth, (req: AuthRequest, res) => {
     try {
-      const familyId = (req.query.family_id as string) || req.user!.id;
+      const familyId = (req.query.family_id as string) || (req.query.tree_id as string) || req.user!.id;
       const access = store.checkFamilyAccess(req.user!.id, familyId);
       if (!access) {
         return res.status(403).json({ detail: "Access denied to this family tree." });
@@ -785,7 +853,12 @@ export async function createExpressApp() {
         return res.status(422).json({ detail: "One or more person fields are invalid or too long" });
       }
 
-      let targetFamilyId = (req.query.family_id as string) || null;
+      let targetFamilyId =
+        (req.query.family_id as string) ||
+        (req.query.tree_id as string) ||
+        (body.family_id as string) ||
+        (body.tree_id as string) ||
+        null;
       if (!targetFamilyId && related_to_id) {
         const relatedPerson = store.people.get(related_to_id);
         if (relatedPerson) {
@@ -793,7 +866,8 @@ export async function createExpressApp() {
         }
       }
       if (!targetFamilyId) {
-        targetFamilyId = req.user!.id;
+        const userTrees = store.getUserTrees(req.user!.id);
+        targetFamilyId = userTrees.owned.family.id;
       }
 
       const access = store.checkFamilyAccess(req.user!.id, targetFamilyId);
@@ -962,7 +1036,7 @@ export async function createExpressApp() {
 
   app.get("/api/family/current", requireAuth, (req: AuthRequest, res) => {
     try {
-      const requestedId = (req.query.family_id as string) || req.user!.id;
+      const requestedId = (req.query.family_id as string) || (req.query.tree_id as string) || req.user!.id;
       const userTrees = store.getUserTrees(req.user!.id);
 
       let currentFamily = userTrees.owned.family;
@@ -996,7 +1070,39 @@ export async function createExpressApp() {
   const handleGetMyTrees = (req: AuthRequest, res: any) => {
     try {
       const trees = store.getUserTrees(req.user!.id);
-      return res.json(trees);
+      const ownedList = trees.ownedList || [trees.owned.family];
+      const ownedTrees = ownedList.map((fam) => {
+        const people = store.getPeopleForOwner(fam.id);
+        return {
+          id: fam.id,
+          name: fam.name,
+          owner_id: fam.owner_id,
+          role: "owner" as const,
+          created_at: fam.created_at,
+          people_count: people.length,
+        };
+      });
+
+      const sharedTrees = (trees.shared || []).map((s) => {
+        const people = store.getPeopleForOwner(s.family.id);
+        return {
+          id: s.family.id,
+          name: s.family.name,
+          owner_id: s.family.owner_id,
+          owner_name: s.owner?.name || "Owner",
+          owner_email: s.owner?.email || "",
+          role: s.role,
+          created_at: s.family.created_at,
+          people_count: people.length,
+        };
+      });
+
+      return res.json({
+        owned: trees.owned,
+        shared: trees.shared,
+        owned_trees: ownedTrees,
+        shared_trees: sharedTrees,
+      });
     } catch (err: any) {
       return res.status(500).json({ detail: err.message || "Failed to get user trees" });
     }
@@ -1116,6 +1222,76 @@ export async function createExpressApp() {
 
   app.delete("/api/families/:id/shares/:shareId", requireAuth, handleDeleteShare);
   app.delete("/families/:id/shares/:shareId", requireAuth, handleDeleteShare);
+
+  // Tree management endpoints (create new tree, rename tree, delete tree, leave tree)
+  const handleCreateFamily = (req: AuthRequest, res: any) => {
+    try {
+      const { name } = isRecord(req.body) ? req.body : {};
+      if (!name || typeof name !== "string" || !name.trim()) {
+        return res.status(400).json({ detail: "Tree name is required." });
+      }
+      if (name.trim().length > 100) {
+        return res.status(400).json({ detail: "Tree name cannot exceed 100 characters." });
+      }
+      const family = store.createFamily(req.user!, name.trim());
+      return res.status(201).json(family);
+    } catch (err: any) {
+      return res.status(500).json({ detail: err.message || "Failed to create family tree." });
+    }
+  };
+  app.post("/api/families", requireAuth, handleCreateFamily);
+  app.post("/families", requireAuth, handleCreateFamily);
+
+  const handleUpdateFamily = (req: AuthRequest, res: any) => {
+    try {
+      const rawFamilyId = req.params.id;
+      const familyId = Array.isArray(rawFamilyId) ? rawFamilyId[0] : rawFamilyId;
+      const { name } = isRecord(req.body) ? req.body : {};
+      if (!name || typeof name !== "string" || !name.trim()) {
+        return res.status(400).json({ detail: "Tree name is required." });
+      }
+      if (name.trim().length > 100) {
+        return res.status(400).json({ detail: "Tree name cannot exceed 100 characters." });
+      }
+      const updated = store.renameFamily(req.user!.id, familyId, name.trim());
+      return res.json(updated);
+    } catch (err: any) {
+      const status = err.message.includes("owner") ? 403 : err.message.includes("not found") ? 404 : 400;
+      return res.status(status).json({ detail: err.message || "Failed to update family tree." });
+    }
+  };
+  app.patch("/api/families/:id", requireAuth, handleUpdateFamily);
+  app.patch("/families/:id", requireAuth, handleUpdateFamily);
+
+  const handleDeleteFamily = (req: AuthRequest, res: any) => {
+    try {
+      const rawFamilyId = req.params.id;
+      const familyId = Array.isArray(rawFamilyId) ? rawFamilyId[0] : rawFamilyId;
+      store.deleteFamily(req.user!.id, familyId);
+      return res.json({ message: "Family tree deleted successfully." });
+    } catch (err: any) {
+      const status = err.message.includes("owner") ? 403 : err.message.includes("only") ? 400 : 400;
+      return res.status(status).json({ detail: err.message || "Failed to delete family tree." });
+    }
+  };
+  app.delete("/api/families/:id", requireAuth, handleDeleteFamily);
+  app.delete("/families/:id", requireAuth, handleDeleteFamily);
+
+  const handleLeaveSharedTree = (req: AuthRequest, res: any) => {
+    try {
+      const rawFamilyId = req.params.id;
+      const familyId = Array.isArray(rawFamilyId) ? rawFamilyId[0] : rawFamilyId;
+      const success = store.removeSharedTreeForUser(req.user!.id, familyId);
+      if (!success) {
+        return res.status(404).json({ detail: "Shared tree not found or you are not a collaborator on it." });
+      }
+      return res.json({ message: "Left shared tree successfully." });
+    } catch (err: any) {
+      return res.status(500).json({ detail: err.message || "Failed to leave shared tree." });
+    }
+  };
+  app.post("/api/families/:id/leave", requireAuth, handleLeaveSharedTree);
+  app.post("/families/:id/leave", requireAuth, handleLeaveSharedTree);
 
   // =========================================================================
   // Phase 2: Change History / Family Activity Log Endpoints

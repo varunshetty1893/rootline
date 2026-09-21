@@ -22,6 +22,7 @@ import {
   Check,
   GitBranch,
   Menu,
+  UserCheck,
 } from "lucide-react";
 import AppHeader from "./AppHeader.jsx";
 import RelationshipChat from "./RelationshipChat.jsx";
@@ -339,12 +340,21 @@ function PersonCard({
           <div
             className="w-12 h-12 rounded-full bg-[#EDF4F3] border-2 border-white/70 shadow-sm flex items-center justify-center overflow-hidden"
           >
-            <GitBranch className="w-5 h-5 text-[#C9BEA8]" strokeWidth={2.5} />
+            {person.photo_url ? (
+              <img
+                src={person.photo_url}
+                alt={person.name}
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <GitBranch className="w-5 h-5 text-[#C9BEA8]" strokeWidth={2.5} />
+            )}
           </div>
           {isRoot && (
             <span
-              title="This is you"
-              className="absolute -bottom-1 -right-2 text-[9px] font-semibold bg-[#174F61] text-white rounded-full px-1.5 py-0.5 leading-none shadow-sm"
+              title="This is you (Tree Starter)"
+              className="absolute -bottom-1 -right-2 text-[9px] font-bold bg-[#174F61] text-white rounded-full px-1.5 py-0.5 leading-none shadow-sm ring-1 ring-white"
             >
               You
             </span>
@@ -393,6 +403,8 @@ export default function TreeView() {
   const [quickError, setQuickError] = useState("");
   const [quickSaving, setQuickSaving] = useState(false);
   const [inspectorTab, setInspectorTab] = useState("personal");
+  const [changeRootModalOpen, setChangeRootModalOpen] = useState(false);
+  const [changeRootSearch, setChangeRootSearch] = useState("");
   const [isPanning, setIsPanning] = useState(false);
   const [collapseControls, setCollapseControls] = useState([]);
   const [focusedView, setFocusedView] = useState(false);
@@ -441,6 +453,7 @@ export default function TreeView() {
   );
 
   const selectedPerson = selectedId ? people.find((p) => p.id === selectedId) : null;
+  const rootPerson = useMemo(() => people.find((p) => p.id === rootPersonId) || null, [people, rootPersonId]);
 
   useEffect(() => {
     if (people.length && !people.some((p) => p.id === selectedId)) {
@@ -854,6 +867,9 @@ export default function TreeView() {
     setCollapsedFamilyKeys(new Set(withChildren));
   };
   const expandAll = () => setCollapsedFamilyKeys(new Set());
+  const resetExpand = () => {
+    setCollapsedFamilyKeys(recommendedCollapsedFamilyKeys(scopedPeople, rootPersonId));
+  };
 
   const handleSearch = (e) => {
     e.preventDefault();
@@ -1148,6 +1164,36 @@ export default function TreeView() {
                     >
                       <Pencil className="w-4 h-4" /> Edit person
                     </Link>
+                    {rootPersonId === selectedPerson.id ? (
+                      <div className="mt-2.5 flex items-center justify-between px-3 py-2 rounded-md bg-[#E7F1EB] border border-[#1C4B3C]/30 text-[#1C4B3C] text-xs font-semibold">
+                        <div className="flex items-center gap-1.5">
+                          <Check className="w-4 h-4 text-[#1C4B3C]" strokeWidth={2.5} />
+                          <span>Marked as "You" (Tree Starter)</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setChangeRootSearch("");
+                            setChangeRootModalOpen(true);
+                          }}
+                          className="text-[10px] text-[#1C4B3C] underline hover:text-[#163C30]"
+                        >
+                          Change
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRootPersonId(selectedPerson.id);
+                          uncollapseImmediateFamily(selectedPerson.id);
+                        }}
+                        className="mt-2.5 flex items-center justify-center gap-2 w-full rounded-md border border-[#1C4B3C] bg-white text-[#1C4B3C] hover:bg-[#1C4B3C] hover:text-white text-xs font-semibold py-2 transition-colors shadow-2xs"
+                      >
+                        <UserCheck className="w-3.5 h-3.5" />
+                        Set as "You" (Tree Starter)
+                      </button>
+                    )}
                   </>
                 )}
 
@@ -1193,6 +1239,34 @@ export default function TreeView() {
             </div>
             <div className="grid grid-cols-2 gap-2 px-5 pb-5">
               <Link to={`/people/${selectedPerson.id}/edit`} className="col-span-2 flex items-center justify-center gap-2 rounded-md bg-[#1C4B3C] py-2.5 text-sm font-medium text-white"><Pencil className="h-4 w-4" /> Edit person</Link>
+              {rootPersonId === selectedPerson.id ? (
+                <div className="col-span-2 flex items-center justify-between px-3 py-2 rounded-md bg-[#E7F1EB] border border-[#1C4B3C]/30 text-[#1C4B3C] text-xs font-semibold">
+                  <div className="flex items-center gap-1.5">
+                    <Check className="w-3.5 h-3.5" /> Marked as "You" (Tree Starter)
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setChangeRootSearch("");
+                      setChangeRootModalOpen(true);
+                    }}
+                    className="text-[10px] text-[#1C4B3C] underline"
+                  >
+                    Change
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRootPersonId(selectedPerson.id);
+                    uncollapseImmediateFamily(selectedPerson.id);
+                  }}
+                  className="col-span-2 flex items-center justify-center gap-1.5 rounded-md border border-[#1C4B3C] bg-white text-[#1C4B3C] text-xs font-semibold py-2"
+                >
+                  <UserCheck className="w-3.5 h-3.5" /> Set as "You" (Tree Starter)
+                </button>
+              )}
               <button type="button" onClick={() => openQuickAdd("parent")} className="rounded-md bg-[#D7E7DF] py-2 text-xs font-medium text-[#1C4B3C]">Add parent</button>
               <button type="button" onClick={() => openQuickAdd("sibling")} className="rounded-md bg-[#D7E7DF] py-2 text-xs font-medium text-[#1C4B3C]">Add sibling</button>
               <button type="button" onClick={() => openQuickAdd("spouse")} className="rounded-md bg-[#D7E7DF] py-2 text-xs font-medium text-[#1C4B3C]">Add partner</button>
@@ -1300,33 +1374,87 @@ export default function TreeView() {
                 Print
               </button>
 
-              <button
-                type="button"
-                onClick={collapseAll}
-                title="Collapse all branches"
-                className="hidden sm:flex items-center gap-1 text-xs text-[#374151] border border-[#D9D3C3] rounded-lg px-2.5 py-1.5 bg-white hover:bg-[#F0EDE3]"
-              >
-                <ChevronsDownUp className="w-3.5 h-3.5" />
-                Collapse all
-              </button>
-              <button
-                type="button"
-                onClick={expandAll}
-                title="Expand all branches"
-                className="hidden sm:flex items-center gap-1 text-xs text-[#374151] border border-[#D9D3C3] rounded-lg px-2.5 py-1.5 bg-white hover:bg-[#F0EDE3]"
-              >
-                <ChevronsUpDown className="w-3.5 h-3.5" />
-                Expand all
-              </button>
+              {/* Option in right to see and change Root Person ("You") */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setChangeRootSearch("");
+                    setChangeRootModalOpen(true);
+                  }}
+                  title="Change starting person ('You') for the tree"
+                  className="flex items-center gap-1.5 text-xs text-[#1C1F1D] border border-[#1C4B3C]/35 rounded-lg px-2.5 py-1.5 bg-white hover:bg-[#E7F1EB] shadow-2xs transition-colors"
+                >
+                  <UserCheck className="w-3.5 h-3.5 text-[#1C4B3C]" />
+                  <span>
+                    You: <strong className="font-semibold text-[#1C4B3C]">{rootPerson?.name || "None"}</strong>
+                  </span>
+                  <span className="text-[10px] text-[#1C4B3C] bg-[#E7F1EB] px-1.5 py-0.5 rounded font-semibold border border-[#1C4B3C]/20">
+                    Change
+                  </span>
+                </button>
+              </div>
+
+              {/* Expand All / Collapse All / Reset Expand Options */}
+              <div className="hidden sm:flex items-center gap-0.5 border border-[#D9D3C3] rounded-lg p-0.5 bg-white shadow-2xs">
+                <button
+                  type="button"
+                  onClick={expandAll}
+                  title="Expand all branches"
+                  className="flex items-center gap-1 text-xs text-[#374151] hover:text-[#1C4B3C] px-2 py-1 rounded hover:bg-[#F0EDE3] font-medium transition-colors"
+                >
+                  <ChevronsUpDown className="w-3.5 h-3.5 text-[#1C4B3C]" />
+                  <span>Expand all</span>
+                </button>
+                <span className="w-px h-3.5 bg-[#E7E2D6]" />
+                <button
+                  type="button"
+                  onClick={collapseAll}
+                  title="Collapse all branches"
+                  className="flex items-center gap-1 text-xs text-[#374151] hover:text-[#1C4B3C] px-2 py-1 rounded hover:bg-[#F0EDE3] font-medium transition-colors"
+                >
+                  <ChevronsDownUp className="w-3.5 h-3.5 text-[#6B7280]" />
+                  <span>Collapse all</span>
+                </button>
+                <span className="w-px h-3.5 bg-[#E7E2D6]" />
+                <button
+                  type="button"
+                  onClick={resetExpand}
+                  title="Remove manual expand/collapse — reset to default"
+                  className="text-xs text-[#6B7280] hover:text-[#1C4B3C] px-2 py-1 rounded hover:bg-[#F0EDE3] font-medium transition-colors"
+                >
+                  Reset
+                </button>
+              </div>
+
               <div className="relative sm:hidden">
                 <button type="button" onClick={() => setMobileToolsOpen((open) => !open)} className="flex items-center gap-1 rounded-lg border border-[#D9D3C3] bg-white px-2.5 py-1.5 text-xs text-[#374151]" aria-expanded={mobileToolsOpen}>
                   <Menu className="h-3.5 w-3.5" /> More
                 </button>
                 {mobileToolsOpen && (
-                  <div className="absolute right-0 top-full z-20 mt-1 w-40 overflow-hidden rounded-lg border border-[#D9D3C3] bg-white py-1 shadow-lg">
+                  <div className="absolute right-0 top-full z-20 mt-1 w-48 overflow-hidden rounded-lg border border-[#D9D3C3] bg-white py-1 shadow-lg">
+                    <button type="button" onClick={() => { expandAll(); setMobileToolsOpen(false); }} className="w-full px-3 py-2 text-left text-xs text-[#374151] hover:bg-[#F7F5F0] flex items-center gap-2">
+                      <ChevronsUpDown className="w-3.5 h-3.5 text-[#1C4B3C]" /> Expand all branches
+                    </button>
+                    <button type="button" onClick={() => { collapseAll(); setMobileToolsOpen(false); }} className="w-full px-3 py-2 text-left text-xs text-[#374151] hover:bg-[#F7F5F0] flex items-center gap-2">
+                      <ChevronsDownUp className="w-3.5 h-3.5 text-[#6B7280]" /> Collapse all branches
+                    </button>
+                    <button type="button" onClick={() => { resetExpand(); setMobileToolsOpen(false); }} className="w-full px-3 py-2 text-left text-xs text-[#6B7280] hover:bg-[#F7F5F0]">
+                      Reset branch expansion
+                    </button>
+                    <div className="border-t border-[#F0EDE3] my-1" />
                     <button type="button" onClick={() => { window.print(); setMobileToolsOpen(false); }} className="w-full px-3 py-2 text-left text-xs text-[#374151] hover:bg-[#F7F5F0]">Print tree</button>
-                    <button type="button" onClick={() => { collapseAll(); setMobileToolsOpen(false); }} className="w-full px-3 py-2 text-left text-xs text-[#374151] hover:bg-[#F7F5F0]">Collapse all</button>
-                    <button type="button" onClick={() => { expandAll(); setMobileToolsOpen(false); }} className="w-full px-3 py-2 text-left text-xs text-[#374151] hover:bg-[#F7F5F0]">Expand all</button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setChangeRootSearch("");
+                        setChangeRootModalOpen(true);
+                        setMobileToolsOpen(false);
+                      }}
+                      className="w-full px-3 py-2 text-left text-xs text-[#1C4B3C] font-semibold hover:bg-[#F7F5F0] flex items-center gap-1.5 border-t border-[#F0EDE3]"
+                    >
+                      <UserCheck className="h-3.5 w-3.5" /> Change "You" ({rootPerson?.name || "None"})
+                    </button>
                   </div>
                 )}
               </div>
@@ -1684,6 +1812,113 @@ export default function TreeView() {
           </form>
         </div>
       )}
+      {/* Change Root Person ("You") Modal */}
+      {changeRootModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setChangeRootModalOpen(false)}>
+          <div
+            className="w-full max-w-md rounded-xl bg-white shadow-2xl border border-[#E7E2D6] overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-[#E7E2D6] px-5 py-4 bg-[#F7F9F7]">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-[#1C4B3C]/10 flex items-center justify-center">
+                  <UserCheck className="w-4 h-4 text-[#1C4B3C]" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-[#1C1F1D]">Change Starting Person ("You")</h3>
+                  <p className="text-[11px] text-[#6B7280]">Select who should be the reference point for relationships</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setChangeRootModalOpen(false)}
+                className="p-1 rounded-lg text-[#6B7280] hover:bg-[#EAE6DD]"
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 border-b border-[#E7E2D6]">
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-[#9CA3AF] absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={changeRootSearch}
+                  onChange={(e) => setChangeRootSearch(e.target.value)}
+                  placeholder="Filter by name…"
+                  className="w-full text-xs rounded-lg border border-[#D9D3C3] pl-8 pr-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#1C4B3C]/30 focus:border-[#1C4B3C]"
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            <div className="max-h-72 overflow-y-auto p-2 divide-y divide-[#F0EDE3]">
+              {people
+                .filter((p) => !changeRootSearch || p.name.toLowerCase().includes(changeRootSearch.toLowerCase()))
+                .map((p) => {
+                  const isCurrent = p.id === rootPersonId;
+                  return (
+                    <div
+                      key={p.id}
+                      className={`flex items-center justify-between p-2.5 rounded-lg transition-colors ${
+                        isCurrent ? "bg-[#E7F1EB]" : "hover:bg-[#F7F5F0]"
+                      }`}
+                    >
+                      <div className="min-w-0 flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-full bg-[#EDF4F3] border border-[#1C4B3C]/20 flex items-center justify-center text-xs font-semibold text-[#1C4B3C]">
+                          {p.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold text-[#1C1F1D] truncate">{p.name}</p>
+                          <p className="text-[10px] text-[#6B7280]">
+                            {p.gender ? p.gender.charAt(0).toUpperCase() + p.gender.slice(1) : "Person"}
+                            {p.dob ? ` · Born ${p.dob.slice(0, 4)}` : ""}
+                          </p>
+                        </div>
+                      </div>
+                      {isCurrent ? (
+                        <span className="flex items-center gap-1 text-[11px] font-semibold text-[#1C4B3C] bg-white border border-[#1C4B3C]/30 px-2 py-1 rounded-md">
+                          <Check className="w-3 h-3" /> Current "You"
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRootPersonId(p.id);
+                            setSelectedId(p.id);
+                            uncollapseImmediateFamily(p.id);
+                            setChangeRootModalOpen(false);
+                            requestAnimationFrame(() => centerPerson(p.id));
+                          }}
+                          className="text-[11px] font-semibold text-white bg-[#1C4B3C] hover:bg-[#163C30] px-2.5 py-1 rounded-md shadow-2xs"
+                        >
+                          Set as "You"
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              {people.filter((p) => !changeRootSearch || p.name.toLowerCase().includes(changeRootSearch.toLowerCase())).length === 0 && (
+                <div className="p-4 text-center text-xs text-[#6B7280]">
+                  No matching people found.
+                </div>
+              )}
+            </div>
+
+            <div className="bg-[#F7F9F7] px-4 py-3 border-t border-[#E7E2D6] flex justify-end">
+              <button
+                type="button"
+                onClick={() => setChangeRootModalOpen(false)}
+                className="text-xs font-medium text-[#5A6980] hover:text-[#1C1F1D] px-3 py-1.5"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <RelationshipChat
         people={people}
         rootPersonId={rootPersonId}

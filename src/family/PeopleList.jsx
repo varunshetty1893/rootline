@@ -6,14 +6,16 @@ import { useFamily } from "./FamilyContext.jsx";
 
 function relationSummary(person, getPerson) {
   const parts = [];
-  if (person.parentIds.length) {
+  const parentIds = person?.parentIds || [];
+  const spouseIds = person?.spouseIds || [];
+  if (parentIds.length) {
     parts.push(
-      `child of ${person.parentIds.map((id) => getPerson(id)?.name).filter(Boolean).join(" & ")}`
+      `child of ${parentIds.map((id) => getPerson(id)?.name).filter(Boolean).join(" & ")}`
     );
   }
-  if (person.spouseIds.length) {
+  if (spouseIds.length) {
     parts.push(
-      `married to ${person.spouseIds.map((id) => getPerson(id)?.name).filter(Boolean).join(", ")}`
+      `married to ${spouseIds.map((id) => getPerson(id)?.name).filter(Boolean).join(", ")}`
     );
   }
   return parts.join(" · ");

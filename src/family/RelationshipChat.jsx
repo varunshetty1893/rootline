@@ -16,13 +16,14 @@ function personDescription(person, people) {
   return clues.length ? `${person.name} — ${clues.join(" · ")}` : `${person.name} — no extra details recorded`;
 }
 
-export default function RelationshipChat({ people, rootPersonId, selectedPerson, selectedRelationship, defaultOpen = false, openSignal = 0 }) {
+export default function RelationshipChat({ people = [], rootPersonId, selectedPerson, selectedRelationship, defaultOpen = false, openSignal = 0 }) {
+  const safePeople = Array.isArray(people) ? people : [];
   const [open, setOpen] = useState(defaultOpen);
   const [messages, setMessages] = useState([welcome]);
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const listRef = useRef(null);
-  const rootPerson = people.find((person) => person.id === rootPersonId);
+  const rootPerson = safePeople.find((person) => person.id === rootPersonId);
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
@@ -35,7 +36,7 @@ export default function RelationshipChat({ people, rootPersonId, selectedPerson,
   const sendQuestion = async (question, subject = selectedPerson) => {
     const subjectRelationship = subject?.id === selectedPerson?.id
       ? selectedRelationship
-      : subject && rootPerson ? findRelationship(rootPerson.id, subject.id, people) : null;
+      : subject && rootPerson ? findRelationship(rootPerson.id, subject.id, safePeople) : null;
     setMessages((items) => [...items, { role: "user", text: question }]);
     setSending(true);
     try {
@@ -44,12 +45,12 @@ export default function RelationshipChat({ people, rootPersonId, selectedPerson,
         root_person_name: rootPerson?.name || null,
         selected_person_name: subject?.name || null,
         selected_relationship: subjectRelationship?.label || null,
-        people: people.slice(0, 120).map((person) => ({
+        people: safePeople.slice(0, 120).map((person) => ({
           name: person.name,
           gender: person.gender || null,
           address: person.address || null,
-          parents: (person.parentIds || []).map((id) => people.find((candidate) => candidate.id === id)?.name).filter(Boolean),
-          spouses: (person.spouseIds || []).map((id) => people.find((candidate) => candidate.id === id)?.name).filter(Boolean),
+          parents: (person.parentIds || []).map((id) => safePeople.find((candidate) => candidate.id === id)?.name).filter(Boolean),
+          spouses: (person.spouseIds || []).map((id) => safePeople.find((candidate) => candidate.id === id)?.name).filter(Boolean),
         })),
       });
       setMessages((items) => [...items, { role: "assistant", text: response.answer, provider: response.provider }]);
@@ -66,12 +67,12 @@ export default function RelationshipChat({ people, rootPersonId, selectedPerson,
     if (!question || sending) return;
     setMessage("");
     const lowerQuestion = question.toLowerCase();
-    const duplicateName = [...new Set(people.filter((person) => lowerQuestion.includes(person.name.toLowerCase())).map((person) => person.name.toLowerCase()))]
-      .find((name) => people.filter((person) => person.name.toLowerCase() === name).length > 1);
+    const duplicateName = [...new Set(safePeople.filter((person) => lowerQuestion.includes(person.name.toLowerCase())).map((person) => person.name.toLowerCase()))]
+      .find((name) => safePeople.filter((person) => person.name.toLowerCase() === name).length > 1);
     if (duplicateName) {
-      const candidates = people.filter((person) => person.name.toLowerCase() === duplicateName);
+      const candidates = safePeople.filter((person) => person.name.toLowerCase() === duplicateName);
       const describedCandidate = candidates.find((person) => {
-        const clues = [person.address, ...(person.spouseIds || []).map((id) => people.find((candidate) => candidate.id === id)?.name), ...(person.parentIds || []).map((id) => people.find((candidate) => candidate.id === id)?.name)].filter(Boolean);
+        const clues = [person.address, ...(person.spouseIds || []).map((id) => safePeople.find((candidate) => candidate.id === id)?.name), ...(person.parentIds || []).map((id) => safePeople.find((candidate) => candidate.id === id)?.name)].filter(Boolean);
         return clues.some((clue) => lowerQuestion.includes(clue.toLowerCase()));
       });
       if (!describedCandidate) {
@@ -79,7 +80,7 @@ export default function RelationshipChat({ people, rootPersonId, selectedPerson,
           role: "assistant",
           text: `I found ${candidates.length} people named ${candidates[0].name}. Which one do you mean?`,
           provider: "Rootline guide",
-          options: candidates.map((person) => ({ id: person.id, label: personDescription(person, people), question })),
+          options: candidates.map((person) => ({ id: person.id, label: personDescription(person, safePeople), question })),
         }]);
         return;
       }

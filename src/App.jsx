@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "./AuthContext.jsx";
 import { FamilyProvider } from "./family/FamilyContext.jsx";
 import ProtectedRoute from "./ProtectedRoute.jsx";
+import { ErrorBoundary } from "./ErrorBoundary.jsx";
 
 import RootlineHome from "./RootlineHome.jsx";
 import RootlineTerms from "./RootlineTerms.jsx";
@@ -17,13 +18,15 @@ import PeopleList from "./family/PeopleList.jsx";
 import PersonForm from "./family/PersonForm.jsx";
 import PersonDetail from "./family/PersonDetail.jsx";
 import TreeView from "./family/TreeView.jsx";
+import SharedTrees from "./family/SharedTrees.jsx";
 
 export default function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <FamilyProvider>
-          <Routes>
+      <ErrorBoundary>
+        <AuthProvider>
+          <FamilyProvider>
+            <Routes>
             <Route path="/" element={<RootlineHome />} />
             <Route path="/terms" element={<RootlineTerms />} />
             <Route path="/privacy" element={<RootlinePrivacy />} />
@@ -81,6 +84,14 @@ export default function App() {
               }
             />
             <Route
+              path="/shared-trees"
+              element={
+                <ProtectedRoute>
+                  <SharedTrees />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/support"
               element={
                 <ProtectedRoute>
@@ -91,6 +102,7 @@ export default function App() {
           </Routes>
         </FamilyProvider>
       </AuthProvider>
-    </BrowserRouter>
+    </ErrorBoundary>
+  </BrowserRouter>
   );
 }

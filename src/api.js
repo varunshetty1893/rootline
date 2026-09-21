@@ -91,8 +91,11 @@ export const api = {
   // ── Trees ─────────────────────────────────────────────────────────────
   listTrees: () => request("/families/my-trees"),
   getTree: (treeId) => request(`/api/family/current?family_id=${encodeURIComponent(treeId)}`),
+  createTree: (name) => request("/families", { method: "POST", body: { name } }),
   updateTree: (treeId, payload) =>
     request(`/families/${treeId}`, { method: "PATCH", body: payload }),
+  deleteTree: (treeId) => request(`/families/${treeId}`, { method: "DELETE" }),
+  leaveSharedTree: (treeId) => request(`/families/${treeId}/leave`, { method: "POST" }),
 
   // ── Tree Shares ───────────────────────────────────────────────────────
   listShares: (treeId) => request(`/families/${treeId}/shares`),

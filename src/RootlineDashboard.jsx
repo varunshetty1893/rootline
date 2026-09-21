@@ -58,7 +58,7 @@ export default function RootlineDashboard() {
           })()
         ).size;
 
-  const sharedTrees = treeList.shared_trees || [];
+  const sharedTrees = treeList?.shared_trees || [];
 
   return (
     <div className="min-h-screen w-full bg-[#F7F5F0] flex flex-col">
@@ -118,7 +118,7 @@ export default function RootlineDashboard() {
           </div>
           <div className="bg-white border border-[#E7E2D6] rounded-xl px-5 py-5">
             <p className="text-2xl font-serif font-bold text-[#1C1F1D]">
-              {Math.floor(people.filter((p) => p.spouseIds.length > 0).length / 2)}
+              {Math.floor(people.filter((p) => (p.spouseIds || []).length > 0).length / 2)}
             </p>
             <p className="text-xs text-[#9CA3AF] mt-1">couples linked</p>
           </div>

@@ -32,13 +32,55 @@ function mapPerson(person) {
 // other person's relationship from ("your grandmother", "your cousin"...).
 // Stored per-account in localStorage rather than the backend since it's a
 // pure viewing preference, not family data other people would ever need.
-function rootStorageKey(userId) {
-  return `rootline:root-person:${userId}`;
+function rootStorageKey(userId, treeId) {
+  return `rootline:root-person:${userId}${treeId ? `:${treeId}` : ""}`;
 }
 
 /** Key used to persist which tree was last active for this user. */
 function activeTreeStorageKey(userId) {
   return `rootline:active-tree:${userId}`;
+}
+
+function normalizeTreeList(raw) {
+  if (!raw || typeof raw !== "object") {
+    return { owned_trees: [], shared_trees: [], owned: null, shared: [] };
+  }
+
+  let owned_trees = [];
+  let shared_trees = [];
+
+  if (Array.isArray(raw.owned_trees)) {
+    owned_trees = raw.owned_trees;
+  } else if (raw.owned?.family) {
+    owned_trees = [
+      {
+        id: raw.owned.family.id,
+        name: raw.owned.family.name,
+        owner_id: raw.owned.family.owner_id,
+        role: "owner",
+        people_count: raw.owned.people_count ?? 0,
+      },
+    ];
+  }
+
+  if (Array.isArray(raw.shared_trees)) {
+    shared_trees = raw.shared_trees;
+  } else if (Array.isArray(raw.shared)) {
+    shared_trees = raw.shared.map((s) => ({
+      id: s.family?.id || s.id,
+      name: s.family?.name || s.name || "Shared Tree",
+      owner_id: s.family?.owner_id || s.owner_id,
+      owner_name: s.owner?.name || s.owner_name || "Owner",
+      role: s.role || "viewer",
+      people_count: s.people_count ?? 0,
+    }));
+  }
+
+  return {
+    ...raw,
+    owned_trees,
+    shared_trees,
+  };
 }
 
 export function FamilyProvider({ children }) {
@@ -64,8 +106,9 @@ export function FamilyProvider({ children }) {
     }
     try {
       const data = await api.listTrees();
-      setTreeList(data);
-      return data;
+      const normalized = normalizeTreeList(data);
+      setTreeList(normalized);
+      return normalized;
     } catch (_) {
       // Non-fatal — keep whatever we had
     }
@@ -104,12 +147,15 @@ export function FamilyProvider({ children }) {
       setMyRole("owner");
       return;
     }
-    const owned = treeList.owned_trees.find((t) => t.id === activeTreeId);
+    const ownedTrees = treeList?.owned_trees || [];
+    const sharedTrees = treeList?.shared_trees || [];
+
+    const owned = ownedTrees.find((t) => t.id === activeTreeId);
     if (owned) {
       setMyRole("owner");
       return;
     }
-    const shared = treeList.shared_trees.find((t) => t.id === activeTreeId);
+    const shared = sharedTrees.find((t) => t.id === activeTreeId);
     if (shared) {
       setMyRole(shared.role);
       return;
@@ -124,12 +170,14 @@ export function FamilyProvider({ children }) {
 
   // ── Active tree record ─────────────────────────────────────────────────
   const activeTree = useMemo(() => {
+    const ownedTrees = treeList?.owned_trees || [];
+    const sharedTrees = treeList?.shared_trees || [];
     if (!activeTreeId) {
-      return treeList.owned_trees[0] || null;
+      return ownedTrees[0] || null;
     }
     return (
-      treeList.owned_trees.find((t) => t.id === activeTreeId) ||
-      treeList.shared_trees.find((t) => t.id === activeTreeId) ||
+      ownedTrees.find((t) => t.id === activeTreeId) ||
+      sharedTrees.find((t) => t.id === activeTreeId) ||
       null
     );
   }, [activeTreeId, treeList]);
@@ -157,35 +205,74 @@ export function FamilyProvider({ children }) {
     refresh();
   }, [refresh, user?.id]);
 
-  // Load the saved root person for this account once we know who's logged
-  // in; falls back to the oldest-created person (usually the one the user
-  // added first, i.e. themself) until they explicitly pick someone else.
+  // Load the saved root person for this account and tree once loaded.
   useEffect(() => {
     if (!user?.id) {
       setRootPersonIdState(null);
       return;
     }
-    const saved = localStorage.getItem(rootStorageKey(user.id));
+    const treeKey = rootStorageKey(user.id, activeTreeId);
+    const globalKey = rootStorageKey(user.id);
+    const saved = localStorage.getItem(treeKey) || localStorage.getItem(globalKey);
     setRootPersonIdState(saved || null);
-  }, [user?.id]);
+  }, [user?.id, activeTreeId]);
 
   const setRootPersonId = useCallback(
     (id) => {
       setRootPersonIdState(id);
       if (user?.id) {
-        if (id) localStorage.setItem(rootStorageKey(user.id), id);
-        else localStorage.removeItem(rootStorageKey(user.id));
+        const treeKey = rootStorageKey(user.id, activeTreeId);
+        const globalKey = rootStorageKey(user.id);
+        if (id) {
+          localStorage.setItem(treeKey, id);
+          localStorage.setItem(globalKey, id);
+        } else {
+          localStorage.removeItem(treeKey);
+          localStorage.removeItem(globalKey);
+        }
       }
     },
-    [user?.id]
+    [user?.id, activeTreeId]
   );
 
-  // Effective root: the saved choice if it still exists, otherwise the
-  // earliest-added person, otherwise nothing (empty tree).
+  // Effective root:
+  // 1. Explicitly chosen person if they still exist in the tree.
+  // 2. Who started the tree: person matching the user who created/started the tree.
+  // 3. Fallback to earliest-added person.
   const effectiveRootPersonId = useCallback(() => {
     if (rootPersonId && people.some((p) => p.id === rootPersonId)) return rootPersonId;
+
+    if (user && people.length > 0) {
+      const cleanUserName = (user.name || "").trim().toLowerCase();
+      if (cleanUserName) {
+        // Exact match first
+        const exact = people.find((p) => (p.name || "").trim().toLowerCase() === cleanUserName);
+        if (exact) return exact.id;
+
+        // Substring / first name match (e.g. user "Varun Shetty" matching person "Varun")
+        const userParts = cleanUserName.split(/\s+/).filter(Boolean);
+        const matchPart = people.find((p) => {
+          const pName = (p.name || "").trim().toLowerCase();
+          const pParts = pName.split(/\s+/).filter(Boolean);
+          return (
+            (userParts[0] && pParts[0] === userParts[0]) ||
+            cleanUserName.includes(pName) ||
+            pName.includes(userParts[0] || "")
+          );
+        });
+        if (matchPart) return matchPart.id;
+      }
+
+      // Check if notes/bio mention "You" or "Self"
+      const selfPerson = people.find((p) => {
+        const notes = (p.notes || "").toLowerCase();
+        return notes.includes("you") || notes.includes("self");
+      });
+      if (selfPerson) return selfPerson.id;
+    }
+
     return people[0]?.id || null;
-  }, [rootPersonId, people]);
+  }, [rootPersonId, people, user]);
 
   // Issue #34: Memoized byId lookup map so getPerson is O(1) instead of repeated linear scans.
   const peopleById = useMemo(() => {
@@ -218,13 +305,16 @@ export function FamilyProvider({ children }) {
         new_family: Boolean(relation?.newFamily),
       };
       const created = await api.createPerson(payload, activeTreeId || undefined);
+      if (people.length === 0 && created?.id) {
+        setRootPersonId(created.id);
+      }
       // A relation can change other people's parent/spouse lists too
       // (e.g. a new spouse links back to the existing partner), so
       // refresh the whole list rather than patching just the new node.
       await refresh();
       return created.id;
     },
-    [refresh, activeTreeId]
+    [refresh, activeTreeId, people.length, setRootPersonId]
   );
 
   const updatePerson = useCallback(
@@ -285,6 +375,50 @@ export function FamilyProvider({ children }) {
     [people, getPerson]
   );
 
+  const createTree = useCallback(
+    async (name) => {
+      const newFamily = await api.createTree(name);
+      await refreshTreeList();
+      setActiveTreeId(newFamily.id);
+      return newFamily;
+    },
+    [refreshTreeList, setActiveTreeId]
+  );
+
+  const renameTree = useCallback(
+    async (treeId, name) => {
+      const updated = await api.updateTree(treeId, { name });
+      await refreshTreeList();
+      return updated;
+    },
+    [refreshTreeList]
+  );
+
+  const deleteTree = useCallback(
+    async (treeId) => {
+      await api.deleteTree(treeId);
+      const updatedList = await refreshTreeList();
+      if (activeTreeId === treeId) {
+        const nextTree =
+          updatedList?.owned_trees?.find((t) => t.id !== treeId) || updatedList?.owned_trees?.[0];
+        setActiveTreeId(nextTree ? nextTree.id : null);
+      }
+    },
+    [activeTreeId, refreshTreeList, setActiveTreeId]
+  );
+
+  const leaveSharedTree = useCallback(
+    async (treeId) => {
+      await api.leaveSharedTree(treeId);
+      const updatedList = await refreshTreeList();
+      if (activeTreeId === treeId) {
+        const nextTree = updatedList?.owned_trees?.[0];
+        setActiveTreeId(nextTree ? nextTree.id : null);
+      }
+    },
+    [activeTreeId, refreshTreeList, setActiveTreeId]
+  );
+
   return (
     <FamilyContext.Provider
       value={{
@@ -310,6 +444,10 @@ export function FamilyProvider({ children }) {
         treeList,
         refreshTreeList,
         refresh,
+        createTree,
+        renameTree,
+        deleteTree,
+        leaveSharedTree,
       }}
     >
       {children}

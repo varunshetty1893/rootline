@@ -91,7 +91,12 @@ async function initSchema(client: pg.PoolClient) {
       google_id TEXT,
       is_active BOOLEAN DEFAULT TRUE,
       created_at TEXT NOT NULL,
-      password_version INTEGER DEFAULT 1
+      password_version INTEGER DEFAULT 1,
+      photo_url TEXT,
+      dob TEXT,
+      phone TEXT,
+      address TEXT,
+      bio TEXT
     );
 
     CREATE TABLE IF NOT EXISTS password_reset_tokens (
@@ -203,6 +208,16 @@ async function initSchema(client: pg.PoolClient) {
   `;
 
   await client.query(schemaSql);
+
+  // Auto-migrate newly introduced user profile columns if table already existed
+  await client.query(`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS photo_url TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS dob TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS address TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT;
+  `);
+
   logger.info("PostgreSQL database tables and indexes verified.");
 }
 
@@ -295,15 +310,20 @@ export async function dbSaveUser(user: User): Promise<void> {
   if (!pool || !isPostgresActive) return;
   try {
     await pool.query(
-      `INSERT INTO users (id, name, email, hashed_password, google_id, is_active, created_at, password_version)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO users (id, name, email, hashed_password, google_id, is_active, created_at, password_version, photo_url, dob, phone, address, bio)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        ON CONFLICT (id) DO UPDATE SET
          name = EXCLUDED.name,
          email = EXCLUDED.email,
          hashed_password = EXCLUDED.hashed_password,
          google_id = EXCLUDED.google_id,
          is_active = EXCLUDED.is_active,
-         password_version = EXCLUDED.password_version`,
+         password_version = EXCLUDED.password_version,
+         photo_url = EXCLUDED.photo_url,
+         dob = EXCLUDED.dob,
+         phone = EXCLUDED.phone,
+         address = EXCLUDED.address,
+         bio = EXCLUDED.bio`,
       [
         user.id,
         user.name,
@@ -313,6 +333,11 @@ export async function dbSaveUser(user: User): Promise<void> {
         user.is_active,
         user.created_at,
         user.password_version,
+        user.photo_url || null,
+        user.dob || null,
+        user.phone || null,
+        user.address || null,
+        user.bio || null,
       ]
     );
   } catch (err) {
@@ -345,6 +370,25 @@ export async function dbSaveFamily(family: Family): Promise<void> {
     );
   } catch (err) {
     logger.error("dbSaveFamily error:", err);
+  }
+}
+
+export async function dbDeleteFamily(familyId: string): Promise<void> {
+  if (!pool || !isPostgresActive) return;
+  try {
+    await pool.query("DELETE FROM tree_shares WHERE family_id = $1", [familyId]);
+    await pool.query("DELETE FROM family_members WHERE family_id = $1", [familyId]);
+    await pool.query("DELETE FROM activity_logs WHERE family_id = $1", [familyId]);
+    await pool.query("DELETE FROM chat_messages WHERE family_id = $1", [familyId]);
+    await pool.query(
+      "DELETE FROM family_children WHERE family_unit_id IN (SELECT id FROM family_units WHERE owner_id = $1)",
+      [familyId]
+    );
+    await pool.query("DELETE FROM family_units WHERE owner_id = $1", [familyId]);
+    await pool.query("DELETE FROM people WHERE owner_id = $1", [familyId]);
+    await pool.query("DELETE FROM families WHERE id = $1", [familyId]);
+  } catch (err) {
+    logger.error("dbDeleteFamily error:", err);
   }
 }
 
