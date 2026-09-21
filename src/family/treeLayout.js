@@ -52,7 +52,7 @@ export function computeLayout(allPeople, collapsedFamilyKeys = new Set(), rootPe
       if (!spouse) continue;
       const spouseParentFamilies = parentGroupsFor(spouse, allById);
       if (!spouseParentFamilies.length) {
-        return true;
+        continue;
       }
       const spouseHasUncollapsedParentFamily = spouseParentFamilies.some(
         (parents) => !collapsedFamilyKeys.has(parents.join("|"))
@@ -66,6 +66,12 @@ export function computeLayout(allPeople, collapsedFamilyKeys = new Set(), rootPe
     for (const childId of familyChildren.get(familyKey) || []) {
       if (isProtectedSpouse(childId)) continue;
       hidden.add(childId);
+      for (const sId of spouseMap.get(childId) || []) {
+        const spouse = allById.get(sId);
+        if (spouse && parentGroupsFor(spouse, allById).length === 0) {
+          hidden.add(sId);
+        }
+      }
       descendantsOf(childId, childrenMapFull).forEach((descendantId) => {
         const descendant = allById.get(descendantId);
         const otherParentVisible = (descendant?.parentIds || []).some(
@@ -73,24 +79,23 @@ export function computeLayout(allPeople, collapsedFamilyKeys = new Set(), rootPe
         );
         if (!otherParentVisible) {
           hidden.add(descendantId);
+          for (const sId of spouseMap.get(descendantId) || []) {
+            const spouse = allById.get(sId);
+            if (spouse && parentGroupsFor(spouse, allById).length === 0) {
+              hidden.add(sId);
+            }
+          }
         }
       });
     }
   }
 
-  // Second pass: ensure no spouse or child of a visible person remains hidden.
+  // Second pass: ensure no person who has an uncollapsed parent family or
+  // is a spouse of a visible person with lineage remains hidden.
   let changed = true;
   while (changed) {
     changed = false;
     for (const hiddenId of [...hidden]) {
-      const hasVisibleSpouse = [...(spouseMap.get(hiddenId) || [])].some(
-        (spouseId) => !hidden.has(spouseId) && allById.has(spouseId)
-      );
-      if (hasVisibleSpouse) {
-        hidden.delete(hiddenId);
-        changed = true;
-        continue;
-      }
       const person = allById.get(hiddenId);
       const parentFamilies = parentGroupsFor(person, allById);
       const hasUncollapsedFamily = parentFamilies.some(
@@ -99,6 +104,22 @@ export function computeLayout(allPeople, collapsedFamilyKeys = new Set(), rootPe
       if (hasUncollapsedFamily) {
         hidden.delete(hiddenId);
         changed = true;
+        continue;
+      }
+      const hasVisibleSpouse = [...(spouseMap.get(hiddenId) || [])].some(
+        (spouseId) => !hidden.has(spouseId) && allById.has(spouseId)
+      );
+      if (hasVisibleSpouse) {
+        const visibleSpouses = [...(spouseMap.get(hiddenId) || [])].filter(
+          (sId) => !hidden.has(sId) && allById.has(sId)
+        );
+        const spouseWithLineage = visibleSpouses.some(
+          (sId) => parentGroupsFor(allById.get(sId), allById).length > 0 || (childrenMapFull.get(sId) || []).some((c) => !hidden.has(c))
+        );
+        if (spouseWithLineage) {
+          hidden.delete(hiddenId);
+          changed = true;
+        }
       }
     }
   }

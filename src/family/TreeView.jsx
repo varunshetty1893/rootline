@@ -414,6 +414,7 @@ export default function TreeView() {
   const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
   const [mobileSheetMinimized, setMobileSheetMinimized] = useState(false);
   const panState = useRef(null);
+  const lastRootRef = useRef(null);
 
   // Large trees are easier to understand when the selected person's nearby
   // family is shown first. The full tree is still available with one click.
@@ -427,6 +428,21 @@ export default function TreeView() {
     () => computeLayout(scopedPeople, collapsedFamilyKeys, rootPersonId),
     [scopedPeople, collapsedFamilyKeys, rootPersonId]
   );
+
+  // Initialize recommended collapsed branches on first load or when the root person changes,
+  // so the tree opens focused on closely related family with "+" buttons on collateral branches.
+  useEffect(() => {
+    if (!people.length) return;
+    const focus = rootPersonId || people[0]?.id;
+    if (!focus) return;
+    if (lastRootRef.current !== focus) {
+      lastRootRef.current = focus;
+      const recommended = recommendedCollapsedFamilyKeys(people, new Set([focus]));
+      if (recommended.size > 0) {
+        setCollapsedFamilyKeys(recommended);
+      }
+    }
+  }, [people, rootPersonId]);
 
   // Safety guard: If collapsing ever leads to 0 rows while people exist in this tree,
   // automatically reset collapsed branches so the tree is never invisible.
@@ -677,9 +693,6 @@ export default function TreeView() {
 
   const handleSelectPerson = (id) => {
     setSelectedId((cur) => (cur === id ? null : id));
-    if (id) {
-      uncollapseImmediateFamily(id);
-    }
   };
 
   const handleDeleteSelected = async () => {
@@ -846,13 +859,6 @@ export default function TreeView() {
       const next = new Set(prev);
       if (next.has(familyKey)) {
         next.delete(familyKey);
-        const pIds = familyKey.split("|").filter(Boolean);
-        for (const k of next) {
-          const kIds = k.split("|").filter(Boolean);
-          if (pIds.some((id) => kIds.includes(id))) {
-            next.delete(k);
-          }
-        }
       } else {
         next.add(familyKey);
       }
@@ -869,19 +875,22 @@ export default function TreeView() {
   };
   const expandAll = () => setCollapsedFamilyKeys(new Set());
   const resetExpand = () => {
-    setCollapsedFamilyKeys(new Set());
+    const focus = rootPersonId || people[0]?.id;
+    if (focus) {
+      setCollapsedFamilyKeys(recommendedCollapsedFamilyKeys(people, new Set([focus])));
+    } else {
+      setCollapsedFamilyKeys(new Set());
+    }
   };
 
   const handleBackToMe = useCallback(() => {
     if (!rootPersonId) return;
-    // Unconditionally reset all collapsed branches so tree is fully open and never invisible
-    setCollapsedFamilyKeys(new Set());
-    setFocusedView(false);
     setSelectedId(rootPersonId);
+    uncollapseImmediateFamily(rootPersonId);
     requestAnimationFrame(() => {
       centerPerson(rootPersonId);
     });
-  }, [rootPersonId, centerPerson]);
+  }, [rootPersonId, centerPerson, uncollapseImmediateFamily]);
 
   const handleSearch = (e) => {
     e.preventDefault();

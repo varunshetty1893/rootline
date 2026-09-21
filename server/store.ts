@@ -22,10 +22,11 @@ import {
 } from "./db.js";
 import { logger } from "./logger.js";
 
-const configuredBcryptRounds = Number.parseInt(process.env.BCRYPT_ROUNDS || "12", 10);
-const BCRYPT_ROUNDS = Number.isInteger(configuredBcryptRounds) && configuredBcryptRounds >= 12 && configuredBcryptRounds <= 15
+const configuredBcryptRounds = Number.parseInt(process.env.BCRYPT_ROUNDS || (process.env.NODE_ENV === "test" ? "4" : "12"), 10);
+const minRounds = process.env.NODE_ENV === "test" ? 4 : 12;
+const BCRYPT_ROUNDS = Number.isInteger(configuredBcryptRounds) && configuredBcryptRounds >= minRounds && configuredBcryptRounds <= 15
   ? configuredBcryptRounds
-  : 12;
+  : (process.env.NODE_ENV === "test" ? 4 : 12);
 
 export interface User {
   id: string;
