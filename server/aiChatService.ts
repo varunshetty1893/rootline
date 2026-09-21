@@ -185,7 +185,7 @@ function runRuleBasedEngine(
 }
 
 /**
- * Call Gemini 3.8 Flash via @google/genai
+ * Call Gemini Flash via @google/genai with automatic model fallback
  */
 async function callGemini(
   systemInstruction: string,
@@ -210,30 +210,57 @@ async function callGemini(
     parts: [{ text: latestMessage }],
   });
 
-  const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error("Gemini API request timed out after 6 seconds")), 6000)
-  );
-
-  const response = await Promise.race([
-    client.models.generateContent({
-      model: "gemini-3.8-flash",
-      contents,
-      config: {
-        systemInstruction: {
-          parts: [{ text: systemInstruction }],
-        },
-        temperature: 0.4,
-      },
-    }),
-    timeoutPromise,
-  ]);
-
-  const text = response.text?.trim();
-  if (!text) {
-    throw new Error("Empty response returned from Gemini API");
+  // Candidate models: respect non-deprecated configured model or default to gemini-3.6-flash, with gemini-3.8-flash fallback
+  const candidateModels: string[] = [];
+  const configuredModel = process.env.GEMINI_MODEL;
+  if (
+    configuredModel &&
+    !configuredModel.includes("2.5") &&
+    !configuredModel.includes("1.5") &&
+    !configuredModel.includes("2.0")
+  ) {
+    candidateModels.push(configuredModel);
+  }
+  if (!candidateModels.includes("gemini-3.6-flash")) {
+    candidateModels.push("gemini-3.6-flash");
+  }
+  if (!candidateModels.includes("gemini-3.8-flash")) {
+    candidateModels.push("gemini-3.8-flash");
   }
 
-  return { text, model: "gemini-3.8-flash" };
+  let lastError: any = null;
+
+  for (const modelName of candidateModels) {
+    try {
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`Gemini API request timed out after 12 seconds (${modelName})`)), 12000)
+      );
+
+      const response = await Promise.race([
+        client.models.generateContent({
+          model: modelName,
+          contents,
+          config: {
+            systemInstruction: {
+              parts: [{ text: systemInstruction }],
+            },
+            temperature: 0.4,
+          },
+        }),
+        timeoutPromise,
+      ]);
+
+      const text = response.text?.trim();
+      if (text) {
+        return { text, model: modelName };
+      }
+    } catch (err: any) {
+      lastError = err;
+      logger.warn(`Gemini model attempt (${modelName}) failed: ${err?.message || err}. Trying next candidate model if available...`);
+    }
+  }
+
+  throw lastError || new Error("Empty response returned from Gemini API");
 }
 
 /**

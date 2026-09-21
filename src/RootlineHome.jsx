@@ -71,7 +71,7 @@ function InteractiveFamilyTree3D() {
       onMouseMove={handleMouseMove}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      className="relative w-full max-w-[540px] h-[520px] select-none cursor-grab active:cursor-grabbing flex items-center justify-center"
+      className="relative w-full max-w-[540px] h-[450px] sm:h-[520px] select-none cursor-grab active:cursor-grabbing flex items-center justify-center scale-[0.72] xxs:scale-[0.82] xs:scale-[0.9] sm:scale-100 origin-center my-[-30px] sm:my-0"
       style={{ perspective: "1200px" }}
     >
       {/* Dynamic 3D Scene Root */}
@@ -427,7 +427,7 @@ export default function RootlineHome() {
     <div className="min-h-screen w-full bg-[#F7F5F0] flex flex-col font-sans text-[#1C1F1D]">
 
       {/* ── Header / Navigation ── */}
-      <header className="sticky top-0 z-40 grid grid-cols-[1fr_auto_1fr] items-center px-5 sm:px-8 lg:px-16 py-4 sm:py-5 border-b border-[#E7E2D6] bg-[#F7F5F0]/95 backdrop-blur-sm">
+      <header className="sticky top-0 z-40 flex justify-between md:grid md:grid-cols-[1fr_auto_1fr] items-center px-4 sm:px-8 lg:px-16 py-3.5 sm:py-5 border-b border-[#E7E2D6] bg-[#F7F5F0]/95 backdrop-blur-sm">
         {/* Logo & Name directing to landing page */}
         <Link
           to="/"
@@ -539,7 +539,7 @@ export default function RootlineHome() {
           </div>
 
           {/* Right — Interactive 3D Family Tree Canvas */}
-          <div className="flex justify-center items-center py-6">
+          <div className="flex justify-center items-center py-2 sm:py-6 overflow-hidden w-full">
             <InteractiveFamilyTree3D />
           </div>
         </div>

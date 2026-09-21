@@ -36,11 +36,11 @@ export default function PersonDetail() {
               The person you are looking for may have been removed or does not exist.
             </p>
             <Link
-              to="/people"
+              to="/manage-tree"
               className="inline-flex items-center gap-2 bg-[#1C4B3C] text-white text-sm font-medium rounded-lg px-4 py-2 hover:bg-[#163C30] transition-colors"
             >
               <ArrowLeft className="w-4 h-4" />
-              Back to People
+              Back to Manage Tree
             </Link>
           </div>
         </main>
@@ -66,7 +66,7 @@ export default function PersonDetail() {
   const handleDelete = async () => {
     try {
       await deletePerson(person.id);
-      navigate("/people");
+      navigate("/manage-tree");
     } catch (err) {
       console.error("Failed to delete person:", err);
     }
@@ -80,11 +80,11 @@ export default function PersonDetail() {
         {/* Navigation & Actions Topbar */}
         <div className="flex items-center justify-between gap-4 mb-6">
           <Link
-            to="/people"
+            to="/manage-tree"
             className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#6B7280] hover:text-[#1C1F1D] transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
-            All People
+            Manage Tree
           </Link>
 
           <div className="flex items-center gap-2">

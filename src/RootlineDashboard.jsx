@@ -146,7 +146,7 @@ export default function RootlineDashboard() {
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <Link
-              to="/people"
+              to="/manage-tree"
               className="flex items-center gap-4 bg-white border border-[#E7E2D6] rounded-xl px-6 py-6 hover:border-[#1C4B3C]/40 transition-colors"
             >
               <div className="w-10 h-10 rounded-full bg-[#1C4B3C]/10 flex items-center justify-center shrink-0">
@@ -154,10 +154,10 @@ export default function RootlineDashboard() {
               </div>
               <div>
                 <p className="text-sm font-medium text-[#1C1F1D]">
-                  {canEdit ? "Manage people" : "View people"}
+                  {canEdit ? "Manage tree & people" : "View tree & people"}
                 </p>
                 <p className="text-xs text-[#9CA3AF]">
-                  {canEdit ? "View, edit, or add family members" : "Browse family members"}
+                  {canEdit ? "View, edit, or add family members & settings" : "Browse family members and tree details"}
                 </p>
               </div>
             </Link>

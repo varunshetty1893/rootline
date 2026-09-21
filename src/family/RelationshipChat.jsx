@@ -16,7 +16,16 @@ function personDescription(person, people) {
   return clues.length ? `${person.name} — ${clues.join(" · ")}` : `${person.name} — no extra details recorded`;
 }
 
-export default function RelationshipChat({ people = [], rootPersonId, selectedPerson, selectedRelationship, defaultOpen = false, openSignal = 0 }) {
+export default function RelationshipChat({
+  people = [],
+  rootPersonId,
+  selectedPerson,
+  selectedRelationship,
+  defaultOpen = false,
+  openSignal = 0,
+  isMobileSheetOpen = false,
+  isMobileSheetMinimized = false,
+}) {
   const safePeople = Array.isArray(people) ? people : [];
   const [open, setOpen] = useState(defaultOpen);
   const [messages, setMessages] = useState([welcome]);
@@ -90,10 +99,16 @@ export default function RelationshipChat({ people = [], rootPersonId, selectedPe
     await sendQuestion(question);
   };
 
+  const floatingPosClass = isMobileSheetOpen
+    ? isMobileSheetMinimized
+      ? "bottom-20 right-4 sm:bottom-7 sm:right-7"
+      : "bottom-[calc(52dvh+14px)] right-4 sm:bottom-7 sm:right-7"
+    : "bottom-5 right-5 sm:bottom-7 sm:right-7";
+
   return (
-    <div className="fixed bottom-5 right-5 z-40 sm:bottom-7 sm:right-7">
+    <div className={`fixed z-40 transition-all duration-200 ${floatingPosClass}`}>
       {open && (
-        <section className="mb-3 flex h-[min(580px,calc(100dvh-120px))] w-[calc(100vw-2.5rem)] max-w-sm flex-col overflow-hidden rounded-3xl border border-[#1C4B3C]/15 bg-[#FFFEFB] shadow-2xl">
+        <section className="mb-3 flex h-[min(580px,calc(100dvh-140px))] w-[calc(100vw-2rem)] max-w-sm flex-col overflow-hidden rounded-3xl border border-[#1C4B3C]/15 bg-[#FFFEFB] shadow-2xl">
           <div className="flex items-start justify-between bg-gradient-to-br from-[#174F61] to-[#1C4B3C] px-5 py-4 text-white">
             <div className="flex gap-3">
               <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/15"><Sparkles className="h-5 w-5" /></span>
@@ -125,8 +140,14 @@ export default function RelationshipChat({ people = [], rootPersonId, selectedPe
           </form>
         </section>
       )}
-      <button type="button" onClick={() => setOpen((value) => !value)} className="group flex items-center gap-2 rounded-full bg-[#1C4B3C] px-4 py-3 text-sm font-semibold text-white shadow-xl transition hover:bg-[#163C30]" aria-expanded={open}>
-        {open ? <ChevronDown className="h-4 w-4" /> : <MessageCircle className="h-4 w-4" />} <span>Family guide</span>
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="group flex items-center gap-2 rounded-full bg-[#1C4B3C] px-3.5 py-2.5 sm:px-4 sm:py-3 text-xs sm:text-sm font-semibold text-white shadow-xl transition-all duration-200 hover:bg-[#163C30] active:scale-95"
+        aria-expanded={open}
+      >
+        {open ? <ChevronDown className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
+        <span className={isMobileSheetOpen && !isMobileSheetMinimized ? "hidden xs:inline" : ""}>Family guide</span>
       </button>
     </div>
   );

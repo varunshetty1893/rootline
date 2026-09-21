@@ -14,11 +14,12 @@ export function orderUnits(units, generation, indexById) {
     const unit = units.get(unitId);
     const childKeys = [...(unit?.childUnits || [])].map((childId) => {
       const child = units.get(childId);
-      const side = child?.members.findIndex((member) => child.memberParents.get(member.id)?.has(unitId));
+      if (!child?.members?.length) return "";
+      const side = child.members.findIndex((member) => child.memberParents.get(member.id)?.has(unitId));
       return `${stableKey(child.members[0], indexById)}|${String(Math.max(side ?? 0, 0)).padStart(3, "0")}|${branchKey(childId)}`;
-    });
+    }).filter(Boolean);
     branchVisiting.delete(unitId);
-    const key = childKeys.sort()[0] || stableKey(unit.members[0], indexById);
+    const key = childKeys.sort()[0] || (unit?.members?.[0] ? stableKey(unit.members[0], indexById) : "");
     branchMemo.set(unitId, key);
     return key;
   };
@@ -56,11 +57,14 @@ export function orderUnits(units, generation, indexById) {
         if (a === referenceCouple.id) return referenceSide === 0 ? 1 : -1;
         if (b === referenceCouple.id) return referenceSide === 0 ? -1 : 1;
       }
-      const ga = generation.get(a);
-      const gb = generation.get(b);
+      const ga = generation.get(a) ?? 0;
+      const gb = generation.get(b) ?? 0;
       if (ga !== gb) return ga - gb;
-      return stableKey(units.get(a).members[0], indexById).localeCompare(
-        stableKey(units.get(b).members[0], indexById)
+      const memberA = units.get(a)?.members?.[0];
+      const memberB = units.get(b)?.members?.[0];
+      if (!memberA || !memberB) return 0;
+      return stableKey(memberA, indexById).localeCompare(
+        stableKey(memberB, indexById)
       );
     });
     children.forEach(visit);

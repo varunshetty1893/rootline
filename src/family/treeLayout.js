@@ -21,7 +21,7 @@ import { recommendedCollapsedFamilyKeys, ancestorsOf } from "./layout/collapse.j
 
 export { fullChildrenMap, recommendedCollapsedFamilyKeys, ancestorsOf };
 
-export function computeLayout(allPeople, collapsedFamilyKeys = new Set()) {
+export function computeLayout(allPeople, collapsedFamilyKeys = new Set(), rootPersonId = null) {
   if (!allPeople.length) {
     return { rows: [], edges: [], childrenCount: new Map(), layoutColumns: 1, layoutWidth: 760 };
   }
@@ -120,6 +120,22 @@ export function computeLayout(allPeople, collapsedFamilyKeys = new Set()) {
           hidden.add(person.id);
         }
       }
+    }
+  }
+
+  // Safety protection: if everything would be hidden or if rootPersonId is hidden,
+  // ensure the tree never collapses into an empty/invisible void.
+  if (hidden.size >= allPeople.length) {
+    hidden.clear();
+  } else if (rootPersonId && hidden.has(rootPersonId)) {
+    // If "Me" was caught in a collapsed branch, restore "Me" and their direct path
+    hidden.delete(rootPersonId);
+    let curr = allById.get(rootPersonId);
+    while (curr && (curr.parentIds || []).length > 0) {
+      for (const pId of curr.parentIds) {
+        hidden.delete(pId);
+      }
+      curr = allById.get(curr.parentIds[0]);
     }
   }
 

@@ -16,13 +16,23 @@ export default function RootlineOAuthCallback() {
   const { login } = useAuth();
 
   useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get("token");
+      if (token && typeof window !== "undefined") {
+        localStorage.setItem("rootline_token", token);
+      }
+    } catch {
+      // Ignore URL parsing errors
+    }
+
     api
       .me()
       .then((user) => {
         login(user);
-        navigate("/dashboard");
+        navigate("/dashboard", { replace: true });
       })
-      .catch(() => navigate("/login"));
+      .catch(() => navigate("/login", { replace: true }));
   }, [navigate, login]);
 
   return (

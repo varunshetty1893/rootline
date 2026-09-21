@@ -50,7 +50,6 @@ export default function AppHeader() {
     createTree,
   } = useFamily();
 
-  const [treeMenuOpen, setTreeMenuOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
@@ -70,18 +69,11 @@ export default function AppHeader() {
   const [profileError, setProfileError] = useState("");
   const [profileSuccess, setProfileSuccess] = useState("");
 
-  // Create Tree Modal State
-  const [createTreeModalOpen, setCreateTreeModalOpen] = useState(false);
-  const [newTreeName, setNewTreeName] = useState("");
-  const [createTreeSubmitting, setCreateTreeSubmitting] = useState(false);
-  const [createTreeError, setCreateTreeError] = useState("");
-
   // Password reset state
   const [resetSending, setResetSending] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
   const [resetError, setResetError] = useState("");
 
-  const treeMenuRef = useRef(null);
   const profileMenuRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -94,9 +86,6 @@ export default function AppHeader() {
   // Close menus when clicking outside
   useEffect(() => {
     function handleClickOutside(e) {
-      if (treeMenuRef.current && !treeMenuRef.current.contains(e.target)) {
-        setTreeMenuOpen(false);
-      }
       if (profileMenuRef.current && !profileMenuRef.current.contains(e.target)) {
         setProfileMenuOpen(false);
       }
@@ -185,26 +174,6 @@ export default function AppHeader() {
     }
   };
 
-  const handleCreateNewTree = async (e) => {
-    e.preventDefault();
-    if (!newTreeName.trim()) {
-      setCreateTreeError("Please enter a tree name.");
-      return;
-    }
-    setCreateTreeSubmitting(true);
-    setCreateTreeError("");
-    try {
-      await createTree(newTreeName.trim());
-      setCreateTreeModalOpen(false);
-      setNewTreeName("");
-      navigate("/tree");
-    } catch (err) {
-      setCreateTreeError(err.message || "Failed to create tree.");
-    } finally {
-      setCreateTreeSubmitting(false);
-    }
-  };
-
   const ownedTrees = treeList?.owned_trees || [];
   const sharedTrees = treeList?.shared_trees || [];
   const allTrees = [
@@ -225,7 +194,7 @@ export default function AppHeader() {
 
   return (
     <>
-      <header className="grid grid-cols-[1fr_auto_1fr] items-center px-6 sm:px-8 lg:px-16 py-5 border-b border-[#E7E2D6] bg-[#F7F5F0]">
+      <header className="flex items-center justify-between px-3.5 sm:px-8 lg:px-16 py-3 sm:py-5 border-b border-[#E7E2D6] bg-[#F7F5F0]">
         {/* Left — Logo */}
         <div className="flex items-center">
           <Link to="/dashboard" className="flex items-center gap-1.5 hover:opacity-85 transition-opacity">
@@ -237,15 +206,15 @@ export default function AppHeader() {
         </div>
 
         {/* Centre — Main Navigation */}
-        <nav className="hidden sm:flex items-center justify-self-center gap-7">
+        <nav className="hidden md:flex items-center gap-7">
           <NavLink to="/dashboard" className={navLinkClass} end>
             Overview
           </NavLink>
-          <NavLink to="/people" className={navLinkClass}>
-            People
-          </NavLink>
           <NavLink to="/tree" className={navLinkClass}>
             Tree
+          </NavLink>
+          <NavLink to="/manage-tree" className={navLinkClass}>
+            Manage Tree
           </NavLink>
           <NavLink to="/shared-trees" className={navLinkClass}>
             <span className="flex items-center gap-1.5">
@@ -259,118 +228,8 @@ export default function AppHeader() {
           </NavLink>
         </nav>
 
-        {/* Right — Tree Switcher + Profile Dropdown */}
-        <div className="flex items-center justify-self-end gap-3">
-          {/* Tree switcher */}
-          <div className="relative" ref={treeMenuRef}>
-            <button
-              type="button"
-              onClick={() => setTreeMenuOpen((v) => !v)}
-              className="flex items-center gap-1.5 text-xs font-medium text-[#374151] bg-white border border-[#E7E2D6] rounded-xl px-3 py-1.5 hover:border-[#1C4B3C]/40 transition-colors max-w-[170px] shadow-2xs"
-            >
-              <span className="truncate">{displayName}</span>
-              {myRole !== "owner" && (
-                <Eye className="w-3 h-3 text-amber-500 shrink-0" title={myRole} />
-              )}
-              <ChevronDown className="w-3.5 h-3.5 text-[#9CA3AF] shrink-0" />
-            </button>
-
-            {treeMenuOpen && (
-              <div className="absolute right-0 top-full mt-1.5 w-64 bg-white border border-[#E7E2D6] rounded-2xl shadow-xl z-50 overflow-hidden py-1">
-                {/* Owned trees */}
-                {ownedTrees.length > 0 && (
-                  <div>
-                    <div className="flex items-center justify-between px-3.5 pt-2.5 pb-1">
-                      <p className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wide">
-                        My Trees
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTreeMenuOpen(false);
-                          setNewTreeName("");
-                          setCreateTreeError("");
-                          setCreateTreeModalOpen(true);
-                        }}
-                        className="text-[10px] font-semibold text-[#1C4B3C] hover:underline flex items-center gap-0.5"
-                      >
-                        <Plus className="w-3 h-3" /> New Tree
-                      </button>
-                    </div>
-                    {ownedTrees.map((t) => (
-                      <button
-                        key={t.id}
-                        onClick={() => {
-                          setActiveTreeId(t.id);
-                          setTreeMenuOpen(false);
-                        }}
-                        className={`w-full text-left px-3.5 py-2 text-xs hover:bg-[#F7F5F0] transition-colors flex items-center justify-between gap-2 ${
-                          activeTreeId === t.id ||
-                          (!activeTreeId && t.id === ownedTrees[0]?.id)
-                            ? "text-[#1C4B3C] font-semibold bg-[#1C4B3C]/5"
-                            : "text-[#374151]"
-                        }`}
-                      >
-                        <span className="truncate">{t.name}</span>
-                        <span className="text-[10px] text-[#9CA3AF] shrink-0">
-                          {t.people_count} {t.people_count === 1 ? "person" : "people"}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {/* Shared trees */}
-                {sharedTrees.length > 0 && (
-                  <div className="border-t border-[#E7E2D6] mt-1 pt-1">
-                    <p className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wide px-3.5 pt-2 pb-1">
-                      Shared With Me
-                    </p>
-                    {sharedTrees.map((t) => (
-                      <button
-                        key={t.id}
-                        onClick={() => {
-                          setActiveTreeId(t.id);
-                          setTreeMenuOpen(false);
-                        }}
-                        className={`w-full text-left px-3.5 py-2 text-xs hover:bg-[#F7F5F0] transition-colors flex items-center justify-between gap-2 ${
-                          activeTreeId === t.id
-                            ? "text-[#1C4B3C] font-semibold bg-[#1C4B3C]/5"
-                            : "text-[#374151]"
-                        }`}
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate font-medium">{t.name}</p>
-                          <p className="text-[10px] text-[#9CA3AF]">{t.owner_name}</p>
-                        </div>
-                        <span className="text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded capitalize">
-                          {t.role}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {/* Manage Trees Link */}
-                <div className="border-t border-[#E7E2D6] mt-1 pt-1 bg-[#FAF8F4]">
-                  <Link
-                    to="/shared-trees"
-                    onClick={() => setTreeMenuOpen(false)}
-                    className="w-full text-left px-3.5 py-2 text-xs font-semibold text-[#1C4B3C] hover:bg-[#F0EDE3] flex items-center justify-between gap-2"
-                  >
-                    <span className="flex items-center gap-1.5">
-                      <FolderTree className="w-3.5 h-3.5" />
-                      <span>Manage All Trees</span>
-                    </span>
-                    <span className="text-[10px] bg-[#1C4B3C]/10 px-1.5 py-0.5 rounded">
-                      {allTrees.length}
-                    </span>
-                  </Link>
-                </div>
-              </div>
-            )}
-          </div>
-
+        {/* Right — Profile Dropdown */}
+        <div className="flex items-center gap-2 sm:gap-3">
           {/* ── Profile Avatar Dropdown Menu ── */}
           <div className="relative" ref={profileMenuRef}>
             <button
@@ -528,7 +387,7 @@ export default function AppHeader() {
             type="button"
             aria-label="Toggle navigation menu"
             onClick={() => setMobileNavOpen((v) => !v)}
-            className="sm:hidden p-2 rounded-xl border border-[#E7E2D6] bg-white text-[#374151] hover:text-[#1C4B3C] hover:border-[#1C4B3C]/40 transition-colors shadow-2xs flex items-center justify-center"
+            className="md:hidden p-2 rounded-xl border border-[#E7E2D6] bg-white text-[#374151] hover:text-[#1C4B3C] hover:border-[#1C4B3C]/40 transition-colors shadow-2xs flex items-center justify-center"
           >
             {mobileNavOpen ? (
               <X className="w-4 h-4 text-[#1C4B3C]" />
@@ -541,7 +400,7 @@ export default function AppHeader() {
 
       {/* Mobile Navigation Drawer */}
       {mobileNavOpen && (
-        <div className="sm:hidden border-b border-[#E7E2D6] bg-[#F7F5F0] px-6 py-3 flex flex-col gap-1.5 shadow-sm">
+        <div className="md:hidden border-b border-[#E7E2D6] bg-[#F7F5F0] px-4 sm:px-6 py-3 flex flex-col gap-1.5 shadow-sm animate-in slide-in-from-top duration-200">
           <NavLink
             to="/dashboard"
             onClick={() => setMobileNavOpen(false)}
@@ -557,19 +416,6 @@ export default function AppHeader() {
             Overview
           </NavLink>
           <NavLink
-            to="/people"
-            onClick={() => setMobileNavOpen(false)}
-            className={({ isActive }) =>
-              `px-3.5 py-2 rounded-xl text-sm font-medium transition-colors ${
-                isActive
-                  ? "bg-[#1C4B3C]/10 text-[#1C4B3C] font-semibold"
-                  : "text-[#4B5563] hover:bg-white hover:text-[#1C1F1D]"
-              }`
-            }
-          >
-            People
-          </NavLink>
-          <NavLink
             to="/tree"
             onClick={() => setMobileNavOpen(false)}
             className={({ isActive }) =>
@@ -583,6 +429,19 @@ export default function AppHeader() {
             Tree
           </NavLink>
           <NavLink
+            to="/manage-tree"
+            onClick={() => setMobileNavOpen(false)}
+            className={({ isActive }) =>
+              `px-3.5 py-2 rounded-xl text-sm font-medium transition-colors ${
+                isActive
+                  ? "bg-[#1C4B3C]/10 text-[#1C4B3C] font-semibold"
+                  : "text-[#4B5563] hover:bg-white hover:text-[#1C1F1D]"
+              }`
+            }
+          >
+            Manage Tree
+          </NavLink>
+          <NavLink
             to="/shared-trees"
             onClick={() => setMobileNavOpen(false)}
             className={({ isActive }) =>
@@ -593,7 +452,7 @@ export default function AppHeader() {
               }`
             }
           >
-            <span>Shared & Family Trees</span>
+            <span>Shared Trees</span>
             {sharedTrees.length > 0 && (
               <span className="text-[10px] bg-[#1C4B3C] text-white px-2 py-0.5 rounded-full font-bold">
                 {sharedTrees.length}
@@ -610,68 +469,6 @@ export default function AppHeader() {
           treeName={activeTree.name}
           onClose={() => setShareOpen(false)}
         />
-      )}
-
-      {/* ── Create Tree Modal ── */}
-      {createTreeModalOpen && (
-        <div
-          className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in"
-          onClick={() => setCreateTreeModalOpen(false)}
-        >
-          <div
-            className="bg-white border border-[#E7E2D6] rounded-2xl w-full max-w-md p-6 shadow-2xl relative"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-base font-serif font-bold text-[#1C1F1D] mb-1">
-              Create a New Family Tree
-            </h3>
-            <p className="text-xs text-[#6B7280] mb-4 leading-relaxed">
-              Create a separate family tree for maternal ancestry, in-laws, or another family branch.
-            </p>
-
-            <form onSubmit={handleCreateNewTree} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-[#374151] mb-1.5">
-                  Tree Name
-                </label>
-                <input
-                  type="text"
-                  value={newTreeName}
-                  onChange={(e) => setNewTreeName(e.target.value)}
-                  placeholder="e.g. Reynolds Family Tree"
-                  maxLength={100}
-                  autoFocus
-                  className="w-full text-sm rounded-xl border border-[#D9D3C3] px-3.5 py-2.5 bg-white text-[#1C1F1D] focus:outline-none focus:ring-2 focus:ring-[#1C4B3C]/30 focus:border-[#1C4B3C]"
-                />
-              </div>
-
-              {createTreeError && (
-                <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span>{createTreeError}</span>
-                </div>
-              )}
-
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setCreateTreeModalOpen(false)}
-                  className="px-4 py-2 text-xs font-medium text-[#6B7280] hover:text-[#1C1F1D] rounded-xl"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={createTreeSubmitting}
-                  className="px-4 py-2 text-xs font-semibold text-white bg-[#1C4B3C] hover:bg-[#163C30] rounded-xl shadow-2xs disabled:opacity-60 flex items-center gap-1.5"
-                >
-                  {createTreeSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  <span>{createTreeSubmitting ? "Creating…" : "Create Tree"}</span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
       )}
 
       {/* ── User Profile Modal (Expanded Editing: Photo, DOB, Phone, Address, Bio) ── */}

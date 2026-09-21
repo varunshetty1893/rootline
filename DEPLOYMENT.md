@@ -32,43 +32,40 @@ Never commit `.env`. Only `.env.example` belongs in Git.
 
 ## Deploy the backend to Render
 
-1. In Render, create a **Blueprint** from the GitHub repository. Render will
-   read `render.yaml`, or create a Web Service with the same commands:
-   - Build: `npm ci && npm run build`
-   - Start: `npm start`
-   - Health check: `/health`
-2. Attach a PostgreSQL database and set `DATABASE_URL` to its internal
-   connection string.
-3. Set these environment variables on the Render service:
-   - `SECRET_KEY`: a long random value (the Blueprint can generate it).
-   - `FRONTEND_URL`: the final Vercel URL, for example
-     `https://rootline.vercel.app`.
-   - `ALLOWED_ORIGINS`: the same Vercel URL. Add additional comma-separated
-     origins only when they are genuinely needed.
-   - `COOKIE_SAMESITE`: `none` for Vercel-to-Render cookies.
-4. Copy the Render service URL, for example
-   `https://rootline-api.onrender.com`. This is the API URL used by Vercel.
-
-Optional services use the existing variables in `.env.example`: SMTP for
-password resets and contact messages, Google OAuth, and Gemini/Groq for the
-family assistant.
+1. In Render (<https://dashboard.render.com>), click **New +** → **Blueprint** and connect your repository (Render automatically reads `render.yaml`), OR create a **Web Service** manually:
+   - **Environment**: Node
+   - **Build Command**: `npm install --include=dev && npm run build:server`
+   - **Start Command**: `npm start`
+   - **Health Check Path**: `/health` (or `/api/health`)
+2. (Optional but recommended for persistence) Create a **PostgreSQL** database on Render or Neon/Supabase and copy the connection string to `DATABASE_URL`.
+3. Configure the following environment variables in Render:
+   - `NODE_ENV`: `production`
+   - `SECRET_KEY`: A long random secret key (or click generate)
+   - `FRONTEND_URL`: Your Vercel frontend URL (e.g. `https://your-app.vercel.app`)
+   - `COOKIE_SAMESITE`: `none` (enables cross-origin session cookies)
+   - `ALLOWED_ORIGINS`: Your Vercel URL (e.g. `https://your-app.vercel.app`)
+   - `GEMINI_API_KEY`: (Optional) Your Google Gemini API key for AI assistant features
+4. Copy your backend service URL (e.g., `https://rootline-backend.onrender.com`).
 
 ## Deploy the frontend to Vercel
 
-1. Import the same GitHub repository into Vercel.
-2. Keep the project root at the repository root. `vercel.json` already sets:
-   - Build command: `npm run build:client`
-   - Output directory: `dist`
-   - SPA fallback for React Router routes
-3. Add this Vercel environment variable for **Production**:
+1. In Vercel (<https://vercel.com/new>), import your GitHub repository.
+2. The pre-configured `vercel.json` will automatically configure:
+   - **Framework Preset**: Vite
+   - **Build Command**: `npm run build:client`
+   - **Output Directory**: `dist`
+   - **Single Page App Routing**: Automatic rewrites for all React Router routes
+3. In the **Environment Variables** section on Vercel, add:
+   - `VITE_API_URL`: `https://rootline-backend.onrender.com` (your Render backend URL, without a trailing slash)
+4. Click **Deploy**.
+5. Once Vercel finishes deploying, copy your live Vercel URL (e.g., `https://your-app.vercel.app`) and ensure it matches the `FRONTEND_URL` in your Render service settings.
 
-   `VITE_API_URL=https://rootline-api.onrender.com`
-
-   Replace the value with the actual Render URL, without a trailing slash.
-4. Deploy, then copy the Vercel URL back into Render's `FRONTEND_URL` and
-   `ALLOWED_ORIGINS`. Redeploy Render after changing those values.
-
-If Google OAuth is enabled, set `GOOGLE_REDIRECT_URI` on Render to
-`https://rootline-api.onrender.com/auth/google/callback` and register that
-exact URL in Google Cloud Console. The OAuth callback now returns users to
-`FRONTEND_URL/dashboard`.
+### Google OAuth Setup (Optional)
+If using Google Sign-In:
+- In Google Cloud Console Credentials:
+  - Authorized JavaScript origins: `https://your-app.vercel.app`
+  - Authorized redirect URIs: `https://rootline-backend.onrender.com/auth/google/callback`
+- In Render environment variables:
+  - `GOOGLE_CLIENT_ID`: Your Google OAuth client ID
+  - `GOOGLE_CLIENT_SECRET`: Your Google OAuth client secret
+  - `GOOGLE_REDIRECT_URI`: `https://rootline-backend.onrender.com/auth/google/callback`

@@ -187,7 +187,7 @@ export default function PersonForm() {
               };
         await addPerson(form, relation);
       }
-      navigate("/people");
+      navigate("/manage-tree");
     } catch (err) {
       setError(err.message || "Something went wrong. Please try again.");
     }
@@ -198,8 +198,8 @@ export default function PersonForm() {
       <AppHeader />
 
       <main className="flex-1 px-8 lg:px-16 py-12 max-w-xl mx-auto w-full">
-        <Link to="/people" className="text-xs text-[#6B7280] hover:text-[#1C1F1D] mb-4 inline-block">
-          ← Back to people
+        <Link to="/manage-tree" className="text-xs text-[#6B7280] hover:text-[#1C1F1D] mb-4 inline-block">
+          ← Back to Manage Tree
         </Link>
         <h1 className="text-2xl font-serif font-bold text-[#1C1F1D] mb-1">
           {editing ? "Edit person" : "Add a family member"}

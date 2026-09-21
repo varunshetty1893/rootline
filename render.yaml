@@ -1,21 +1,27 @@
 services:
   - type: web
-    name: rootline
+    name: rootline-backend
     runtime: node
-    buildCommand: npm ci && npm run build
+    plan: free
+    buildCommand: npm install --include=dev && npm run build:server
     startCommand: npm start
     healthCheckPath: /health
     autoDeploy: true
     envVars:
       - key: NODE_ENV
         value: production
-      - key: DATABASE_URL
-        sync: false
+      - key: COOKIE_SAMESITE
+        value: none
       - key: SECRET_KEY
         generateValue: true
       - key: FRONTEND_URL
         sync: false
       - key: ALLOWED_ORIGINS
         sync: false
-      - key: COOKIE_SAMESITE
-        value: none
+      - key: CORS_ORIGIN
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+

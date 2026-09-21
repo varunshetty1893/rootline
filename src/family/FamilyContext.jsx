@@ -376,13 +376,30 @@ export function FamilyProvider({ children }) {
   );
 
   const createTree = useCallback(
-    async (name) => {
+    async (name, firstPersonData) => {
       const newFamily = await api.createTree(name);
       await refreshTreeList();
       setActiveTreeId(newFamily.id);
-      return newFamily;
+      let createdPerson = null;
+      if (firstPersonData && firstPersonData.name && firstPersonData.name.trim()) {
+        createdPerson = await api.createPerson(
+          {
+            name: firstPersonData.name.trim(),
+            gender: firstPersonData.gender || "unspecified",
+            date_of_birth: firstPersonData.dob || firstPersonData.date_of_birth || undefined,
+            bio: firstPersonData.bio || undefined,
+            family_id: newFamily.id,
+          },
+          newFamily.id
+        );
+        if (createdPerson?.id) {
+          setRootPersonId(createdPerson.id);
+        }
+      }
+      await refresh();
+      return { family: newFamily, person: createdPerson };
     },
-    [refreshTreeList, setActiveTreeId]
+    [refreshTreeList, setActiveTreeId, setRootPersonId, refresh]
   );
 
   const renameTree = useCallback(

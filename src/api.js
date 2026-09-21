@@ -141,3 +141,5 @@ export const api = {
   sendSupportQuery: (payload) =>
     request("/api/contact", { method: "POST", body: payload }),
 };
+
+export default api;

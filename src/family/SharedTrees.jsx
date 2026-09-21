@@ -20,6 +20,8 @@ import {
   ShieldAlert,
   Loader2,
   Sparkles,
+  User,
+  X,
 } from "lucide-react";
 import AppHeader from "./AppHeader.jsx";
 import { useAuth } from "../AuthContext.jsx";
@@ -47,6 +49,9 @@ export default function SharedTrees() {
   // Create tree modal state
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [newTreeName, setNewTreeName] = useState("");
+  const [firstPersonName, setFirstPersonName] = useState("");
+  const [firstPersonGender, setFirstPersonGender] = useState("unspecified");
+  const [firstPersonDob, setFirstPersonDob] = useState("");
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const [createError, setCreateError] = useState("");
 
@@ -80,12 +85,23 @@ export default function SharedTrees() {
       setCreateError("Please provide a name for your family tree.");
       return;
     }
+    if (!firstPersonName.trim()) {
+      setCreateError("Every family tree requires at least one starting person. Please enter their name.");
+      return;
+    }
     setCreateSubmitting(true);
     setCreateError("");
     try {
-      const created = await createTree(newTreeName.trim());
+      await createTree(newTreeName.trim(), {
+        name: firstPersonName.trim(),
+        gender: firstPersonGender,
+        dob: firstPersonDob,
+      });
       setCreateModalOpen(false);
       setNewTreeName("");
+      setFirstPersonName("");
+      setFirstPersonGender("unspecified");
+      setFirstPersonDob("");
       navigate("/tree");
     } catch (err) {
       setCreateError(err.message || "Failed to create family tree.");
@@ -505,27 +521,38 @@ export default function SharedTrees() {
         )}
       </main>
 
-      {/* ── Create Tree Modal ── */}
+      {/* ── Create Tree Modal (Forces Adding First Person) ── */}
       {createModalOpen && (
         <div
           className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in"
           onClick={() => setCreateModalOpen(false)}
         >
           <div
-            className="bg-white border border-[#E7E2D6] rounded-2xl w-full max-w-md p-6 shadow-2xl relative"
+            className="bg-white border border-[#E7E2D6] rounded-2xl w-full max-w-lg p-6 shadow-2xl relative max-h-[90dvh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-base font-serif font-bold text-[#1C1F1D] mb-1">
-              Create a New Family Tree
-            </h3>
-            <p className="text-xs text-[#6B7280] mb-4 leading-relaxed">
-              Create a separate family tree for maternal roots, in-laws, or another family line.
-            </p>
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="text-base font-serif font-bold text-[#1C1F1D]">
+                  Create a New Family Tree
+                </h3>
+                <p className="text-xs text-[#6B7280] mt-0.5">
+                  Set a tree name and add your first person to start mapping branches.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCreateModalOpen(false)}
+                className="p-1 rounded-lg text-[#6B7280] hover:bg-[#F0EDE3]"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
 
             <form onSubmit={handleCreateTreeSubmit} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-[#374151] mb-1.5">
-                  Tree Name
+                  Family Tree Name <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
@@ -534,8 +561,81 @@ export default function SharedTrees() {
                   placeholder="e.g. Miller Family Tree, Maternal Ancestry"
                   maxLength={100}
                   autoFocus
+                  required
                   className="w-full text-sm rounded-xl border border-[#D9D3C3] px-3.5 py-2.5 bg-white text-[#1C1F1D] focus:outline-none focus:ring-2 focus:ring-[#1C4B3C]/30 focus:border-[#1C4B3C]"
                 />
+              </div>
+
+              {/* Mandatory First Person Section */}
+              <div className="rounded-xl border border-[#DCE3E1] bg-[#F7F9F7] p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <User className="w-4 h-4 text-[#1C4B3C]" />
+                    <span className="text-xs font-bold text-[#1C4B3C]">
+                      First Person (Tree Starter)
+                    </span>
+                    <span className="text-[10px] bg-[#1C4B3C] text-white px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider">
+                      Required
+                    </span>
+                  </div>
+                  {user?.name && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFirstPersonName(user.name);
+                        if (user.gender) setFirstPersonGender(user.gender);
+                        if (user.dob) setFirstPersonDob(user.dob);
+                      }}
+                      className="text-[11px] font-semibold text-[#1C4B3C] hover:underline"
+                    >
+                      Use my profile info
+                    </button>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-[#374151] mb-1">
+                    Full Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={firstPersonName}
+                    onChange={(e) => setFirstPersonName(e.target.value)}
+                    placeholder="e.g. Julian Vance"
+                    required
+                    maxLength={120}
+                    className="w-full text-sm rounded-xl border border-[#D9D3C3] px-3.5 py-2 bg-white text-[#1C1F1D] focus:outline-none focus:ring-2 focus:ring-[#1C4B3C]/30 focus:border-[#1C4B3C]"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-[#374151] mb-1">
+                      Gender
+                    </label>
+                    <select
+                      value={firstPersonGender}
+                      onChange={(e) => setFirstPersonGender(e.target.value)}
+                      className="w-full text-xs rounded-xl border border-[#D9D3C3] px-3 py-2 bg-white text-[#1C1F1D] focus:outline-none focus:ring-2 focus:ring-[#1C4B3C]/30 focus:border-[#1C4B3C]"
+                    >
+                      <option value="unspecified">Prefer not to say</option>
+                      <option value="female">Female</option>
+                      <option value="male">Male</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-[#374151] mb-1">
+                      Birth Year / Date
+                    </label>
+                    <input
+                      type="date"
+                      value={firstPersonDob}
+                      onChange={(e) => setFirstPersonDob(e.target.value)}
+                      className="w-full text-xs rounded-xl border border-[#D9D3C3] px-3 py-2 bg-white text-[#1C1F1D] focus:outline-none focus:ring-2 focus:ring-[#1C4B3C]/30 focus:border-[#1C4B3C]"
+                    />
+                  </div>
+                </div>
               </div>
 
               {createError && (
@@ -545,7 +645,7 @@ export default function SharedTrees() {
                 </div>
               )}
 
-              <div className="flex items-center justify-end gap-2 pt-2">
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E7E2D6]">
                 <button
                   type="button"
                   onClick={() => setCreateModalOpen(false)}
@@ -555,11 +655,11 @@ export default function SharedTrees() {
                 </button>
                 <button
                   type="submit"
-                  disabled={createSubmitting}
-                  className="px-4 py-2 text-xs font-semibold text-white bg-[#1C4B3C] hover:bg-[#163C30] rounded-xl shadow-2xs disabled:opacity-60 flex items-center gap-1.5"
+                  disabled={createSubmitting || !newTreeName.trim() || !firstPersonName.trim()}
+                  className="px-4 py-2 text-xs font-semibold text-white bg-[#1C4B3C] hover:bg-[#163C30] rounded-xl shadow-2xs disabled:opacity-50 flex items-center gap-1.5"
                 >
                   {createSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  <span>{createSubmitting ? "Creating…" : "Create Tree"}</span>
+                  <span>{createSubmitting ? "Creating Tree…" : "Create Tree & Add Person"}</span>
                 </button>
               </div>
             </form>

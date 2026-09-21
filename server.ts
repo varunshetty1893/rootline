@@ -10,6 +10,7 @@ import express, { Request, Response, NextFunction } from "express";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import path from "path";
+import fs from "fs";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import nodemailer from "nodemailer";
@@ -168,19 +169,31 @@ export async function createExpressApp() {
 
   const allowedOrigins = [
     process.env.FRONTEND_URL,
+    process.env.CORS_ORIGIN,
     ...(process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(",").map((s) => s.trim()) : []),
   ].filter(Boolean) as string[];
 
   app.use(
     cors({
       origin: (origin, callback) => {
-        if (!origin || !IS_PROD) return callback(null, true);
-        if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
-          return callback(null, true);
+        // Allow requests with no origin (curl, mobile, server-side)
+        if (!origin) return callback(null, true);
+        if (!IS_PROD) return callback(null, true);
+
+        // Check configured origins
+        if (allowedOrigins.length > 0) {
+          if (allowedOrigins.includes(origin)) return callback(null, true);
+          // Automatically allow any Vercel deployment preview / production domain
+          if (origin.endsWith(".vercel.app")) return callback(null, true);
         }
+
+        // Permissive fallback so cross-origin Render <-> Vercel requests succeed
         return callback(null, true);
       },
       credentials: true,
+      methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+      allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
+      exposedHeaders: ["Set-Cookie"],
     })
   );
   app.use(express.json({ limit: "1mb" }));
@@ -764,10 +777,12 @@ export async function createExpressApp() {
     const token = createSessionToken(user.id, user.password_version);
     setSessionCookie(res, token);
     // In a split deployment the browser starts on Vercel, while OAuth
-    // finishes on Render. Return to the frontend origin instead of the API
-    // origin so the user lands in the real application.
+    // finishes on Render. Return to the frontend origin with token so the user lands in the real application.
     const frontendUrl = process.env.FRONTEND_URL?.replace(/\/+$/, "");
-    return res.redirect(`${frontendUrl || `${req.protocol}://${req.get("host")}`}/dashboard`);
+    if (frontendUrl) {
+      return res.redirect(`${frontendUrl}/oauth-callback?token=${encodeURIComponent(token)}`);
+    }
+    return res.redirect(`${req.protocol}://${req.get("host")}/dashboard`);
   });
 
   // People endpoints with Multi-Family Collaboration & Activity Tracking
@@ -1447,13 +1462,37 @@ ${question ? `- Specific User Question: "${question}"` : ""}
 
 Respond with a warm, conversational 2-3 sentence explanation. Do not use Markdown titles, bullet points, or disclaimers.`;
 
-          const response = await genAI.models.generateContent({
-            model: "gemini-3.8-flash",
-            contents: prompt,
-          });
+          const candidateModels: string[] = [];
+          const configuredModel = process.env.GEMINI_MODEL;
+          if (
+            configuredModel &&
+            !configuredModel.includes("2.5") &&
+            !configuredModel.includes("1.5") &&
+            !configuredModel.includes("2.0")
+          ) {
+            candidateModels.push(configuredModel);
+          }
+          if (!candidateModels.includes("gemini-3.6-flash")) {
+            candidateModels.push("gemini-3.6-flash");
+          }
+          if (!candidateModels.includes("gemini-3.8-flash")) {
+            candidateModels.push("gemini-3.8-flash");
+          }
 
-          if (response.text && response.text.trim().length > 0) {
-            aiExplanation = response.text.trim();
+          for (const modelName of candidateModels) {
+            try {
+              const response = await genAI.models.generateContent({
+                model: modelName,
+                contents: prompt,
+              });
+
+              if (response.text && response.text.trim().length > 0) {
+                aiExplanation = response.text.trim();
+                break;
+              }
+            } catch (modelErr: any) {
+              logger.warn(`Gemini model attempt (${modelName}) failed in relationship explanation: ${modelErr?.message || modelErr}`);
+            }
           }
         } catch (aiErr: any) {
           logger.warn("Gemini API call failed, falling back to deterministic explanation:", aiErr);
@@ -1616,7 +1655,7 @@ async function startServer() {
 
   const app = await createExpressApp();
 
-  // Vite middleware in dev; static file serving in production
+  // Vite middleware in dev; static file serving in production (or API status if headless)
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -1625,10 +1664,26 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.use((req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
-    });
+    const indexPath = path.join(distPath, "index.html");
+
+    if (fs.existsSync(indexPath)) {
+      app.use(express.static(distPath));
+      app.use((req, res) => {
+        res.sendFile(indexPath);
+      });
+    } else {
+      // Standalone backend on Render (built with build:server without client build)
+      app.get("/", (req, res) => {
+        res.status(200).json({
+          status: "ok",
+          service: "Rootline API",
+          message: "Backend service is running. Connect your Vercel frontend via VITE_API_URL.",
+        });
+      });
+      app.use((req, res) => {
+        res.status(404).json({ detail: "Not found" });
+      });
+    }
   }
 
   app.listen(PORT, "0.0.0.0", () => {

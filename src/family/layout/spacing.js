@@ -1,6 +1,7 @@
 import { CARD_WIDTH, PERSON_PITCH, UNIT_GAP } from "./constants.js";
 
 export function unitWidth(unit) {
+  if (!unit || !unit.members?.length) return CARD_WIDTH;
   return Math.max(CARD_WIDTH, (unit.members.length - 1) * PERSON_PITCH + CARD_WIDTH);
 }
 

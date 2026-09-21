@@ -260,10 +260,13 @@ export class MemoryStore {
   chatHistories: Map<string, ChatMessage[]> = new Map(); // key: `${userId}:${familyId}`
 
   constructor() {
-    // Fix Issue 2: Never seed demo accounts automatically in production!
+    // Seed demo accounts in in-memory mode or development (unless SEED_DEMO_DATA is explicitly false)
     const isProduction = process.env.NODE_ENV === "production";
     const explicitSeed = process.env.SEED_DEMO_DATA === "true";
-    if (!isProduction && process.env.SEED_DEMO_DATA !== "false") {
+    const hasDatabase = Boolean(process.env.DATABASE_URL?.trim());
+    if (!hasDatabase && process.env.SEED_DEMO_DATA !== "false") {
+      this.seedDemoData();
+    } else if (!isProduction && process.env.SEED_DEMO_DATA !== "false") {
       this.seedDemoData();
     } else if (isProduction && explicitSeed) {
       this.seedDemoData();

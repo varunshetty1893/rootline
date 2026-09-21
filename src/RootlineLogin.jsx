@@ -61,23 +61,21 @@ export default function RootlineLogin() {
             Log in to continue building your family's digital record.
           </p>
 
-          {import.meta.env.DEV && (
-            <div className="mb-5 p-3 bg-[#EAF2ED] border border-[#C2DDD0] rounded-lg flex items-center justify-between text-xs">
-              <div>
-                <p className="font-semibold text-[#1C4B3C]">Pre-seeded Family Tree (Dev Only)</p>
-                <p className="text-[#4A6B5D]">rootline.seed@example.com</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setForm({ email: "rootline.seed@example.com", password: "seed-password-123" });
-                }}
-                className="px-2.5 py-1 bg-[#1C4B3C] text-white rounded font-medium hover:bg-[#163D31] transition-colors"
-              >
-                Fill Demo
-              </button>
+          <div className="mb-5 p-3 bg-[#EAF2ED] border border-[#C2DDD0] rounded-lg flex items-center justify-between text-xs">
+            <div>
+              <p className="font-semibold text-[#1C4B3C]">Demo Family Tree</p>
+              <p className="text-[#4A6B5D]">rootline.seed@example.com</p>
             </div>
-          )}
+            <button
+              type="button"
+              onClick={() => {
+                setForm({ email: "rootline.seed@example.com", password: "seed-password-123" });
+              }}
+              className="px-2.5 py-1 bg-[#1C4B3C] text-white rounded font-medium hover:bg-[#163D31] transition-colors"
+            >
+              Fill Demo
+            </button>
+          </div>
 
           {error && (
             <div className="mb-4 text-sm text-[#B42318] bg-[#FEF3F2] border border-[#FDA29B] rounded-lg px-3 py-2.5">

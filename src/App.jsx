@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./AuthContext.jsx";
 import { FamilyProvider } from "./family/FamilyContext.jsx";
 import ProtectedRoute from "./ProtectedRoute.jsx";
@@ -15,6 +15,7 @@ import RootlineOAuthCallback from "./RootlineOAuthCallback.jsx";
 import RootlineDashboard from "./RootlineDashboard.jsx";
 import RootlineSupport from "./RootlineSupport.jsx";
 import PeopleList from "./family/PeopleList.jsx";
+import ManageTree from "./family/ManageTree.jsx";
 import PersonForm from "./family/PersonForm.jsx";
 import PersonDetail from "./family/PersonDetail.jsx";
 import TreeView from "./family/TreeView.jsx";
@@ -35,6 +36,7 @@ export default function App() {
             <Route path="/forgot-password" element={<RootlineForgotPassword />} />
             <Route path="/reset-password" element={<RootlineResetPassword />} />
             <Route path="/oauth-callback" element={<RootlineOAuthCallback />} />
+            <Route path="/auth/callback" element={<RootlineOAuthCallback />} />
             <Route
               path="/dashboard"
               element={
@@ -44,10 +46,18 @@ export default function App() {
               }
             />
             <Route
+              path="/manage-tree"
+              element={
+                <ProtectedRoute>
+                  <ManageTree />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/people"
               element={
                 <ProtectedRoute>
-                  <PeopleList />
+                  <ManageTree defaultTab="people" />
                 </ProtectedRoute>
               }
             />
