@@ -56,6 +56,19 @@ export interface PasswordResetToken {
   created_at: string;
 }
 
+export interface PasswordResetOtp {
+  id: string;
+  user_id: string;
+  email: string;
+  otp_hash: string;
+  expires_at: string;
+  attempts: number;
+  max_attempts: number;
+  verified: boolean;
+  reset_token: string;
+  created_at: string;
+}
+
 export interface Person {
   id: string;
   owner_id: string;
@@ -277,6 +290,7 @@ export function normalizeToIsoString(dateVal: any): string {
 export class MemoryStore {
   users: Map<string, User> = new Map();
   resetTokens: Map<string, PasswordResetToken> = new Map();
+  resetOtps: Map<string, PasswordResetOtp> = new Map();
   people: Map<string, Person> = new Map();
   familyUnits: Map<string, FamilyUnit> = new Map();
   familyChildren: Map<string, FamilyChild> = new Map();
@@ -479,6 +493,88 @@ export class MemoryStore {
       }
     }
     return null;
+  }
+
+  // --- Browser Email OTP Generation & Verification (Option 1) ---
+  createPasswordResetOtp(userId: string, email: string, rawOtp: string, expireMinutes = 10): PasswordResetOtp {
+    const normalizedEmail = email.toLowerCase().trim();
+    // Invalidate previous unexpired OTPs for this user
+    for (const otp of this.resetOtps.values()) {
+      if ((otp.user_id === userId || otp.email === normalizedEmail) && !otp.verified) {
+        otp.expires_at = new Date(0).toISOString();
+      }
+    }
+
+    const otpHash = crypto.createHash("sha256").update(rawOtp.trim()).digest("hex");
+    const expiresAt = new Date(Date.now() + expireMinutes * 60 * 1000).toISOString();
+    const resetToken = crypto.randomBytes(32).toString("hex");
+
+    const row: PasswordResetOtp = {
+      id: crypto.randomUUID(),
+      user_id: userId,
+      email: normalizedEmail,
+      otp_hash: otpHash,
+      expires_at: expiresAt,
+      attempts: 0,
+      max_attempts: 5,
+      verified: false,
+      reset_token: resetToken,
+      created_at: new Date().toISOString(),
+    };
+
+    this.resetOtps.set(row.id, row);
+    // Also register the underlying resetToken so claimResetToken works once verified
+    this.createResetToken(userId, resetToken, 30);
+
+    return row;
+  }
+
+  verifyPasswordResetOtp(email: string, rawOtp: string): { success: boolean; reset_token?: string; error?: string } {
+    const normalizedEmail = email.toLowerCase().trim();
+    const cleanOtp = String(rawOtp || "").trim();
+    const now = new Date().toISOString();
+
+    let matchingOtp: PasswordResetOtp | null = null;
+    for (const otp of this.resetOtps.values()) {
+      if (otp.email === normalizedEmail && otp.expires_at > now && !otp.verified) {
+        if (!matchingOtp || new Date(otp.created_at) > new Date(matchingOtp.created_at)) {
+          matchingOtp = otp;
+        }
+      }
+    }
+
+    if (!matchingOtp) {
+      return {
+        success: false,
+        error: "Verification code has expired or is invalid. Please request a new 6-digit code.",
+      };
+    }
+
+    if (matchingOtp.attempts >= matchingOtp.max_attempts) {
+      matchingOtp.expires_at = new Date(0).toISOString();
+      return {
+        success: false,
+        error: "Too many incorrect attempts. For security reasons, please request a new verification code.",
+      };
+    }
+
+    const submittedHash = crypto.createHash("sha256").update(cleanOtp).digest("hex");
+    const isMatch = crypto.timingSafeEqual(Buffer.from(submittedHash), Buffer.from(matchingOtp.otp_hash));
+
+    if (!isMatch) {
+      matchingOtp.attempts += 1;
+      const remaining = matchingOtp.max_attempts - matchingOtp.attempts;
+      return {
+        success: false,
+        error: `Incorrect verification code. ${remaining > 0 ? `${remaining} attempt(s) remaining.` : "Please request a new code."}`,
+      };
+    }
+
+    matchingOtp.verified = true;
+    return {
+      success: true,
+      reset_token: matchingOtp.reset_token,
+    };
   }
 
   // --- Cycle Detection (Fixes Issue 10) ---

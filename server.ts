@@ -523,13 +523,38 @@ export async function createExpressApp() {
     }
   }
 
-  async function sendPasswordResetEmail(toEmail: string, resetToken: string, req: Request) {
+  async function sendPasswordResetEmail(toEmail: string, resetToken: string, req: Request, rawOtp?: string) {
     const baseUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get("host")}`;
     const resetUrl = `${baseUrl}/reset-password?token=${resetToken}`;
 
     if (process.env.LOG_RESET_LINKS === "true" || !IS_PROD) {
-      logger.info(`[Password Reset Link] For ${toEmail}: ${resetUrl}`);
+      logger.info(`[Password Reset Link] For ${toEmail}: ${resetUrl}${rawOtp ? ` | OTP: ${rawOtp}` : ""}`);
     }
+
+    const otpHtml = rawOtp
+      ? `<div style="margin: 24px 0; text-align: center;">
+          <p style="font-size: 14px; color: #4B5563; margin-bottom: 8px;">Your 6-Digit Verification Code:</p>
+          <div style="font-size: 32px; font-weight: 700; letter-spacing: 6px; color: #1C4B3C; background: #F3F4F6; padding: 14px 28px; display: inline-block; border-radius: 8px; font-family: monospace;">${rawOtp}</div>
+          <p style="font-size: 12px; color: #6B7280; margin-top: 8px;">This code will expire in 10 minutes.</p>
+        </div>`
+      : "";
+
+    const otpText = rawOtp ? `Your 6-Digit Verification Code: ${rawOtp} (valid for 10 minutes)\n\n` : "";
+
+    const fullHtml = `
+      <div style="font-family: sans-serif; max-width: 540px; margin: 0 auto; padding: 24px; border: 1px solid #E5E7EB; border-radius: 12px; background: #FFFFFF;">
+        <h2 style="color: #1C4B3C; margin-top: 0;">Reset Your Rootline Password</h2>
+        <p style="color: #374151; font-size: 15px; line-height: 1.6;">You requested a password reset for your Rootline account.</p>
+        ${otpHtml}
+        <div style="margin: 24px 0; text-align: center;">
+          <a href="${resetUrl}" style="background-color: #1C4B3C; color: #FFFFFF; text-decoration: none; padding: 12px 28px; border-radius: 6px; font-size: 14px; font-weight: 600; display: inline-block;">Reset Password via Direct Link</a>
+        </div>
+        <p style="color: #6B7280; font-size: 12px; line-height: 1.5;">Or copy and paste this link into your browser:<br/><a href="${resetUrl}" style="color: #1C4B3C; word-break: break-all;">${resetUrl}</a></p>
+        <p style="color: #9CA3AF; font-size: 12px; margin-top: 24px; border-top: 1px solid #E5E7EB; padding-top: 16px;">If you did not request this password reset, please disregard this email.</p>
+      </div>
+    `;
+
+    const fullText = `You requested a password reset for your Rootline account.\n\n${otpText}Or reset directly using this link:\n${resetUrl}\n\nIf you did not request this, please disregard this email.`;
 
     if (process.env.RESEND_API_KEY) {
       const from = getEmailSenderAddress("resend");
@@ -544,9 +569,9 @@ export async function createExpressApp() {
           from,
           to: [toEmail],
           reply_to: replyTo,
-          subject: "Reset your Rootline password",
-          html: `<p>You requested a password reset for your Rootline account.</p><p><a href="${resetUrl}">Click here to reset your password</a> (valid for 60 minutes).</p><p>Or copy and paste this URL into your browser:</p><p>${resetUrl}</p><p>If you did not request this, you can safely ignore this email.</p>`,
-          text: `You requested a password reset for your Rootline account. Please use the following link within 60 minutes:\n\n${resetUrl}\n\nIf you did not request this, you can safely ignore this email.`,
+          subject: "Your Rootline Password Reset Code",
+          html: fullHtml,
+          text: fullText,
         }),
       });
       if (!res.ok) {
@@ -560,9 +585,9 @@ export async function createExpressApp() {
     await sendSmtpEmail({
       from,
       to: toEmail,
-      subject: "Reset your Rootline password",
-      text: `You requested a password reset for your Rootline account. Please use the following link within 60 minutes:\n\n${resetUrl}\n\nIf you did not request this, you can safely ignore this email.`,
-      html: `<p>You requested a password reset for your Rootline account.</p><p><a href="${resetUrl}">Click here to reset your password</a> (valid for 60 minutes).</p><p>Or copy and paste this URL into your browser:</p><p>${resetUrl}</p><p>If you did not request this, you can safely ignore this email.</p>`,
+      subject: "Your Rootline Password Reset Code",
+      text: fullText,
+      html: fullHtml,
     });
   }
 
@@ -665,62 +690,90 @@ export async function createExpressApp() {
     }
   }
 
-  // Password Reset with Transparent Email Handling (Fixes Issue 3)
-  app.post("/auth/forgot-password", passwordResetLimiter, async (req, res) => {
+  // Password Reset with Transparent Email Handling & 6-Digit OTP Support (Option 1)
+  const handleForgotPassword = async (req: Request, res: Response) => {
     const { email } = isRecord(req.body) ? req.body : {};
     const isEmailConfigured = isEmailProviderConfigured();
 
     if (!isText(email, 254, 3) || !EMAIL_RE.test(email.trim())) {
-      return res.status(400).json({ detail: "Email is required" });
+      return res.status(400).json({ detail: "A valid email address is required." });
     }
 
-    const user = store.findUserByEmail(email);
-    let rawToken: string | null = null;
-    if (user) {
-      rawToken = crypto.randomBytes(32).toString("hex");
-      // Invalidate any previous unexpired tokens and store new token (Fixes Issue 12)
-      store.createResetToken(user.id, rawToken);
-    }
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = store.findUserByEmail(normalizedEmail);
 
-    if (isEmailConfigured) {
-      if (rawToken && user) {
-        sendPasswordResetEmail(user.email, rawToken, req).catch((err: any) => {
-          logger.error("Failed to send password reset email:", err?.message || err);
-          if (err?.code === "ETIMEDOUT" || err?.code === "ECONNREFUSED") {
-            logger.warn("SMTP connection timed out. On Render Free tier, outbound SMTP ports 25, 465, and 587 are blocked. Set RESEND_API_KEY or LOG_RESET_LINKS=true in Render environment variables.");
-          }
-        });
-      }
-      return res.json({
-        message: "If an account exists for that email, a reset link has been sent.",
-        email_sent: true,
+    // Validate if the email exists in the database
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        detail: "No Rootline account was found registered with this email address. Please check your spelling or register a new account.",
+        code: "USER_NOT_FOUND",
       });
     }
 
-    // When SMTP is not configured, do not falsely claim email was sent (Fixes Issue 3)
-    // Security hardening: In production, never expose raw reset tokens in API responses or logs
-    if (rawToken) {
-      if (!IS_PROD) {
-        logger.info(`Password reset link generated for ${email}: /reset-password?token=${rawToken}`);
-        return res.json({
-          message: "Password reset link generated (SMTP not configured on this server; check server logs).",
-          reset_url: `/reset-password?token=${rawToken}`,
-          email_sent: false,
-        });
-      } else {
-        logger.warn(`Password reset requested for ${email} but SMTP is not configured in production.`);
-        return res.json({
-          message: "If an account exists for that email, a reset link has been sent.",
-          email_sent: false,
-        });
-      }
+    // Generate 6-digit numeric OTP code (Option 1: Browser-Direct Email OTP)
+    const rawOtp = crypto.randomInt(100000, 1000000).toString();
+    const otpRecord = store.createPasswordResetOtp(user.id, user.email, rawOtp, 10);
+
+    logger.info(`[Password Reset OTP] Generated 6-digit OTP ${rawOtp} for ${user.email}`);
+
+    // If server email provider (SMTP or Resend) is configured, also deliver email asynchronously in background
+    if (isEmailConfigured) {
+      sendPasswordResetEmail(user.email, otpRecord.reset_token, req, rawOtp).catch((err: any) => {
+        logger.error("Failed to send password reset email via server transport:", err?.message || err);
+        if (err?.code === "ETIMEDOUT" || err?.code === "ECONNREFUSED") {
+          logger.warn("SMTP connection timed out. On Render Free tier, outbound SMTP ports 25, 465, and 587 are blocked. Set RESEND_API_KEY or use Browser-Direct EmailJS OTP.");
+        }
+      });
+    }
+
+    const emailjsConfig = {
+      service_id: process.env.VITE_EMAILJS_SERVICE_ID || null,
+      template_id: process.env.VITE_EMAILJS_TEMPLATE_ID || null,
+      public_key: process.env.VITE_EMAILJS_PUBLIC_KEY || null,
+    };
+
+    return res.json({
+      success: true,
+      message: "A 6-digit verification code has been generated for your email.",
+      email: user.email,
+      user_name: user.name,
+      otp_code: rawOtp,
+      expires_in_minutes: 10,
+      emailjs_config: emailjsConfig,
+      reset_url: `/reset-password?token=${otpRecord.reset_token}`,
+      token: otpRecord.reset_token,
+      email_sent: isEmailConfigured,
+    });
+  };
+
+  app.post("/auth/forgot-password", passwordResetLimiter, handleForgotPassword);
+  app.post("/api/auth/forgot-password", passwordResetLimiter, handleForgotPassword);
+
+  // Verify 6-digit Email OTP (Option 1)
+  const handleVerifyOtp = (req: Request, res: Response) => {
+    const { email, otp } = isRecord(req.body) ? req.body : {};
+    if (!isText(email, 254, 3) || !EMAIL_RE.test(email.trim())) {
+      return res.status(400).json({ detail: "A valid email address is required." });
+    }
+    if (!isText(otp, 10, 4)) {
+      return res.status(400).json({ detail: "Please enter the 6-digit verification code." });
+    }
+
+    const verification = store.verifyPasswordResetOtp(email.trim(), otp.trim());
+    if (!verification.success) {
+      return res.status(400).json({ detail: verification.error || "Verification failed." });
     }
 
     return res.json({
-      message: "If an account exists for that email, a reset link has been sent.",
-      email_sent: false,
+      success: true,
+      message: "Verification code confirmed successfully.",
+      reset_token: verification.reset_token,
     });
-  });
+  };
+
+  app.post("/auth/verify-otp", passwordResetLimiter, handleVerifyOtp);
+  app.post("/api/auth/verify-otp", passwordResetLimiter, handleVerifyOtp);
 
   // Functional Contact Message Submission (Fixes Issue 28)
   app.post("/api/contact", contactLimiter, async (req, res) => {

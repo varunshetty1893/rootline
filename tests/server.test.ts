@@ -373,5 +373,52 @@ describe("Rootline Data Integrity & Security Tests", () => {
         expect(validate({ email: "user@example.com", message: "Great tree!" })).toBe(true);
       });
     });
+
+    describe("Option 1: 6-Digit Email OTP Password Reset Flow", () => {
+      it("generates a 6-digit numeric OTP and stores it securely with SHA-256 hash", () => {
+        const otpRecord = testStore.createPasswordResetOtp(ownerId, "test@example.com", "849201", 10);
+        expect(otpRecord).toBeDefined();
+        expect(otpRecord.user_id).toBe(ownerId);
+        expect(otpRecord.email).toBe("test@example.com");
+        expect(otpRecord.verified).toBe(false);
+        expect(otpRecord.attempts).toBe(0);
+        expect(otpRecord.reset_token).toBeDefined();
+        // Stored OTP hash is sha256 of raw OTP
+        const expectedHash = crypto.createHash("sha256").update("849201").digest("hex");
+        expect(otpRecord.otp_hash).toBe(expectedHash);
+      });
+
+      it("verifies a valid 6-digit OTP and unlocks the reset token", () => {
+        const otpRecord = testStore.createPasswordResetOtp(ownerId, "test@example.com", "582194", 10);
+        const result = testStore.verifyPasswordResetOtp("test@example.com", "582194");
+        expect(result.success).toBe(true);
+        expect(result.reset_token).toBe(otpRecord.reset_token);
+
+        // The reset_token can now be claimed atomically to update password
+        const claimed = testStore.claimResetToken(result.reset_token!);
+        expect(claimed).toBeDefined();
+        expect(claimed?.user_id).toBe(ownerId);
+      });
+
+      it("rejects an incorrect OTP and tracks failed attempts", () => {
+        testStore.createPasswordResetOtp(ownerId, "test@example.com", "123456", 10);
+        const failResult = testStore.verifyPasswordResetOtp("test@example.com", "999999");
+        expect(failResult.success).toBe(false);
+        expect(failResult.error).toContain("Incorrect verification code");
+      });
+
+      it("invalidates previous OTPs when a new OTP is requested", () => {
+        testStore.createPasswordResetOtp(ownerId, "test@example.com", "111111", 10);
+        testStore.createPasswordResetOtp(ownerId, "test@example.com", "222222", 10);
+
+        // Old OTP fails
+        const oldResult = testStore.verifyPasswordResetOtp("test@example.com", "111111");
+        expect(oldResult.success).toBe(false);
+
+        // New OTP succeeds
+        const newResult = testStore.verifyPasswordResetOtp("test@example.com", "222222");
+        expect(newResult.success).toBe(true);
+      });
+    });
   });
 });

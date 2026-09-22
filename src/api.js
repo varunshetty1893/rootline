@@ -68,6 +68,8 @@ export const api = {
   updateProfile: (payload) => request("/auth/me", { method: "PATCH", body: payload }),
   forgotPassword: (email) =>
     request("/auth/forgot-password", { method: "POST", body: { email } }),
+  verifyOtp: (email, otp) =>
+    request("/auth/verify-otp", { method: "POST", body: { email, otp } }),
   resetPassword: (token, new_password) =>
     request("/auth/reset-password", { method: "POST", body: { token, new_password } }),
   askRelationshipAssistant: (payload) =>

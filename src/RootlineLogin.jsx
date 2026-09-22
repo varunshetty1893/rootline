@@ -112,6 +112,16 @@ export default function RootlineLogin() {
             >
               {submitting ? "Logging in…" : "Log in"}
             </button>
+
+            <div className="text-center mt-2">
+              <button
+                type="button"
+                onClick={() => setForm({ email: "rootline.seed@example.com", password: "seed-password-123" })}
+                className="text-xs text-[#1C4B3C] hover:underline font-medium"
+              >
+                Fill Demo Credentials
+              </button>
+            </div>
           </form>
 
           <div className="flex items-center gap-3 my-6">
