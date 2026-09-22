@@ -22,7 +22,6 @@ import fs from "fs";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import nodemailer from "nodemailer";
-import { createServer as createViteServer } from "vite";
 import { store, User, type FamilyRole } from "./server/store.js";
 import { checkDbHealth, initDatabase } from "./server/db.js";
 import { createRateLimiter } from "./server/rateLimiter.js";
@@ -2280,6 +2279,7 @@ async function startServer() {
 
   // Vite middleware in dev; static file serving in production (or API status if headless)
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
