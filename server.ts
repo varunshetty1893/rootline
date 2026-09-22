@@ -843,7 +843,7 @@ export async function createExpressApp() {
 
     const host = process.env.SMTP_HOST || (isGoogle ? "smtp.gmail.com" : null);
     const port = process.env.SMTP_PORT || (isGoogle ? "465 (SSL) / 587 (TLS)" : "587");
-    const isRender = !!process.env.RENDER || !!process.env.RENDER_SERVICE_ID;
+    const isVercel = !!process.env.VERCEL;
 
     return res.json({
       status: hasResend || (hasSmtpUser && hasSmtpPass) ? "configured" : "not_configured",
@@ -861,10 +861,10 @@ export async function createExpressApp() {
         username: hasSmtpUser ? process.env.SMTP_USERNAME : null,
         is_google_service: isGoogle,
       },
-      render_environment: {
-        detected: isRender,
-        port_restriction_notice: isRender && !hasResend
-          ? "CRITICAL: Render Free tier blocks outbound TCP ports 25, 465, and 587. To send emails on Render, either upgrade to a paid Render plan or add a free RESEND_API_KEY (over HTTPS port 443)."
+      cloud_environment: {
+        vercel: isVercel,
+        notice: !hasResend && (isVercel || !hasSmtpUser)
+          ? "Cloud serverless environments block outbound raw TCP SMTP ports. Using RESEND_API_KEY over HTTPS port 443 is recommended."
           : null,
       },
     });
@@ -990,6 +990,13 @@ export async function createExpressApp() {
     return res.json({ message: "Password updated. You can now log in." });
   });
 
+  function getOAuthRedirectUri(req: Request): string {
+    if (process.env.GOOGLE_REDIRECT_URI) return process.env.GOOGLE_REDIRECT_URI;
+    const proto = (req.headers["x-forwarded-proto"] as string) || (process.env.VERCEL ? "https" : req.protocol) || "https";
+    const host = (req.headers["x-forwarded-host"] as string) || req.get("host") || "localhost:3000";
+    return `${proto}://${host}/auth/google/callback`;
+  }
+
   // Google OAuth with Browser-Bound Cookie State & HMAC Signature (Fixes Issue 1 & Stateless Multi-Process OAuth)
   app.get("/auth/google/login", (req, res) => {
     const rawState = crypto.randomBytes(32).toString("hex");
@@ -998,14 +1005,14 @@ export async function createExpressApp() {
 
     res.cookie("oauth_state", cookieValue, {
       httpOnly: true,
-      secure: COOKIE_SAMESITE === "none" || IS_PROD,
+      secure: COOKIE_SAMESITE === "none" || IS_PROD || Boolean(process.env.VERCEL),
       sameSite: COOKIE_SAMESITE,
       maxAge: 10 * 60 * 1000, // 10 minutes
       path: "/",
     });
 
     const googleClientId = process.env.GOOGLE_CLIENT_ID;
-    const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${req.protocol}://${req.get("host")}/auth/google/callback`;
+    const redirectUri = getOAuthRedirectUri(req);
 
     if (googleClientId) {
       const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
@@ -1063,7 +1070,7 @@ export async function createExpressApp() {
 
     const googleClientId = process.env.GOOGLE_CLIENT_ID;
     const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${req.protocol}://${req.get("host")}/auth/google/callback`;
+    const redirectUri = getOAuthRedirectUri(req);
 
     let profileEmail = "demo@rootline.example";
     let profileName = "Demo User";
@@ -1153,11 +1160,13 @@ export async function createExpressApp() {
     if (frontendUrl) {
       return res.redirect(`${frontendUrl}/oauth-callback?token=${encodeURIComponent(token)}`);
     }
-    return res.redirect(`${req.protocol}://${req.get("host")}/dashboard`);
+    const proto = (req.headers["x-forwarded-proto"] as string) || (process.env.VERCEL ? "https" : req.protocol) || "https";
+    const host = (req.headers["x-forwarded-host"] as string) || req.get("host") || "localhost:3000";
+    return res.redirect(`${proto}://${host}/dashboard`);
   });
 
   // People endpoints with Multi-Family Collaboration & Activity Tracking
-  app.get("/people", requireAuth, (req: AuthRequest, res) => {
+  app.get(["/people", "/api/people"], requireAuth, (req: AuthRequest, res) => {
     try {
       const familyId = (req.query.family_id as string) || (req.query.tree_id as string) || req.user!.id;
       const access = store.checkFamilyAccess(req.user!.id, familyId);
@@ -1174,7 +1183,7 @@ export async function createExpressApp() {
   });
 
   // Dedicated Streaming Photo Endpoint (Fixes Issues 5 & 6)
-  app.get("/people/:id/photo", requireAuth, (req: AuthRequest, res) => {
+  app.get(["/people/:id/photo", "/api/people/:id/photo"], requireAuth, (req: AuthRequest, res) => {
     const rawId = req.params.id;
     const personId = Array.isArray(rawId) ? rawId[0] : rawId;
 
@@ -1205,7 +1214,7 @@ export async function createExpressApp() {
     return res.status(404).send("Photo format not recognized");
   });
 
-  app.post("/people", requireAuth, (req: AuthRequest, res) => {
+  app.post(["/people", "/api/people"], requireAuth, (req: AuthRequest, res) => {
     try {
       if (!isRecord(req.body)) return res.status(422).json({ detail: "Invalid person payload" });
       const body = req.body as Record<string, any>;
@@ -1304,7 +1313,7 @@ export async function createExpressApp() {
     }
   });
 
-  app.post("/people/link", requireAuth, (req: AuthRequest, res) => {
+  app.post(["/people/link", "/api/people/link"], requireAuth, (req: AuthRequest, res) => {
     try {
       const { first_person_id, second_person_id, relationship_status } = req.body;
       if (!isId(first_person_id) || !isId(second_person_id) || (relationship_status !== undefined && relationship_status !== null && !isText(relationship_status, 64, 1))) {
@@ -1336,7 +1345,7 @@ export async function createExpressApp() {
     }
   });
 
-  app.get("/people/:id", requireAuth, (req: AuthRequest, res) => {
+  app.get(["/people/:id", "/api/people/:id"], requireAuth, (req: AuthRequest, res) => {
     const rawId = req.params.id;
     const personId = Array.isArray(rawId) ? rawId[0] : rawId;
     const rawPerson = store.people.get(personId);
@@ -1356,7 +1365,7 @@ export async function createExpressApp() {
     return res.json(store.serializePerson(person, { fullPhoto: true }));
   });
 
-  app.patch("/people/:id", requireAuth, (req: AuthRequest, res) => {
+  app.patch(["/people/:id", "/api/people/:id"], requireAuth, (req: AuthRequest, res) => {
     try {
       const rawId = req.params.id;
       const personId = Array.isArray(rawId) ? rawId[0] : rawId;
@@ -1396,7 +1405,7 @@ export async function createExpressApp() {
     }
   });
 
-  app.delete("/people/:id", requireAuth, (req: AuthRequest, res) => {
+  app.delete(["/people/:id", "/api/people/:id"], requireAuth, (req: AuthRequest, res) => {
     try {
       const rawId = req.params.id;
       const personId = Array.isArray(rawId) ? rawId[0] : rawId;
@@ -2305,8 +2314,8 @@ async function startServer() {
   });
 }
 
-// Only start the server when run directly
-if (process.env.NODE_ENV !== "test") {
+// Only start the server when run directly (not in test or Vercel serverless functions)
+if (process.env.NODE_ENV !== "test" && !process.env.VERCEL) {
   startServer().catch((err) => {
     logger.error("Failed to start server:", err);
     process.exit(1);

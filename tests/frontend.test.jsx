@@ -106,18 +106,15 @@ describe("Frontend UI Test Suite (Issue 16)", () => {
       expect(screen.getByText(/continue with google/i)).toBeDefined();
     });
 
-    it("allows filling pre-seeded demo user", () => {
+    it("allows entering user credentials", () => {
       render(
         <MemoryRouter>
           <RootlineLogin />
         </MemoryRouter>
       );
 
-      const fillDemoBtn = screen.getByText(/fill demo/i);
-      expect(fillDemoBtn).toBeDefined();
-      fireEvent.click(fillDemoBtn);
-
       const emailInput = screen.getByPlaceholderText(/enter your email/i);
+      fireEvent.change(emailInput, { target: { value: "rootline.seed@example.com" } });
       expect(emailInput.value).toBe("rootline.seed@example.com");
     });
   });

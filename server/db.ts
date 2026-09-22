@@ -45,6 +45,10 @@ export async function checkDbHealth(): Promise<{ type: "postgres" | "memory"; co
 }
 
 export async function initDatabase(): Promise<boolean> {
+  if (pool && isPostgresActive) {
+    return true;
+  }
+
   const databaseUrl = process.env.DATABASE_URL?.trim();
   if (!databaseUrl) {
     logger.info("DATABASE_URL not set. Running with In-Memory Store.");

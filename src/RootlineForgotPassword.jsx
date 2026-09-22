@@ -10,20 +10,12 @@ import {
   AlertCircle,
   Clock,
   RotateCcw,
-  Settings,
-  ChevronDown,
-  ChevronUp,
   KeyRound,
-  ShieldCheck,
   Send,
+  Info,
 } from "lucide-react";
 import { api } from "./api.js";
 import { Field } from "./RootlineRegister.jsx";
-import {
-  getEmailJsConfig,
-  saveEmailJsConfig,
-  sendBrowserDirectOtp,
-} from "./emailjs.js";
 
 export default function RootlineForgotPassword() {
   const navigate = useNavigate();
@@ -43,33 +35,15 @@ export default function RootlineForgotPassword() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [notFound, setNotFound] = useState(false);
-  const [emailJsStatus, setEmailJsStatus] = useState(null); // { success: boolean, msg: string }
+  const [serverOtp, setServerOtp] = useState("");
+  const [emailSent, setEmailSent] = useState(false);
 
   // Resend countdown timer
   const [countdown, setCountdown] = useState(60);
   const [canResend, setCanResend] = useState(false);
 
-  // EmailJS Settings Drawer state
-  const [showSettings, setShowSettings] = useState(false);
-  const [settingsForm, setSettingsForm] = useState({
-    serviceId: "",
-    templateId: "",
-    publicKey: "",
-  });
-  const [settingsSaved, setSettingsSaved] = useState(false);
-
   // Refs for 6-digit inputs
   const otpInputRefs = useRef([]);
-
-  // Load existing EmailJS config on mount
-  useEffect(() => {
-    const cfg = getEmailJsConfig();
-    setSettingsForm({
-      serviceId: cfg.serviceId || "",
-      templateId: cfg.templateId || "",
-      publicKey: cfg.publicKey || "",
-    });
-  }, []);
 
   // Timer for resend cooldown
   useEffect(() => {
@@ -100,7 +74,6 @@ export default function RootlineForgotPassword() {
     if (e) e.preventDefault();
     setError("");
     setNotFound(false);
-    setEmailJsStatus(null);
 
     const cleanEmail = email.trim().toLowerCase();
     if (!cleanEmail) {
@@ -112,29 +85,10 @@ export default function RootlineForgotPassword() {
     try {
       const res = await api.forgotPassword(cleanEmail);
 
-      // Server generated the 6-digit OTP
       const generatedOtp = res?.otp_code || "";
-      const recipientName = res?.user_name || cleanEmail.split("@")[0];
-
-      // Dispatch directly via Browser EmailJS
-      const emailJsResult = await sendBrowserDirectOtp({
-        toEmail: cleanEmail,
-        toName: recipientName,
-        otpCode: generatedOtp,
-        resetUrl: res?.reset_url ? `${window.location.origin}${res.reset_url}` : "",
-      });
-
-      if (emailJsResult.success) {
-        setEmailJsStatus({
-          success: true,
-          msg: "6-digit code delivered directly to your inbox via EmailJS!",
-        });
-      } else if (!emailJsResult.skipped) {
-        setEmailJsStatus({
-          success: false,
-          msg: `EmailJS notice: ${emailJsResult.error}. You can still use the code shown below.`,
-        });
-      }
+      const wasEmailSent = Boolean(res?.email_sent);
+      setServerOtp(generatedOtp);
+      setEmailSent(wasEmailSent);
 
       // Transition to Step 2
       setStep(2);
@@ -265,14 +219,6 @@ export default function RootlineForgotPassword() {
     }
   };
 
-  // Save custom EmailJS credentials
-  const handleSaveSettings = (e) => {
-    e.preventDefault();
-    saveEmailJsConfig(settingsForm);
-    setSettingsSaved(true);
-    setTimeout(() => setSettingsSaved(false), 3000);
-  };
-
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-[#F7F5F0] px-6 py-12">
       <div className="w-full max-w-md">
@@ -334,10 +280,10 @@ export default function RootlineForgotPassword() {
 
         <p className="text-sm text-[#6B7280] mb-6">
           {step === 1 &&
-            "Enter your email to receive a secure 6-digit verification code directly to your inbox."}
+            "Enter your email address to receive a secure 6-digit verification code."}
           {step === 2 && (
             <>
-              A 6-digit OTP was sent to{" "}
+              A 6-digit code was generated for{" "}
               <span className="font-semibold text-[#1C1F1D]">{email}</span>.
             </>
           )}
@@ -390,7 +336,7 @@ export default function RootlineForgotPassword() {
               className="w-full bg-[#1C4B3C] hover:bg-[#163D31] disabled:opacity-60 transition-colors text-white text-sm font-semibold rounded-lg py-2.5 flex items-center justify-center gap-2"
             >
               {submitting ? (
-                <span>Validating & sending code…</span>
+                <span>Generating code…</span>
               ) : (
                 <>
                   <Send className="w-4 h-4" />
@@ -404,17 +350,37 @@ export default function RootlineForgotPassword() {
         {/* STEP 2: 6-Digit OTP Verification */}
         {step === 2 && (
           <form onSubmit={handleVerifySubmit} className="space-y-5">
-            {/* Direct Email Status Banner */}
-            {emailJsStatus && (
-              <div
-                className={`text-xs px-3.5 py-2.5 rounded-lg border flex items-center gap-2 ${
-                  emailJsStatus.success
-                    ? "bg-[#EAF2EE] border-[#BFDDCE] text-[#1C4B3C]"
-                    : "bg-[#FFFBEB] border-[#FDE68A] text-[#92400E]"
-                }`}
-              >
-                <ShieldCheck className="w-4 h-4 shrink-0" />
-                <span>{emailJsStatus.msg}</span>
+            {/* Notice if host email transport is not configured */}
+            {!emailSent && serverOtp && (
+              <div className="bg-[#FEF6EE] border border-[#F9DBAF] rounded-lg p-3 text-xs text-[#B54708]">
+                <div className="flex items-start gap-2 mb-1.5">
+                  <Info className="w-4 h-4 text-[#D97706] shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-semibold block text-[#92400E]">
+                      Live Email Notice (Preview Environment)
+                    </span>
+                    <p className="text-[#B45309] mt-0.5">
+                      No outbound SMTP server credentials are configured in this preview container, so no email reached your external inbox. Here is your generated 6-digit code:
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between bg-white px-3 py-2 rounded border border-[#F9DBAF] mt-2">
+                  <span className="font-mono text-base font-bold tracking-widest text-[#1C4B3C]">
+                    {serverOtp}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const digits = serverOtp.split("");
+                      setOtpDigits(digits);
+                      triggerOtpVerification(serverOtp);
+                    }}
+                    className="bg-[#1C4B3C] text-white px-2.5 py-1 rounded text-xs font-semibold hover:bg-[#163D31] transition-colors"
+                  >
+                    Auto-fill code
+                  </button>
+                </div>
               </div>
             )}
 
@@ -570,107 +536,6 @@ export default function RootlineForgotPassword() {
             </Link>
           </div>
         )}
-
-        {/* Optional EmailJS Browser Config Drawer */}
-        <div className="mt-8 pt-6 border-t border-[#E5E7EB]">
-          <button
-            type="button"
-            onClick={() => setShowSettings(!showSettings)}
-            className="flex items-center justify-between w-full text-xs text-[#6B7280] hover:text-[#1C1F1D] py-1"
-          >
-            <span className="flex items-center gap-1.5 font-medium">
-              <Settings className="w-3.5 h-3.5 text-[#1C4B3C]" />
-              EmailJS Direct Inbox Settings (Zero DNS)
-            </span>
-            {showSettings ? (
-              <ChevronUp className="w-3.5 h-3.5" />
-            ) : (
-              <ChevronDown className="w-3.5 h-3.5" />
-            )}
-          </button>
-
-          {showSettings && (
-            <div className="mt-3 bg-white p-4 rounded-lg border border-[#E5E7EB] text-xs space-y-3">
-              <p className="text-[#6B7280] leading-relaxed">
-                EmailJS sends 6-digit OTP emails directly from your browser to
-                your Gmail inbox, avoiding hosting server port blocks on Render
-                or Vercel.
-              </p>
-
-              <form onSubmit={handleSaveSettings} className="space-y-2.5">
-                <div>
-                  <label className="block font-medium text-[#374151] mb-1">
-                    Service ID
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="service_xxxxxxx"
-                    value={settingsForm.serviceId}
-                    onChange={(e) =>
-                      setSettingsForm({ ...settingsForm, serviceId: e.target.value })
-                    }
-                    className="w-full px-2.5 py-1.5 border border-[#D1D5DB] rounded text-xs focus:ring-1 focus:ring-[#1C4B3C] focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-medium text-[#374151] mb-1">
-                    Template ID
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="template_xxxxxxx"
-                    value={settingsForm.templateId}
-                    onChange={(e) =>
-                      setSettingsForm({ ...settingsForm, templateId: e.target.value })
-                    }
-                    className="w-full px-2.5 py-1.5 border border-[#D1D5DB] rounded text-xs focus:ring-1 focus:ring-[#1C4B3C] focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-medium text-[#374151] mb-1">
-                    Public Key
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="public_key_xxxxxxx"
-                    value={settingsForm.publicKey}
-                    onChange={(e) =>
-                      setSettingsForm({ ...settingsForm, publicKey: e.target.value })
-                    }
-                    className="w-full px-2.5 py-1.5 border border-[#D1D5DB] rounded text-xs focus:ring-1 focus:ring-[#1C4B3C] focus:outline-none"
-                  />
-                </div>
-
-                {settingsSaved && (
-                  <p className="text-[#1C4B3C] font-medium">
-                    ✓ Settings saved to browser storage!
-                  </p>
-                )}
-
-                <div className="flex gap-2 pt-1">
-                  <button
-                    type="submit"
-                    className="bg-[#1C4B3C] text-white px-3 py-1.5 rounded font-medium hover:bg-[#163D31] transition-colors"
-                  >
-                    Save EmailJS Credentials
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSettingsForm({ serviceId: "", templateId: "", publicKey: "" });
-                      saveEmailJsConfig({ serviceId: "", templateId: "", publicKey: "" });
-                    }}
-                    className="text-[#6B7280] hover:text-[#1C1F1D] px-2 py-1.5"
-                  >
-                    Clear
-                  </button>
-                </div>
-              </form>
-            </div>
-          )}
-        </div>
 
         <p className="text-center text-xs text-[#6B7280] mt-6">
           <Link to="/login" className="text-[#1C4B3C] font-semibold hover:underline">

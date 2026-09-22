@@ -30,42 +30,30 @@ git push -u origin main
 
 Never commit `.env`. Only `.env.example` belongs in Git.
 
-## Deploy the backend to Render
+## Deploy Full-Stack (Frontend + Backend) to Vercel
 
-1. In Render (<https://dashboard.render.com>), click **New +** → **Blueprint** and connect your repository (Render automatically reads `render.yaml`), OR create a **Web Service** manually:
-   - **Environment**: Node
-   - **Build Command**: `npm install --include=dev && npm run build:server`
-   - **Start Command**: `npm start`
-   - **Health Check Path**: `/health` (or `/api/health`)
-2. (Optional but recommended for persistence) Create a **PostgreSQL** database on Render or Neon/Supabase and copy the connection string to `DATABASE_URL`.
-3. Configure the following environment variables in Render:
-   - `NODE_ENV`: `production`
-   - `SECRET_KEY`: A long random secret key (or click generate)
-   - `FRONTEND_URL`: Your Vercel frontend URL (e.g. `https://your-app.vercel.app`)
-   - `COOKIE_SAMESITE`: `none` (enables cross-origin session cookies)
-   - `ALLOWED_ORIGINS`: Your Vercel URL (e.g. `https://your-app.vercel.app`)
-   - `GEMINI_API_KEY`: (Optional) Your Google Gemini API key for AI assistant features
-4. Copy your backend service URL (e.g., `https://rootline-backend.onrender.com`).
+You can host both the frontend SPA and the backend API together on Vercel under a single domain.
 
-## Deploy the frontend to Vercel
-
-1. In Vercel (<https://vercel.com/new>), import your GitHub repository.
-2. The pre-configured `vercel.json` will automatically configure:
+1. Push your code to GitHub and import the repository in **Vercel** (<https://vercel.com/new>).
+2. Vercel automatically detects the configuration from `vercel.json`:
    - **Framework Preset**: Vite
    - **Build Command**: `npm run build:client`
    - **Output Directory**: `dist`
-   - **Single Page App Routing**: Automatic rewrites for all React Router routes
-3. In the **Environment Variables** section on Vercel, add:
-   - `VITE_API_URL`: `https://rootline-backend.onrender.com` (your Render backend URL, without a trailing slash)
-4. Click **Deploy**.
-5. Once Vercel finishes deploying, copy your live Vercel URL (e.g., `https://your-app.vercel.app`) and ensure it matches the `FRONTEND_URL` in your Render service settings.
+   - **Serverless API**: Handled automatically by `/api/index.ts` for all `/api/*`, `/auth/*`, `/people/*`, and `/families/*` routes.
+3. In **Project Settings** → **Environment Variables** on Vercel, add:
+   - `SECRET_KEY`: A random 32+ character string for signing session cookies and OAuth state.
+   - `RESEND_API_KEY`: *(Recommended for emails)* Free API key from <https://resend.com> for password reset and OTP emails (Vercel serverless environments block direct SMTP ports like 587/465).
+   - `RESEND_FROM_EMAIL`: `onboarding@resend.dev` (or your verified domain email).
+   - `DATABASE_URL`: *(Recommended for persistence)* A PostgreSQL connection string from Neon (<https://neon.tech>), Supabase (<https://supabase.com>), or Vercel Postgres.
+   - `GEMINI_API_KEY`: *(Optional)* Your Google Gemini API key for AI assistant features.
+4. **No `VITE_API_URL` is required**: Since both frontend and backend share the exact same Vercel domain, all API requests use relative paths and same-site session cookies seamlessly.
 
-### Google OAuth Setup (Optional)
-If using Google Sign-In:
-- In Google Cloud Console Credentials:
-  - Authorized JavaScript origins: `https://your-app.vercel.app`
-  - Authorized redirect URIs: `https://rootline-backend.onrender.com/auth/google/callback`
-- In Render environment variables:
-  - `GOOGLE_CLIENT_ID`: Your Google OAuth client ID
-  - `GOOGLE_CLIENT_SECRET`: Your Google OAuth client secret
-  - `GOOGLE_REDIRECT_URI`: `https://rootline-backend.onrender.com/auth/google/callback`
+### Google OAuth Configuration for Vercel
+1. Go to **Google Cloud Console** → **APIs & Services** → **Credentials**.
+2. Under your OAuth 2.0 Client ID:
+   - **Authorized JavaScript origins**: `https://your-app.vercel.app`
+   - **Authorized redirect URIs**: `https://your-app.vercel.app/auth/google/callback`
+3. In your Vercel Environment Variables, set:
+   - `GOOGLE_CLIENT_ID`: Your Google OAuth client ID
+   - `GOOGLE_CLIENT_SECRET`: Your Google OAuth client secret
+   - *(Optional)* `GOOGLE_REDIRECT_URI`: `https://your-app.vercel.app/auth/google/callback` (auto-detected if omitted)
