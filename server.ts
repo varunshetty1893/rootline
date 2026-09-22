@@ -763,6 +763,132 @@ export async function createExpressApp() {
     });
   });
 
+  // Email System Diagnostics & Health Check (for debugging Render & cloud environments)
+  const handleEmailDiagnostics = (req: Request, res: Response) => {
+    const hasResend = !!process.env.RESEND_API_KEY;
+    const hasSmtpUser = !!process.env.SMTP_USERNAME;
+    const hasSmtpPass = !!process.env.SMTP_PASSWORD;
+    const isGoogle =
+      process.env.SMTP_SERVICE?.toLowerCase() === "gmail" ||
+      process.env.SMTP_HOST === "smtp.gmail.com" ||
+      process.env.SMTP_USERNAME?.toLowerCase().endsWith("@gmail.com");
+
+    const host = process.env.SMTP_HOST || (isGoogle ? "smtp.gmail.com" : null);
+    const port = process.env.SMTP_PORT || (isGoogle ? "465 (SSL) / 587 (TLS)" : "587");
+    const isRender = !!process.env.RENDER || !!process.env.RENDER_SERVICE_ID;
+
+    return res.json({
+      status: hasResend || (hasSmtpUser && hasSmtpPass) ? "configured" : "not_configured",
+      active_provider: hasResend ? "resend_api" : hasSmtpUser ? "smtp" : "none",
+      resend: {
+        configured: hasResend,
+        protocol: "HTTPS (port 443 - 100% cloud firewall proof)",
+      },
+      smtp: {
+        configured: hasSmtpUser && hasSmtpPass,
+        host,
+        port,
+        username: hasSmtpUser ? process.env.SMTP_USERNAME : null,
+        is_google_service: isGoogle,
+      },
+      render_environment: {
+        detected: isRender,
+        port_restriction_notice: isRender && !hasResend
+          ? "CRITICAL: Render Free tier blocks outbound TCP ports 25, 465, and 587. To send emails on Render, either upgrade to a paid Render plan or add a free RESEND_API_KEY (over HTTPS port 443)."
+          : null,
+      },
+    });
+  };
+
+  app.get("/api/email/diagnostics", handleEmailDiagnostics);
+  app.get("/email/diagnostics", handleEmailDiagnostics);
+
+  // Direct Email Delivery Test Endpoint
+  const handleEmailTest = async (req: Request, res: Response) => {
+    const { to } = isRecord(req.body) ? req.body : {};
+    const targetEmail = typeof to === "string" && EMAIL_RE.test(to.trim()) ? to.trim() : process.env.SMTP_USERNAME;
+
+    if (!targetEmail) {
+      return res.status(400).json({
+        detail: "Please provide a destination email in the request body (e.g. {\"to\": \"your@email.com\"})",
+      });
+    }
+
+    if (!isEmailProviderConfigured()) {
+      return res.status(400).json({
+        detail: "Neither RESEND_API_KEY nor SMTP credentials (SMTP_USERNAME, SMTP_PASSWORD) are configured in environment variables.",
+      });
+    }
+
+    try {
+      const from = getEmailSenderAddress();
+      if (process.env.RESEND_API_KEY) {
+        const response = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            from,
+            to: [targetEmail],
+            subject: "Rootline Email Test via Resend",
+            text: "Success! Your Rootline email service is working properly over HTTPS.",
+          }),
+        });
+
+        if (!response.ok) {
+          const errText = await response.text();
+          return res.status(502).json({
+            success: false,
+            provider: "resend",
+            detail: `Resend API returned error (${response.status}): ${errText}`,
+          });
+        }
+
+        return res.json({
+          success: true,
+          provider: "resend",
+          message: `Test email successfully dispatched to ${targetEmail} via Resend HTTPS API.`,
+        });
+      }
+
+      await sendSmtpEmail({
+        from,
+        to: targetEmail,
+        subject: "Rootline Email Test via Google SMTP",
+        text: "Success! Your Rootline email service is communicating properly via SMTP.",
+      });
+
+      return res.json({
+        success: true,
+        provider: "smtp",
+        message: `Test email successfully dispatched to ${targetEmail} via SMTP.`,
+      });
+    } catch (err: any) {
+      logger.error("[Email Test] Failed:", err);
+      const isConnectionError =
+        err?.code === "ENETUNREACH" ||
+        err?.code === "ETIMEDOUT" ||
+        err?.code === "ECONNREFUSED" ||
+        err?.message?.includes("ENETUNREACH") ||
+        err?.message?.includes("ETIMEDOUT");
+
+      return res.status(502).json({
+        success: false,
+        provider: "smtp",
+        error_code: err?.code || "UNKNOWN",
+        error_message: err?.message || String(err),
+        diagnosis: isConnectionError
+          ? "Outbound SMTP port is blocked by your hosting provider (Render Free tier blocks ports 25, 465, and 587). Solution: Add RESEND_API_KEY (free at resend.com) to your Render environment variables to send over HTTPS port 443 without port restrictions."
+          : "Authentication or protocol error. Verify your SMTP_USERNAME and Google 16-character App Password.",
+      });
+    }
+  };
+
+  app.post("/api/email/test", handleEmailTest);
+  app.post("/email/test", handleEmailTest);
+
   // Atomic Token Consumption (Fixes Issue 11)
   app.post("/auth/reset-password", passwordResetLimiter, (req, res) => {
     const { token, new_password } = isRecord(req.body) ? req.body : {};
