@@ -423,12 +423,22 @@ export async function createExpressApp() {
     return !!(user && pass);
   }
 
-  function getEmailSenderAddress(): string {
-    const user = process.env.SMTP_USERNAME?.trim() || "";
+  function getEmailSenderAddress(provider?: "resend" | "smtp"): string {
     const customFrom = process.env.EMAIL_FROM?.trim();
+    const user = process.env.SMTP_USERNAME?.trim() || "";
+
+    if (provider === "resend") {
+      // Resend strictly requires a verified custom domain. You cannot send FROM @gmail.com, @yahoo.com, etc.
+      // If customFrom is provided and is NOT a free public webmail address, use it.
+      if (customFrom && !/@(gmail|googlemail|yahoo|hotmail|outlook|icloud)\.com/i.test(customFrom)) {
+        return customFrom.includes("<") ? customFrom : `Rootline <${customFrom}>`;
+      }
+      // Resend free tier default testing sender
+      return "Rootline <onboarding@resend.dev>";
+    }
+
     if (customFrom) {
-      // If customFrom already has an angle bracket format e.g. "Rootline <xxx@example.com>"
-      return customFrom;
+      return customFrom.includes("<") ? customFrom : `Rootline <${customFrom}>`;
     }
     if (user) {
       return `Rootline <${user}>`;
@@ -522,7 +532,8 @@ export async function createExpressApp() {
     }
 
     if (process.env.RESEND_API_KEY) {
-      const from = getEmailSenderAddress();
+      const from = getEmailSenderAddress("resend");
+      const replyTo = process.env.CONTACT_EMAIL || process.env.SMTP_USERNAME || undefined;
       const res = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: {
@@ -532,6 +543,7 @@ export async function createExpressApp() {
         body: JSON.stringify({
           from,
           to: [toEmail],
+          reply_to: replyTo,
           subject: "Reset your Rootline password",
           html: `<p>You requested a password reset for your Rootline account.</p><p><a href="${resetUrl}">Click here to reset your password</a> (valid for 60 minutes).</p><p>Or copy and paste this URL into your browser:</p><p>${resetUrl}</p><p>If you did not request this, you can safely ignore this email.</p>`,
           text: `You requested a password reset for your Rootline account. Please use the following link within 60 minutes:\n\n${resetUrl}\n\nIf you did not request this, you can safely ignore this email.`,
@@ -544,7 +556,7 @@ export async function createExpressApp() {
       return;
     }
 
-    const from = getEmailSenderAddress();
+    const from = getEmailSenderAddress("smtp");
     await sendSmtpEmail({
       from,
       to: toEmail,
@@ -608,7 +620,7 @@ export async function createExpressApp() {
 
     try {
       if (process.env.RESEND_API_KEY) {
-        const from = getEmailSenderAddress();
+        const from = getEmailSenderAddress("resend");
         const res = await fetch("https://api.resend.com/emails", {
           method: "POST",
           headers: {
@@ -618,6 +630,7 @@ export async function createExpressApp() {
           body: JSON.stringify({
             from,
             to: [params.toEmail],
+            reply_to: params.inviterEmail,
             subject: `${params.inviterName} invited you to join "${params.familyName}" on Rootline`,
             html: emailHtml,
             text: emailText,
@@ -627,12 +640,12 @@ export async function createExpressApp() {
           const errText = await res.text();
           throw new Error(`Resend API failed (${res.status}): ${errText}`);
         }
-        logger.info(`[Email] Sent invitation email to ${params.toEmail} via Resend`);
+        logger.info(`[Email] Sent invitation email to ${params.toEmail} via Resend (${from})`);
         return { success: true, inviteUrl };
       }
 
       if (process.env.SMTP_USERNAME && process.env.SMTP_PASSWORD) {
-        const from = getEmailSenderAddress();
+        const from = getEmailSenderAddress("smtp");
         await sendSmtpEmail({
           from,
           to: params.toEmail,
@@ -729,6 +742,7 @@ export async function createExpressApp() {
         const from = getEmailSenderAddress();
 
         if (process.env.RESEND_API_KEY) {
+          const from = getEmailSenderAddress("resend");
           await fetch("https://api.resend.com/emails", {
             method: "POST",
             headers: {
@@ -744,6 +758,7 @@ export async function createExpressApp() {
             }),
           });
         } else if (process.env.SMTP_USERNAME && process.env.SMTP_PASSWORD) {
+          const from = getEmailSenderAddress("smtp");
           await sendSmtpEmail({
             from,
             to: targetEmail,
@@ -782,10 +797,12 @@ export async function createExpressApp() {
       active_provider: hasResend ? "resend_api" : hasSmtpUser ? "smtp" : "none",
       resend: {
         configured: hasResend,
+        sender_address: hasResend ? getEmailSenderAddress("resend") : null,
         protocol: "HTTPS (port 443 - 100% cloud firewall proof)",
       },
       smtp: {
         configured: hasSmtpUser && hasSmtpPass,
+        sender_address: hasSmtpUser ? getEmailSenderAddress("smtp") : null,
         host,
         port,
         username: hasSmtpUser ? process.env.SMTP_USERNAME : null,
@@ -821,8 +838,9 @@ export async function createExpressApp() {
     }
 
     try {
-      const from = getEmailSenderAddress();
       if (process.env.RESEND_API_KEY) {
+        const from = getEmailSenderAddress("resend");
+        const replyTo = process.env.CONTACT_EMAIL || process.env.SMTP_USERNAME || undefined;
         const response = await fetch("https://api.resend.com/emails", {
           method: "POST",
           headers: {
@@ -832,6 +850,7 @@ export async function createExpressApp() {
           body: JSON.stringify({
             from,
             to: [targetEmail],
+            reply_to: replyTo,
             subject: "Rootline Email Test via Resend",
             text: "Success! Your Rootline email service is working properly over HTTPS.",
           }),
@@ -853,6 +872,7 @@ export async function createExpressApp() {
         });
       }
 
+      const from = getEmailSenderAddress("smtp");
       await sendSmtpEmail({
         from,
         to: targetEmail,
