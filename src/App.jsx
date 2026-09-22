@@ -20,6 +20,7 @@ import PersonForm from "./family/PersonForm.jsx";
 import PersonDetail from "./family/PersonDetail.jsx";
 import TreeView from "./family/TreeView.jsx";
 import SharedTrees from "./family/SharedTrees.jsx";
+import InviteAccept from "./family/InviteAccept.jsx";
 
 export default function App() {
   return (
@@ -37,6 +38,8 @@ export default function App() {
             <Route path="/reset-password" element={<RootlineResetPassword />} />
             <Route path="/oauth-callback" element={<RootlineOAuthCallback />} />
             <Route path="/auth/callback" element={<RootlineOAuthCallback />} />
+            <Route path="/invite" element={<InviteAccept />} />
+            <Route path="/invite/accept" element={<InviteAccept />} />
             <Route
               path="/dashboard"
               element={

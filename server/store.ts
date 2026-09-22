@@ -19,6 +19,9 @@ import {
   dbDeleteTreeShare,
   dbSaveActivityLog,
   dbSaveChatMessage,
+  dbSaveInvitation,
+  dbDeleteInvitation,
+  dbUpdateInvitationStatus,
 } from "./db.js";
 import { logger } from "./logger.js";
 
@@ -141,6 +144,26 @@ export interface TreeShare {
   updated_at: string;
 }
 
+export type InvitationStatus = "pending" | "accepted" | "declined" | "cancelled" | "expired";
+
+export interface FamilyInvitation {
+  id: string;
+  family_id: string;
+  family_name: string;
+  inviter_id: string;
+  inviter_name: string;
+  inviter_email: string;
+  invitee_email: string;
+  permission: SharePermission;
+  token: string;
+  status: InvitationStatus;
+  message?: string | null;
+  created_at: string;
+  expires_at: string;
+  accepted_at?: string | null;
+  accepted_by_user_id?: string | null;
+}
+
 export interface ChatMessage {
   id: string;
   family_id: string;
@@ -167,7 +190,11 @@ export type ActivityAction =
   | "TREE_SHARED"
   | "SHARE_UPDATED"
   | "SHARE_PERMISSION_CHANGED"
-  | "SHARE_REMOVED";
+  | "SHARE_REMOVED"
+  | "INVITATION_SENT"
+  | "INVITATION_ACCEPTED"
+  | "INVITATION_DECLINED"
+  | "INVITATION_CANCELLED";
 
 export interface ActivityLog {
   id: string;
@@ -175,7 +202,7 @@ export interface ActivityLog {
   actor_id: string;
   actor_name: string;
   action: ActivityAction;
-  target_type: "person" | "relationship" | "member" | "share" | "family";
+  target_type: "person" | "relationship" | "member" | "share" | "family" | "invitation";
   target_id?: string | null;
   target_name?: string | null;
   description: string;
@@ -257,6 +284,7 @@ export class MemoryStore {
   families: Map<string, Family> = new Map();
   familyMembers: Map<string, FamilyMember> = new Map();
   treeShares: Map<string, TreeShare> = new Map();
+  familyInvitations: Map<string, FamilyInvitation> = new Map();
   activityLogs: ActivityLog[] = [];
   chatHistories: Map<string, ChatMessage[]> = new Map(); // key: `${userId}:${familyId}`
 
@@ -287,6 +315,7 @@ export class MemoryStore {
     this.familyUnits.clear();
     this.familyChildren.clear();
     this.treeShares.clear();
+    this.familyInvitations.clear();
     this.activityLogs = [];
     this.chatHistories.clear();
 
@@ -313,6 +342,9 @@ export class MemoryStore {
     }
     for (const s of data.treeShares) {
       this.treeShares.set(s.id, s);
+    }
+    for (const inv of (data as any).invitations || []) {
+      this.familyInvitations.set(inv.id, inv);
     }
     this.activityLogs = data.activityLogs || [];
 
@@ -1625,6 +1657,7 @@ export class MemoryStore {
       created_at: string;
       updated_at: string;
     }[];
+    invitations?: FamilyInvitation[];
     currentUserRole: FamilyRole;
   } {
     const access = this.checkFamilyAccess(userId, familyId);
@@ -1669,6 +1702,7 @@ export class MemoryStore {
         email: owner?.email || "",
       },
       shares,
+      invitations: this.getFamilyInvitations(userId, familyId),
       currentUserRole: access.role,
     };
   }
@@ -1750,13 +1784,317 @@ export class MemoryStore {
     return true;
   }
 
+  // --- Family Tree Email Invitations ---
+  createFamilyInvitation(params: {
+    ownerId: string;
+    familyId: string;
+    inviteeEmail: string;
+    permission: SharePermission;
+    message?: string | null;
+  }): { invitation: FamilyInvitation; isExistingUser: boolean; recipientUser: User | null } {
+    const family = this.families.get(params.familyId);
+    if (!family) {
+      throw new Error("Family tree not found");
+    }
+
+    if (family.owner_id !== params.ownerId) {
+      throw new Error("Only the tree owner can send invitations");
+    }
+
+    const normalizedEmail = params.inviteeEmail.toLowerCase().trim();
+    if (!normalizedEmail || !normalizedEmail.includes("@")) {
+      throw new Error("A valid email address is required");
+    }
+
+    if (params.permission !== "viewer" && params.permission !== "editor") {
+      throw new Error("Invalid permission: must be 'viewer' or 'editor'");
+    }
+
+    const owner = this.users.get(params.ownerId);
+    if (!owner) {
+      throw new Error("Owner user not found");
+    }
+
+    if (owner.email.toLowerCase() === normalizedEmail) {
+      throw new Error("You cannot invite yourself to your own family tree.");
+    }
+
+    const recipientUser = this.findUserByEmail(normalizedEmail);
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    // Check if an existing pending invitation exists for this family and email
+    let invitation = Array.from(this.familyInvitations.values()).find(
+      (inv) => inv.family_id === params.familyId && inv.invitee_email.toLowerCase() === normalizedEmail && inv.status === "pending"
+    );
+
+    if (invitation) {
+      invitation.permission = params.permission;
+      invitation.message = params.message !== undefined ? params.message : invitation.message;
+      invitation.expires_at = expiresAt;
+      invitation.token = crypto.randomBytes(32).toString("hex");
+      invitation.inviter_name = owner.name;
+      invitation.inviter_email = owner.email;
+      invitation.family_name = family.name;
+    } else {
+      invitation = {
+        id: crypto.randomUUID(),
+        family_id: family.id,
+        family_name: family.name,
+        inviter_id: owner.id,
+        inviter_name: owner.name,
+        inviter_email: owner.email,
+        invitee_email: normalizedEmail,
+        permission: params.permission,
+        token: crypto.randomBytes(32).toString("hex"),
+        status: "pending",
+        message: params.message || null,
+        created_at: now.toISOString(),
+        expires_at: expiresAt,
+      };
+      this.familyInvitations.set(invitation.id, invitation);
+    }
+
+    dbSaveInvitation(invitation).catch((e) => logger.error("dbSaveInvitation error:", e));
+
+    this.logActivity({
+      family_id: params.familyId,
+      actor_id: owner.id,
+      actor_name: owner.name,
+      action: "INVITATION_SENT",
+      target_type: "invitation",
+      target_id: invitation.id,
+      target_name: normalizedEmail,
+      description: `${owner.name} invited ${normalizedEmail} to collaborate on ${family.name} as ${params.permission}`,
+    });
+
+    return {
+      invitation,
+      isExistingUser: Boolean(recipientUser),
+      recipientUser: recipientUser || null,
+    };
+  }
+
+  getInvitationByToken(token: string): FamilyInvitation | null {
+    if (!token) return null;
+    const invitation = Array.from(this.familyInvitations.values()).find((inv) => inv.token === token);
+    if (!invitation) return null;
+
+    if (invitation.status === "pending" && new Date(invitation.expires_at) < new Date()) {
+      invitation.status = "expired";
+      dbUpdateInvitationStatus(invitation.id, "expired").catch((e) => logger.error("dbUpdateInvitationStatus error:", e));
+    }
+    return invitation;
+  }
+
+  getInvitationById(id: string): FamilyInvitation | null {
+    return this.familyInvitations.get(id) || null;
+  }
+
+  acceptFamilyInvitation(token: string, acceptingUser: User): {
+    family: Family;
+    share: TreeShare;
+    invitation: FamilyInvitation;
+  } {
+    const invitation = this.getInvitationByToken(token);
+    if (!invitation) {
+      throw new Error("Invalid or expired invitation link.");
+    }
+
+    if (invitation.status === "accepted") {
+      throw new Error("This invitation has already been accepted.");
+    }
+
+    if (invitation.status === "expired" || new Date(invitation.expires_at) < new Date()) {
+      invitation.status = "expired";
+      dbUpdateInvitationStatus(invitation.id, "expired").catch((e) => logger.error("dbUpdateInvitationStatus error:", e));
+      throw new Error("This invitation has expired. Please ask the tree owner to send a new invitation.");
+    }
+
+    if (invitation.status === "cancelled") {
+      throw new Error("This invitation has been cancelled by the tree owner.");
+    }
+
+    const family = this.families.get(invitation.family_id);
+    if (!family) {
+      throw new Error("The associated family tree was not found.");
+    }
+
+    if (family.owner_id === acceptingUser.id) {
+      throw new Error("You are already the owner of this family tree.");
+    }
+
+    const now = new Date().toISOString();
+
+    // 1. Create or update TreeShare
+    let share = Array.from(this.treeShares.values()).find(
+      (s) => s.family_id === family.id && s.user_id === acceptingUser.id
+    );
+
+    if (share) {
+      share.permission = invitation.permission;
+      share.updated_at = now;
+    } else {
+      share = {
+        id: crypto.randomUUID(),
+        family_id: family.id,
+        owner_id: family.owner_id,
+        user_id: acceptingUser.id,
+        permission: invitation.permission,
+        created_at: now,
+        updated_at: now,
+      };
+      this.treeShares.set(share.id, share);
+    }
+    dbSaveTreeShare(share).catch((e) => logger.error("dbSaveTreeShare error:", e));
+
+    // 2. Add as FamilyMember
+    const memberId = `${family.id}-${acceptingUser.id}`;
+    let member = this.familyMembers.get(memberId);
+    if (member) {
+      member.role = invitation.permission;
+    } else {
+      member = {
+        id: memberId,
+        family_id: family.id,
+        user_id: acceptingUser.id,
+        role: invitation.permission as FamilyRole,
+        joined_at: now,
+      };
+      this.familyMembers.set(memberId, member);
+    }
+    dbSaveFamilyMember(member).catch((e) => logger.error("dbSaveFamilyMember error:", e));
+
+    // 3. Update Invitation status
+    invitation.status = "accepted";
+    invitation.accepted_at = now;
+    invitation.accepted_by_user_id = acceptingUser.id;
+    dbUpdateInvitationStatus(invitation.id, "accepted", now, acceptingUser.id).catch((e) =>
+      logger.error("dbUpdateInvitationStatus error:", e)
+    );
+
+    // 4. Activity log
+    this.logActivity({
+      family_id: family.id,
+      actor_id: acceptingUser.id,
+      actor_name: acceptingUser.name,
+      action: "INVITATION_ACCEPTED",
+      target_type: "invitation",
+      target_id: invitation.id,
+      target_name: acceptingUser.name,
+      description: `${acceptingUser.name} accepted the invitation to join ${family.name} as ${invitation.permission}`,
+    });
+
+    return { family, share, invitation };
+  }
+
+  declineFamilyInvitation(token: string, userId?: string): { success: boolean; invitation: FamilyInvitation } {
+    const invitation = this.getInvitationByToken(token);
+    if (!invitation) {
+      throw new Error("Invalid invitation link.");
+    }
+    if (invitation.status !== "pending") {
+      throw new Error(`Invitation is already ${invitation.status}`);
+    }
+
+    invitation.status = "declined";
+    dbUpdateInvitationStatus(invitation.id, "declined").catch((e) =>
+      logger.error("dbUpdateInvitationStatus error:", e)
+    );
+
+    const user = userId ? this.users.get(userId) : null;
+    this.logActivity({
+      family_id: invitation.family_id,
+      actor_id: userId || "anonymous",
+      actor_name: user?.name || invitation.invitee_email,
+      action: "INVITATION_DECLINED",
+      target_type: "invitation",
+      target_id: invitation.id,
+      target_name: invitation.invitee_email,
+      description: `${user?.name || invitation.invitee_email} declined the invitation to join ${invitation.family_name}`,
+    });
+
+    return { success: true, invitation };
+  }
+
+  getFamilyInvitations(userId: string, familyId: string): FamilyInvitation[] {
+    const access = this.checkFamilyAccess(userId, familyId);
+    if (!access) {
+      return [];
+    }
+
+    const now = new Date();
+    const results: FamilyInvitation[] = [];
+    for (const inv of this.familyInvitations.values()) {
+      if (inv.family_id === familyId) {
+        if (inv.status === "pending" && new Date(inv.expires_at) < now) {
+          inv.status = "expired";
+          dbUpdateInvitationStatus(inv.id, "expired").catch((e) => logger.error("dbUpdateInvitationStatus error:", e));
+        }
+        results.push(inv);
+      }
+    }
+    return results.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }
+
+  getMyPendingInvitations(userEmail: string): FamilyInvitation[] {
+    if (!userEmail) return [];
+    const normalized = userEmail.toLowerCase().trim();
+    const now = new Date();
+    const results: FamilyInvitation[] = [];
+
+    for (const inv of this.familyInvitations.values()) {
+      if (inv.invitee_email.toLowerCase() === normalized) {
+        if (inv.status === "pending" && new Date(inv.expires_at) < now) {
+          inv.status = "expired";
+          dbUpdateInvitationStatus(inv.id, "expired").catch((e) => logger.error("dbUpdateInvitationStatus error:", e));
+          continue;
+        }
+        if (inv.status === "pending") {
+          results.push(inv);
+        }
+      }
+    }
+    return results.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }
+
+  cancelFamilyInvitation(ownerId: string, invitationId: string): boolean {
+    const inv = this.familyInvitations.get(invitationId);
+    if (!inv) {
+      throw new Error("Invitation not found");
+    }
+    const family = this.families.get(inv.family_id);
+    if (!family || family.owner_id !== ownerId) {
+      throw new Error("Only the tree owner can cancel invitations");
+    }
+
+    inv.status = "cancelled";
+    dbUpdateInvitationStatus(inv.id, "cancelled").catch((e) =>
+      logger.error("dbUpdateInvitationStatus error:", e)
+    );
+
+    const owner = this.users.get(ownerId);
+    this.logActivity({
+      family_id: inv.family_id,
+      actor_id: ownerId,
+      actor_name: owner?.name || "Owner",
+      action: "INVITATION_CANCELLED",
+      target_type: "invitation",
+      target_id: inv.id,
+      target_name: inv.invitee_email,
+      description: `${owner?.name || "Owner"} cancelled the invitation sent to ${inv.invitee_email}`,
+    });
+
+    return true;
+  }
+
   // --- Activity History Logging (Phase 2) ---
   logActivity(params: {
     family_id: string;
     actor_id: string;
     actor_name: string;
     action: ActivityAction;
-    target_type: "person" | "relationship" | "member" | "share" | "family";
+    target_type: "person" | "relationship" | "member" | "share" | "family" | "invitation";
     target_id?: string | null;
     target_name?: string | null;
     description: string;

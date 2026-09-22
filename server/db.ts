@@ -11,6 +11,7 @@ import type {
   TreeShare,
   ActivityLog,
   ChatMessage,
+  FamilyInvitation,
 } from "./store.js";
 
 const { Pool } = pg;
@@ -157,7 +158,27 @@ async function initSchema(client: pg.PoolClient) {
       UNIQUE(family_unit_id, person_id)
     );
 
-    DROP TABLE IF EXISTS family_invitations;
+    CREATE TABLE IF NOT EXISTS family_invitations (
+      id VARCHAR(255) PRIMARY KEY,
+      family_id VARCHAR(64) NOT NULL,
+      family_name TEXT NOT NULL,
+      inviter_id VARCHAR(64) NOT NULL,
+      inviter_name TEXT NOT NULL,
+      inviter_email TEXT NOT NULL,
+      invitee_email TEXT NOT NULL,
+      permission VARCHAR(32) NOT NULL DEFAULT 'viewer',
+      token VARCHAR(128) NOT NULL UNIQUE,
+      status VARCHAR(32) NOT NULL DEFAULT 'pending',
+      message TEXT,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      accepted_at TEXT,
+      accepted_by_user_id VARCHAR(64)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_invitations_token ON family_invitations(token);
+    CREATE INDEX IF NOT EXISTS idx_invitations_invitee ON family_invitations(invitee_email);
+    CREATE INDEX IF NOT EXISTS idx_invitations_family ON family_invitations(family_id);
 
     CREATE TABLE IF NOT EXISTS tree_shares (
       id VARCHAR(64) PRIMARY KEY,
@@ -216,6 +237,8 @@ async function initSchema(client: pg.PoolClient) {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS address TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT;
+    ALTER TABLE family_members ALTER COLUMN id TYPE VARCHAR(255);
+    ALTER TABLE family_invitations ALTER COLUMN id TYPE VARCHAR(255);
   `);
 
   logger.info("PostgreSQL database tables and indexes verified.");
@@ -235,6 +258,7 @@ export async function loadInitialData() {
       unitsRes,
       childrenRes,
       treeSharesRes,
+      invitationsRes,
       activitiesRes,
       chatsRes,
     ] = await Promise.all([
@@ -246,6 +270,7 @@ export async function loadInitialData() {
       pool.query<FamilyUnit>("SELECT * FROM family_units"),
       pool.query<FamilyChild>("SELECT * FROM family_children"),
       pool.query<TreeShare>("SELECT * FROM tree_shares"),
+      pool.query<FamilyInvitation>("SELECT * FROM family_invitations"),
       pool.query<ActivityLog>("SELECT * FROM activity_logs ORDER BY created_at ASC"),
       pool.query<any>("SELECT * FROM chat_messages ORDER BY timestamp ASC"),
     ]);
@@ -289,6 +314,12 @@ export async function loadInitialData() {
       treeShares: treeSharesRes.rows.map((s: any) => ({
         ...s,
         created_at: toIso(s.created_at),
+      })),
+      invitations: invitationsRes.rows.map((inv: any) => ({
+        ...inv,
+        created_at: toIso(inv.created_at),
+        expires_at: toIso(inv.expires_at),
+        accepted_at: toIso(inv.accepted_at),
       })),
       activityLogs: activitiesRes.rows.map((a: any) => ({
         ...a,
@@ -586,3 +617,67 @@ export async function dbSaveChatMessage(msg: ChatMessage): Promise<void> {
     logger.error("dbSaveChatMessage error:", err);
   }
 }
+
+export async function dbSaveInvitation(invitation: FamilyInvitation): Promise<void> {
+  if (!pool || !isPostgresActive) return;
+  try {
+    await pool.query(
+      `INSERT INTO family_invitations (id, family_id, family_name, inviter_id, inviter_name, inviter_email, invitee_email, permission, token, status, message, created_at, expires_at, accepted_at, accepted_by_user_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+       ON CONFLICT (id) DO UPDATE SET
+         status = EXCLUDED.status,
+         permission = EXCLUDED.permission,
+         expires_at = EXCLUDED.expires_at,
+         accepted_at = EXCLUDED.accepted_at,
+         accepted_by_user_id = EXCLUDED.accepted_by_user_id`,
+      [
+        invitation.id,
+        invitation.family_id,
+        invitation.family_name,
+        invitation.inviter_id,
+        invitation.inviter_name,
+        invitation.inviter_email,
+        invitation.invitee_email,
+        invitation.permission,
+        invitation.token,
+        invitation.status,
+        invitation.message || null,
+        invitation.created_at,
+        invitation.expires_at,
+        invitation.accepted_at || null,
+        invitation.accepted_by_user_id || null,
+      ]
+    );
+  } catch (err) {
+    logger.error("dbSaveInvitation error:", err);
+  }
+}
+
+export async function dbDeleteInvitation(invitationId: string): Promise<void> {
+  if (!pool || !isPostgresActive) return;
+  try {
+    await pool.query("DELETE FROM family_invitations WHERE id = $1", [invitationId]);
+  } catch (err) {
+    logger.error("dbDeleteInvitation error:", err);
+  }
+}
+
+export async function dbUpdateInvitationStatus(
+  invitationId: string,
+  status: string,
+  acceptedAt?: string,
+  acceptedUserId?: string
+): Promise<void> {
+  if (!pool || !isPostgresActive) return;
+  try {
+    await pool.query(
+      `UPDATE family_invitations
+       SET status = $2, accepted_at = $3, accepted_by_user_id = $4
+       WHERE id = $1`,
+      [invitationId, status, acceptedAt || null, acceptedUserId || null]
+    );
+  } catch (err) {
+    logger.error("dbUpdateInvitationStatus error:", err);
+  }
+}
+

@@ -122,6 +122,20 @@ export const api = {
   deleteTreeShare: (treeId, shareId) =>
     request(`/families/${treeId}/shares/${shareId}`, { method: "DELETE" }),
 
+  // ── Family Invitations & Tracking ("Who sent Whom") ────────────────────
+  listInvitations: (treeId) => request(`/families/${treeId}/invitations`),
+  sendInvitation: (treeId, payload) =>
+    request(`/families/${treeId}/invitations`, { method: "POST", body: payload }),
+  cancelInvitation: (treeId, invitationId) =>
+    request(`/families/${treeId}/invitations/${invitationId}`, { method: "DELETE" }),
+  verifyInvitation: (token) =>
+    request(`/api/invitations/verify?token=${encodeURIComponent(token)}`),
+  acceptInvitation: (token) =>
+    request("/api/invitations/accept", { method: "POST", body: { token } }),
+  declineInvitation: (token) =>
+    request("/api/invitations/decline", { method: "POST", body: { token } }),
+  getMyPendingInvitations: () => request("/api/invitations/my-pending"),
+
   getFamilyHistory: (treeId, params = {}) => {
     const query = new URLSearchParams({ family_id: treeId || "", ...params });
     return request(`/api/family/history?${query}`);

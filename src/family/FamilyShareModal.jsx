@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   X,
   Share2,
@@ -11,50 +11,94 @@ import {
   CheckCircle2,
   User,
   Crown,
+  Mail,
+  Send,
+  Copy,
+  Check,
+  Clock,
 } from "lucide-react";
 import { api } from "../api.js";
 import { useFamily } from "./FamilyContext.jsx";
 import { useAuth } from "../AuthContext.jsx";
+
+function InvitationStatusBadge({ status, isExpired }) {
+  if (isExpired || status === "expired") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold rounded-full px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200">
+        <Clock className="w-2.5 h-2.5" /> Expired
+      </span>
+    );
+  }
+  if (status === "accepted") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold rounded-full px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200">
+        <CheckCircle2 className="w-2.5 h-2.5" /> Accepted
+      </span>
+    );
+  }
+  if (status === "declined") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold rounded-full px-2 py-0.5 bg-gray-50 text-gray-600 border border-gray-200">
+        Declined
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-semibold rounded-full px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200">
+      <Clock className="w-2.5 h-2.5" /> Pending
+    </span>
+  );
+}
 
 export default function FamilyShareModal({ isOpen, onClose }) {
   const { activeFamilyId, currentFamily, familyRole, refresh } = useFamily();
   const { user } = useAuth();
 
   const [sharesData, setSharesData] = useState({ shares: [], is_owner: false, owner: null });
+  const [invitations, setInvitations] = useState([]);
   const [loading, setLoading] = useState(false);
   const [emailInput, setEmailInput] = useState("");
   const [permissionInput, setPermissionInput] = useState("viewer");
+  const [messageInput, setMessageInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [updatingId, setUpdatingId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [latestInviteUrl, setLatestInviteUrl] = useState("");
+  const [copiedId, setCopiedId] = useState(null);
 
   const isOwner = familyRole === "owner" || (user && currentFamily?.owner_id === user.id);
 
-  const loadShares = async () => {
+  const loadData = useCallback(async () => {
     if (!isOpen || !activeFamilyId) return;
     setLoading(true);
     setError("");
     try {
-      const data = await api.getTreeShares(activeFamilyId);
-      setSharesData(data);
+      const [shares, invRes] = await Promise.all([
+        api.getTreeShares(activeFamilyId),
+        api.listInvitations(activeFamilyId).catch(() => ({ invitations: [] })),
+      ]);
+      setSharesData(shares);
+      setInvitations(invRes.invitations || []);
     } catch (err) {
       setError(err.message || "Failed to load sharing settings");
     } finally {
       setLoading(false);
     }
-  };
+  }, [isOpen, activeFamilyId]);
 
   useEffect(() => {
     if (isOpen) {
       setError("");
       setSuccess("");
       setEmailInput("");
+      setMessageInput("");
       setPermissionInput("viewer");
-      loadShares();
+      setLatestInviteUrl("");
+      loadData();
     }
-  }, [isOpen, activeFamilyId]);
+  }, [isOpen, activeFamilyId, loadData]);
 
   if (!isOpen) return null;
 
@@ -65,20 +109,53 @@ export default function FamilyShareModal({ isOpen, onClose }) {
     setSubmitting(true);
     setError("");
     setSuccess("");
+    setLatestInviteUrl("");
 
     try {
-      const res = await api.addTreeShare(activeFamilyId, {
-        email: emailInput.trim(),
+      const res = await api.sendInvitation(activeFamilyId, {
+        email: emailInput.trim().toLowerCase(),
         permission: permissionInput,
+        message: messageInput.trim() || undefined,
       });
-      setSuccess(res.message || "Tree shared successfully.");
+
+      setSuccess(
+        res.emailDelivered
+          ? `Invitation email sent to ${emailInput.trim()}!`
+          : `Invitation created for ${emailInput.trim()}. You can copy the link below.`
+      );
+
+      if (res.inviteUrl) {
+        setLatestInviteUrl(res.inviteUrl);
+      }
+
       setEmailInput("");
-      await loadShares();
+      setMessageInput("");
+      await loadData();
       await refresh();
     } catch (err) {
       setError(err.message || "Failed to share tree");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleCopyLink = (urlOrToken, invId) => {
+    const fullUrl = urlOrToken.startsWith("http")
+      ? urlOrToken
+      : `${window.location.origin}/invite/accept?token=${urlOrToken}`;
+
+    navigator.clipboard.writeText(fullUrl);
+    setCopiedId(invId);
+    setTimeout(() => setCopiedId(null), 2500);
+  };
+
+  const handleCancelInvite = async (invitationId) => {
+    if (!window.confirm("Are you sure you want to cancel this invitation?")) return;
+    try {
+      await api.cancelInvitation(activeFamilyId, invitationId);
+      await loadData();
+    } catch (err) {
+      setError(err.message || "Failed to cancel invitation");
     }
   };
 
@@ -91,7 +168,7 @@ export default function FamilyShareModal({ isOpen, onClose }) {
         permission: newPermission,
       });
       setSuccess(res.message || "Permission updated successfully.");
-      await loadShares();
+      await loadData();
     } catch (err) {
       setError(err.message || "Failed to update permission");
     } finally {
@@ -110,7 +187,7 @@ export default function FamilyShareModal({ isOpen, onClose }) {
     try {
       const res = await api.deleteTreeShare(activeFamilyId, shareId);
       setSuccess(res.message || "Access revoked successfully.");
-      await loadShares();
+      await loadData();
       await refresh();
     } catch (err) {
       setError(err.message || "Failed to revoke access");
@@ -131,7 +208,7 @@ export default function FamilyShareModal({ isOpen, onClose }) {
             <div>
               <h2 className="text-lg font-serif font-bold text-[#1C1F1D]">Share Family Tree</h2>
               <p className="text-xs text-[#6B7280]">
-                {currentFamily?.name || "Family Tree"} · User-to-user sharing
+                {currentFamily?.name || "Family Tree"} · Collaboration & Invitations
               </p>
             </div>
           </div>
@@ -154,9 +231,36 @@ export default function FamilyShareModal({ isOpen, onClose }) {
           )}
 
           {success && (
-            <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-start gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-              <span>{success}</span>
+            <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 space-y-2">
+              <div className="flex items-start gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                <span>{success}</span>
+              </div>
+              {latestInviteUrl && (
+                <div className="flex items-center gap-2 pt-1">
+                  <input
+                    type="text"
+                    readOnly
+                    value={latestInviteUrl}
+                    className="text-[11px] bg-white border border-emerald-200 rounded px-2 py-1 flex-1 text-[#374151]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleCopyLink(latestInviteUrl, "latest")}
+                    className="px-2.5 py-1 bg-[#1C4B3C] text-white text-[11px] font-medium rounded flex items-center gap-1 hover:bg-[#163C30] shrink-0"
+                  >
+                    {copiedId === "latest" ? (
+                      <>
+                        <Check className="w-3 h-3" /> Copied!
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3 h-3" /> Copy Link
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -180,13 +284,13 @@ export default function FamilyShareModal({ isOpen, onClose }) {
             <div className="bg-[#FAF9F5] border border-[#E7E2D6] rounded-xl p-4">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-[#1C4B3C] mb-3 flex items-center gap-1.5">
                 <UserPlus className="w-4 h-4" />
-                Share with a registered user
+                Invite collaborator by email
               </h3>
 
               <form onSubmit={handleAddShare} className="space-y-3">
                 <div>
                   <label className="block text-xs font-medium text-[#4B5563] mb-1">
-                    User Email Address
+                    Collaborator Email Address
                   </label>
                   <input
                     type="email"
@@ -197,8 +301,18 @@ export default function FamilyShareModal({ isOpen, onClose }) {
                     className="w-full text-xs bg-white border border-[#D9D3C3] rounded-lg px-3 py-2 text-[#1C1F1D] focus:outline-none focus:ring-1 focus:ring-[#1C4B3C]"
                   />
                   <p className="text-[11px] text-[#9CA3AF] mt-1">
-                    The user must have an existing Rootline account.
+                    An email invitation and direct acceptance link will be generated.
                   </p>
+                </div>
+
+                <div>
+                  <input
+                    type="text"
+                    value={messageInput}
+                    onChange={(e) => setMessageInput(e.target.value)}
+                    placeholder="Optional message to include in the invitation..."
+                    className="w-full text-xs bg-white border border-[#D9D3C3] rounded-lg px-3 py-1.5 text-[#1C1F1D] focus:outline-none focus:ring-1 focus:ring-[#1C4B3C]"
+                  />
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
@@ -240,8 +354,8 @@ export default function FamilyShareModal({ isOpen, onClose }) {
                   disabled={submitting || !emailInput.trim()}
                   className="w-full py-2 px-3 bg-[#1C4B3C] hover:bg-[#163C30] disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 shadow-2xs"
                 >
-                  <Share2 className="w-3.5 h-3.5" />
-                  {submitting ? "Sharing..." : "Share Tree"}
+                  <Send className="w-3.5 h-3.5" />
+                  {submitting ? "Sending..." : "Send Invitation"}
                 </button>
               </form>
             </div>
@@ -268,7 +382,7 @@ export default function FamilyShareModal({ isOpen, onClose }) {
                   This family tree is currently private to you.
                 </p>
                 <p className="text-[11px] text-[#9CA3AF] mt-0.5">
-                  Share it above with another Rootline user via their email address.
+                  Invite collaborators above via their email address.
                 </p>
               </div>
             ) : (
@@ -324,6 +438,75 @@ export default function FamilyShareModal({ isOpen, onClose }) {
               </ul>
             )}
           </div>
+
+          {/* Invitations & Tracking ("Who Sent Whom") */}
+          {invitations.length > 0 && (
+            <div className="pt-2 border-t border-[#E7E2D6]">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-xs font-semibold text-[#1C1F1D] flex items-center gap-1.5">
+                  <Mail className="w-3.5 h-3.5 text-[#1C4B3C]" />
+                  Invitations & Tracking ({invitations.length})
+                </h3>
+                <span className="text-[11px] text-[#6B7280]">
+                  Who invited whom
+                </span>
+              </div>
+
+              <div className="border border-[#E7E2D6] rounded-xl overflow-hidden divide-y divide-[#E7E2D6] bg-white">
+                {invitations.map((inv) => (
+                  <div key={inv.id} className="p-3 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:bg-[#FAF9F5]">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-[#1C1F1D]">
+                          To: {inv.invitee_email}
+                        </span>
+                        <InvitationStatusBadge
+                          status={inv.status}
+                          isExpired={new Date(inv.expires_at) < new Date()}
+                        />
+                        <span className="text-[10px] text-[#6B7280] font-medium capitalize">
+                          {inv.permission}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-[#6B7280] mt-0.5">
+                        Sent by: <strong>{inv.inviter_name}</strong> ({inv.inviter_email}) · {new Date(inv.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
+                      <button
+                        type="button"
+                        onClick={() => handleCopyLink(inv.token, inv.id)}
+                        className="px-2 py-1 border border-[#E7E2D6] bg-[#FAFAF8] hover:bg-white text-[#374151] rounded text-[11px] flex items-center gap-1 font-medium transition-colors"
+                        title="Copy invitation link"
+                      >
+                        {copiedId === inv.id ? (
+                          <>
+                            <Check className="w-3 h-3 text-emerald-600" /> Copied!
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3" /> Copy Link
+                          </>
+                        )}
+                      </button>
+
+                      {isOwner && inv.status === "pending" && (
+                        <button
+                          type="button"
+                          onClick={() => handleCancelInvite(inv.id)}
+                          className="px-2 py-1 text-red-600 hover:bg-red-50 rounded text-[11px] font-medium transition-colors"
+                          title="Cancel invitation"
+                        >
+                          Cancel
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Footer */}

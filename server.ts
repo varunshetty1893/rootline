@@ -240,7 +240,7 @@ export async function createExpressApp() {
     message: "Too many contact messages sent. Please try again later.",
   });
 
-  app.post("/auth/register", authLimiter, (req, res) => {
+  const handleRegister = (req: any, res: any) => {
     try {
       const { name, email, password } = isRecord(req.body) ? req.body : {};
       if (!isText(name, 120, 1) || !isText(email, 254, 3) || !isText(password, 128, 1) || !EMAIL_RE.test(email.trim())) {
@@ -274,9 +274,12 @@ export async function createExpressApp() {
     } catch (err: any) {
       return res.status(500).json({ detail: err.message || "Registration failed" });
     }
-  });
+  };
 
-  app.post("/auth/login", authLimiter, (req, res) => {
+  app.post("/auth/register", authLimiter, handleRegister);
+  app.post("/api/auth/register", authLimiter, handleRegister);
+
+  const handleLogin = (req: any, res: any) => {
     try {
       const { email, password } = isRecord(req.body) ? req.body : {};
       if (!isText(email, 254, 3) || !isText(password, 128, 1) || !EMAIL_RE.test(email.trim())) {
@@ -313,12 +316,18 @@ export async function createExpressApp() {
     } catch (err: any) {
       return res.status(500).json({ detail: err.message || "Login failed" });
     }
-  });
+  };
 
-  app.post("/auth/logout", (req: AuthRequest, res) => {
+  app.post("/auth/login", authLimiter, handleLogin);
+  app.post("/api/auth/login", authLimiter, handleLogin);
+
+  const handleLogout = (req: AuthRequest, res: any) => {
     res.clearCookie(COOKIE_NAME, { path: "/" });
     return res.json({ message: "Logged out successfully" });
-  });
+  };
+
+  app.post("/auth/logout", handleLogout);
+  app.post("/api/auth/logout", handleLogout);
 
   const handleGetMe = (req: AuthRequest, res: any) => {
     const user = req.user!;
@@ -399,6 +408,35 @@ export async function createExpressApp() {
   app.patch("/auth/me", requireAuth, handleUpdateProfile);
   app.patch("/api/auth/me", requireAuth, handleUpdateProfile);
 
+  function createEmailTransporter() {
+    const host = process.env.SMTP_HOST?.trim();
+    const service = process.env.SMTP_SERVICE?.trim();
+    const user = process.env.SMTP_USERNAME?.trim();
+    const pass = (process.env.SMTP_PASSWORD || "").replace(/\s+/g, "");
+    const port = parseInt(process.env.SMTP_PORT || "587", 10);
+
+    const isGoogle =
+      service?.toLowerCase() === "gmail" ||
+      host === "smtp.gmail.com" ||
+      user?.toLowerCase().endsWith("@gmail.com");
+
+    if (isGoogle) {
+      return nodemailer.createTransport({
+        service: "gmail",
+        auth: { user, pass },
+        connectionTimeout: 15000,
+      });
+    }
+
+    return nodemailer.createTransport({
+      host,
+      port,
+      secure: port === 465,
+      auth: { user, pass },
+      connectionTimeout: 15000,
+    });
+  }
+
   async function sendPasswordResetEmail(toEmail: string, resetToken: string, req: Request) {
     const baseUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get("host")}`;
     const resetUrl = `${baseUrl}/reset-password?token=${resetToken}`;
@@ -430,23 +468,8 @@ export async function createExpressApp() {
       return;
     }
 
-    const host = process.env.SMTP_HOST;
-    const port = parseInt(process.env.SMTP_PORT || "587", 10);
-    const user = process.env.SMTP_USERNAME;
-    // Strip all spaces from SMTP_PASSWORD / Google App Password
-    const pass = (process.env.SMTP_PASSWORD || "").replace(/\s+/g, "");
-    const from = process.env.EMAIL_FROM || user || "noreply@rootline.example";
-
-    const transporter = nodemailer.createTransport({
-      host,
-      port,
-      secure: port === 465,
-      auth: {
-        user,
-        pass,
-      },
-      connectionTimeout: 10000,
-    });
+    const transporter = createEmailTransporter();
+    const from = process.env.EMAIL_FROM || process.env.SMTP_USERNAME || "noreply@rootline.example";
 
     await transporter.sendMail({
       from,
@@ -460,92 +483,98 @@ export async function createExpressApp() {
   async function sendFamilyInvitationEmail(params: {
     toEmail: string;
     inviterName: string;
+    inviterEmail: string;
     familyName: string;
     invitationToken: string;
     message?: string | null;
+    permission: string;
     req: Request;
-  }) {
+  }): Promise<{ success: boolean; inviteUrl: string; error?: string }> {
     const baseUrl = process.env.FRONTEND_URL || `${params.req.protocol}://${params.req.get("host")}`;
     const inviteUrl = `${baseUrl}/invite/accept?token=${params.invitationToken}`;
 
     const customMsg = params.message
-      ? `<p style="font-style: italic; color: #4B5563; border-left: 3px solid #1C4B3C; padding-left: 12px; margin: 16px 0;">"${params.message}"</p>`
+      ? `<div style="margin: 18px 0; padding: 14px 18px; background: #F0EDE6; border-left: 4px solid #1C4B3C; border-radius: 4px; font-style: italic; color: #374151;">"${params.message}"</div>`
       : "";
 
     const emailHtml = `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 32px 24px; color: #1C1F1D; background: #F7F5F0; border-radius: 12px;">
-        <div style="text-align: center; margin-bottom: 28px;">
-          <h2 style="color: #1C4B3C; margin: 0; font-size: 20px; letter-spacing: 0.15em; font-weight: 700;">ROOTLINE</h2>
+        <div style="text-align: center; margin-bottom: 24px;">
+          <h2 style="color: #1C4B3C; margin: 0; font-size: 22px; letter-spacing: 0.15em; font-weight: 700;">ROOTLINE</h2>
           <p style="color: #6B7280; font-size: 13px; margin-top: 4px;">Family Tree & Genealogy Collaboration</p>
         </div>
-        <div style="background: #FFFFFF; padding: 28px; border-radius: 8px; border: 1px solid #E7E2D6; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-          <h3 style="margin-top: 0; color: #111827; font-size: 18px; font-weight: 600;">You're Invited!</h3>
+        <div style="background: #FFFFFF; padding: 30px; border-radius: 8px; border: 1px solid #E7E2D6; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+          <h3 style="margin-top: 0; color: #111827; font-size: 19px; font-weight: 600;">You're Invited to Collaborate</h3>
           <p style="color: #374151; font-size: 15px; line-height: 1.6;">
-            <strong>${params.inviterName}</strong> has invited you to collaborate on <strong>${params.familyName}</strong> on Rootline.
+            <strong>${params.inviterName}</strong> (${params.inviterEmail}) has invited you (<strong>${params.toEmail}</strong>) to collaborate on the family tree <strong>"${params.familyName}"</strong> as <strong>${params.permission === "editor" ? "an Editor" : "a Viewer"}</strong>.
           </p>
           ${customMsg}
           <div style="margin: 28px 0; text-align: center;">
-            <a href="${inviteUrl}" style="background-color: #1C4B3C; color: #FFFFFF; text-decoration: none; padding: 12px 28px; border-radius: 6px; font-size: 14px; font-weight: 600; display: inline-block;">Accept Invitation</a>
+            <a href="${inviteUrl}" style="background-color: #1C4B3C; color: #FFFFFF; text-decoration: none; padding: 13px 32px; border-radius: 6px; font-size: 15px; font-weight: 600; display: inline-block;">Accept Invitation</a>
           </div>
           <p style="color: #6B7280; font-size: 12px; line-height: 1.5; margin-bottom: 0;">
             Or copy and paste this link into your browser:<br/>
-            <span style="color: #1C4B3C; word-break: break-all;">${inviteUrl}</span>
+            <a href="${inviteUrl}" style="color: #1C4B3C; word-break: break-all;">${inviteUrl}</a>
           </p>
         </div>
-        <p style="text-align: center; color: #9CA3AF; font-size: 12px; margin-top: 24px;">
-          This invitation is valid for 7 days. If you were not expecting this, you can safely ignore this email.
-        </p>
+        <div style="text-align: center; color: #9CA3AF; font-size: 12px; margin-top: 24px; line-height: 1.5;">
+          <p>Sender: <strong>${params.inviterName}</strong> &bull; Recipient: <strong>${params.toEmail}</strong></p>
+          <p>This invitation will expire in 7 days. If you did not expect this, you can safely ignore this email.</p>
+        </div>
       </div>
     `;
 
-    const emailText = `${params.inviterName} has invited you to collaborate on ${params.familyName} on Rootline.\n\n${
-      params.message ? `"${params.message}"\n\n` : ""
-    }Accept your invitation here:\n${inviteUrl}\n\nThis link will expire in 7 days.`;
+    const emailText = `${params.inviterName} (${params.inviterEmail}) has invited you (${params.toEmail}) to collaborate on the family tree "${params.familyName}" as a ${params.permission} on Rootline.\n\n${
+      params.message ? `Personal message:\n"${params.message}"\n\n` : ""
+    }Accept your invitation here:\n${inviteUrl}\n\nThis invitation link will expire in 7 days.`;
 
-    if (process.env.RESEND_API_KEY) {
-      const from = process.env.EMAIL_FROM || "Rootline <onboarding@resend.dev>";
-      const res = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          from,
-          to: [params.toEmail],
-          subject: `${params.inviterName} invited you to join their family tree on Rootline`,
-          html: emailHtml,
-          text: emailText,
-        }),
-      });
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(`Resend API failed (${res.status}): ${errText}`);
-      }
-      return;
+    if (process.env.LOG_INVITATION_LINKS === "true" || !IS_PROD) {
+      logger.info(`[Invitation Link] From: ${params.inviterEmail} To: ${params.toEmail} -> ${inviteUrl}`);
     }
 
-    const host = process.env.SMTP_HOST;
-    const port = parseInt(process.env.SMTP_PORT || "587", 10);
-    const user = process.env.SMTP_USERNAME;
-    const pass = (process.env.SMTP_PASSWORD || "").replace(/\s+/g, "");
-    const from = process.env.EMAIL_FROM || user || "noreply@rootline.example";
+    try {
+      if (process.env.RESEND_API_KEY) {
+        const from = process.env.EMAIL_FROM || "Rootline <onboarding@resend.dev>";
+        const res = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            from,
+            to: [params.toEmail],
+            subject: `${params.inviterName} invited you to join "${params.familyName}" on Rootline`,
+            html: emailHtml,
+            text: emailText,
+          }),
+        });
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(`Resend API failed (${res.status}): ${errText}`);
+        }
+        return { success: true, inviteUrl };
+      }
 
-    const transporter = nodemailer.createTransport({
-      host,
-      port,
-      secure: port === 465,
-      auth: { user, pass },
-      connectionTimeout: 10000,
-    });
+      if (process.env.SMTP_USERNAME && process.env.SMTP_PASSWORD) {
+        const transporter = createEmailTransporter();
+        const from = process.env.EMAIL_FROM || process.env.SMTP_USERNAME;
+        await transporter.sendMail({
+          from,
+          to: params.toEmail,
+          subject: `${params.inviterName} invited you to join "${params.familyName}" on Rootline`,
+          text: emailText,
+          html: emailHtml,
+        });
+        return { success: true, inviteUrl };
+      }
 
-    await transporter.sendMail({
-      from,
-      to: params.toEmail,
-      subject: `${params.inviterName} invited you to join their family tree on Rootline`,
-      text: emailText,
-      html: emailHtml,
-    });
+      logger.warn(`No email provider configured (set SMTP_USERNAME & SMTP_PASSWORD or RESEND_API_KEY). Invitation link generated: ${inviteUrl}`);
+      return { success: false, inviteUrl, error: "Email delivery not configured. You can copy and share the invitation link directly." };
+    } catch (err: any) {
+      logger.error(`Failed to send invitation email to ${params.toEmail}:`, err?.message || err);
+      return { success: false, inviteUrl, error: err?.message || "Failed to send email" };
+    }
   }
 
   // Password Reset with Transparent Email Handling (Fixes Issue 3)
@@ -1220,44 +1249,275 @@ export async function createExpressApp() {
   app.get("/api/families/:id/shares", requireAuth, handleGetShares);
   app.get("/families/:id/shares", requireAuth, handleGetShares);
 
-  const handleAddShare = (req: AuthRequest, res: any) => {
+  const handleAddShare = async (req: AuthRequest, res: any) => {
     try {
       const rawFamilyId = req.params.id;
       const familyId = Array.isArray(rawFamilyId) ? rawFamilyId[0] : rawFamilyId;
-      const { email, permission = "viewer" } = isRecord(req.body) ? req.body : {};
+      const body = isRecord(req.body) ? req.body : {};
+      const { email, permission = "viewer" } = body;
+      const rawMsg = body.message;
+      const messageStr = typeof rawMsg === "string" && rawMsg.trim() ? rawMsg.trim() : undefined;
 
       if (!isText(email, 254, 3) || !EMAIL_RE.test(email.trim()) || (permission !== "viewer" && permission !== "editor")) {
-        return res.status(400).json({ detail: "Email is required" });
+        return res.status(400).json({ detail: "A valid email address is required" });
       }
 
       if (!store.isFamilyOwner(req.user!.id, familyId)) {
         return res.status(403).json({ detail: "Only the tree owner can share this family tree." });
       }
 
-      const result = store.createOrUpdateTreeShare({
+      const family = store.getFamily(familyId);
+      if (!family) {
+        return res.status(404).json({ detail: "Family tree not found." });
+      }
+
+      // Check if user already exists
+      const existingUser = store.findUserByEmail(email.trim().toLowerCase());
+      if (existingUser) {
+        const result = store.createOrUpdateTreeShare({
+          ownerId: req.user!.id,
+          familyId,
+          email: email.trim().toLowerCase(),
+          permission,
+        });
+
+        // Also create/update an invitation record so history and notifications track "who sent whom"
+        const inviteResult = store.createFamilyInvitation({
+          ownerId: req.user!.id,
+          familyId,
+          inviteeEmail: email.trim().toLowerCase(),
+          permission,
+          message: messageStr,
+        });
+
+        // Attempt sending email notification
+        const emailResult = await sendFamilyInvitationEmail({
+          toEmail: email.trim().toLowerCase(),
+          inviterName: req.user!.name,
+          inviterEmail: req.user!.email,
+          familyName: family.name,
+          invitationToken: inviteResult.invitation.token,
+          message: messageStr,
+          permission,
+          req,
+        });
+
+        return res.status(201).json({
+          message: `Successfully shared tree with ${result.recipient.name} as ${result.share.permission}.`,
+          share: result.share,
+          recipient: result.recipient,
+          invitation: inviteResult.invitation,
+          inviteUrl: emailResult.inviteUrl,
+          emailDelivered: emailResult.success,
+          deliveryNote: emailResult.error || null,
+        });
+      }
+
+      // Recipient does not have an account yet: create invitation and send email!
+      const inviteResult = store.createFamilyInvitation({
         ownerId: req.user!.id,
         familyId,
-        email,
+        inviteeEmail: email.trim().toLowerCase(),
         permission,
+        message: messageStr,
+      });
+
+      const emailResult = await sendFamilyInvitationEmail({
+        toEmail: email.trim().toLowerCase(),
+        inviterName: req.user!.name,
+        inviterEmail: req.user!.email,
+        familyName: family.name,
+        invitationToken: inviteResult.invitation.token,
+        message: messageStr,
+        permission,
+        req,
       });
 
       return res.status(201).json({
-        message: `Successfully shared tree with ${result.recipient.name} as ${result.share.permission}.`,
-        share: result.share,
-        recipient: result.recipient,
+        message: `Invitation sent to ${email.trim().toLowerCase()} as ${permission}.`,
+        invitation: inviteResult.invitation,
+        inviteUrl: emailResult.inviteUrl,
+        emailDelivered: emailResult.success,
+        deliveryNote: emailResult.error || null,
       });
     } catch (err: any) {
-      const status = err.message.includes("does not have a Rootline account")
-        ? 404
-        : err.message.includes("owner")
-        ? 403
-        : 400;
+      const status = err.message.includes("owner") ? 403 : 400;
       return res.status(status).json({ detail: err.message || "Failed to share tree" });
     }
   };
 
   app.post("/api/families/:id/shares", requireAuth, handleAddShare);
   app.post("/families/:id/shares", requireAuth, handleAddShare);
+
+  // Dedicated Family Invitations Endpoints
+  const handleSendInvitation = async (req: AuthRequest, res: any) => {
+    try {
+      const rawFamilyId = req.params.id;
+      const familyId = Array.isArray(rawFamilyId) ? rawFamilyId[0] : rawFamilyId;
+      const body = isRecord(req.body) ? req.body : {};
+      const { email, permission = "viewer" } = body;
+      const rawMsg = body.message;
+      const messageStr = typeof rawMsg === "string" && rawMsg.trim() ? rawMsg.trim() : undefined;
+
+      if (!isText(email, 254, 3) || !EMAIL_RE.test(email.trim()) || (permission !== "viewer" && permission !== "editor")) {
+        return res.status(400).json({ detail: "A valid email address and permission are required." });
+      }
+
+      if (!store.isFamilyOwner(req.user!.id, familyId)) {
+        return res.status(403).json({ detail: "Only the tree owner can send invitations." });
+      }
+
+      const family = store.getFamily(familyId);
+      if (!family) {
+        return res.status(404).json({ detail: "Family tree not found." });
+      }
+
+      const inviteResult = store.createFamilyInvitation({
+        ownerId: req.user!.id,
+        familyId,
+        inviteeEmail: email.trim().toLowerCase(),
+        permission,
+        message: messageStr,
+      });
+
+      const emailResult = await sendFamilyInvitationEmail({
+        toEmail: email.trim().toLowerCase(),
+        inviterName: req.user!.name,
+        inviterEmail: req.user!.email,
+        familyName: family.name,
+        invitationToken: inviteResult.invitation.token,
+        message: messageStr,
+        permission,
+        req,
+      });
+
+      return res.status(201).json({
+        message: `Invitation sent to ${email.trim().toLowerCase()}.`,
+        invitation: inviteResult.invitation,
+        inviteUrl: emailResult.inviteUrl,
+        emailDelivered: emailResult.success,
+        deliveryNote: emailResult.error || null,
+      });
+    } catch (err: any) {
+      const status = err.message.includes("owner") ? 403 : 400;
+      return res.status(status).json({ detail: err.message || "Failed to send invitation" });
+    }
+  };
+
+  app.post("/api/families/:id/invitations", requireAuth, handleSendInvitation);
+  app.post("/families/:id/invitations", requireAuth, handleSendInvitation);
+
+  const handleGetInvitations = (req: AuthRequest, res: any) => {
+    try {
+      const rawFamilyId = req.params.id;
+      const familyId = Array.isArray(rawFamilyId) ? rawFamilyId[0] : rawFamilyId;
+
+      const access = store.checkFamilyAccess(req.user!.id, familyId);
+      if (!access) {
+        return res.status(403).json({ detail: "Access denied to this family tree." });
+      }
+
+      const invitations = store.getFamilyInvitations(req.user!.id, familyId);
+      return res.json({ invitations });
+    } catch (err: any) {
+      return res.status(500).json({ detail: err.message || "Failed to load invitations." });
+    }
+  };
+
+  app.get("/api/families/:id/invitations", requireAuth, handleGetInvitations);
+  app.get("/families/:id/invitations", requireAuth, handleGetInvitations);
+
+  const handleCancelInvitation = (req: AuthRequest, res: any) => {
+    try {
+      const rawInvitationId = req.params.invitationId;
+      const invitationId = Array.isArray(rawInvitationId) ? rawInvitationId[0] : rawInvitationId;
+
+      store.cancelFamilyInvitation(req.user!.id, invitationId);
+      return res.json({ message: "Invitation cancelled successfully." });
+    } catch (err: any) {
+      const status = err.message.includes("owner") ? 403 : err.message.includes("not found") ? 404 : 400;
+      return res.status(status).json({ detail: err.message || "Failed to cancel invitation." });
+    }
+  };
+
+  app.delete("/api/families/:id/invitations/:invitationId", requireAuth, handleCancelInvitation);
+  app.delete("/families/:id/invitations/:invitationId", requireAuth, handleCancelInvitation);
+
+  // Invitation acceptance & verification endpoints
+  app.get(["/api/invitations/verify", "/invitations/verify"], (req: Request, res: any) => {
+    try {
+      const token = req.query.token as string;
+      if (!token) {
+        return res.status(400).json({ detail: "Token parameter is required." });
+      }
+
+      const invitation = store.getInvitationByToken(token);
+      if (!invitation) {
+        return res.status(404).json({ detail: "Invitation not found or invalid token." });
+      }
+
+      const isExpired = invitation.status === "expired" || new Date(invitation.expires_at) < new Date();
+
+      return res.json({
+        id: invitation.id,
+        family_name: invitation.family_name,
+        inviter_name: invitation.inviter_name,
+        inviter_email: invitation.inviter_email,
+        invitee_email: invitation.invitee_email,
+        permission: invitation.permission,
+        message: invitation.message,
+        status: invitation.status,
+        expires_at: invitation.expires_at,
+        created_at: invitation.created_at,
+        isExpired,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ detail: err.message || "Failed to verify invitation." });
+    }
+  });
+
+  app.post(["/api/invitations/accept", "/invitations/accept"], requireAuth, (req: AuthRequest, res: any) => {
+    try {
+      const { token } = isRecord(req.body) ? req.body : {};
+      if (!token || typeof token !== "string") {
+        return res.status(400).json({ detail: "Invitation token is required." });
+      }
+
+      const result = store.acceptFamilyInvitation(token, req.user!);
+      return res.json({
+        message: `Welcome to ${result.family.name}! You are now a ${result.share.permission}.`,
+        family: result.family,
+        share: result.share,
+        invitation: result.invitation,
+      });
+    } catch (err: any) {
+      return res.status(400).json({ detail: err.message || "Failed to accept invitation." });
+    }
+  });
+
+  app.post(["/api/invitations/decline", "/invitations/decline"], (req: Request, res: any) => {
+    try {
+      const { token } = isRecord(req.body) ? req.body : {};
+      if (!token || typeof token !== "string") {
+        return res.status(400).json({ detail: "Invitation token is required." });
+      }
+
+      const user = (req as any).user;
+      const result = store.declineFamilyInvitation(token, user?.id);
+      return res.json({ message: "Invitation declined successfully.", invitation: result.invitation });
+    } catch (err: any) {
+      return res.status(400).json({ detail: err.message || "Failed to decline invitation." });
+    }
+  });
+
+  app.get(["/api/invitations/my-pending", "/invitations/my-pending"], requireAuth, (req: AuthRequest, res: any) => {
+    try {
+      const invitations = store.getMyPendingInvitations(req.user!.email);
+      return res.json({ invitations });
+    } catch (err: any) {
+      return res.status(500).json({ detail: err.message || "Failed to get pending invitations." });
+    }
+  });
 
   const handleUpdateShare = (req: AuthRequest, res: any) => {
     try {

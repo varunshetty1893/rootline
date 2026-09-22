@@ -210,21 +210,20 @@ async function callGemini(
     parts: [{ text: latestMessage }],
   });
 
-  // Candidate models: respect non-deprecated configured model or default to gemini-2.5-flash, with gemini-3.8-flash fallback
+  // Candidate models: prioritize modern gemini-3.6-flash and gemini-3.8-flash
   const candidateModels: string[] = [];
   const configuredModel = process.env.GEMINI_MODEL;
-  if (
-    configuredModel &&
-    !configuredModel.includes("1.5") &&
-    !configuredModel.includes("2.0")
-  ) {
+  if (configuredModel && !configuredModel.includes("1.5") && !configuredModel.includes("2.0")) {
     candidateModels.push(configuredModel);
   }
-  if (!candidateModels.includes("gemini-2.5-flash")) {
-    candidateModels.push("gemini-2.5-flash");
+  if (!candidateModels.includes("gemini-3.6-flash")) {
+    candidateModels.push("gemini-3.6-flash");
   }
   if (!candidateModels.includes("gemini-3.8-flash")) {
     candidateModels.push("gemini-3.8-flash");
+  }
+  if (!candidateModels.includes("gemini-2.5-flash")) {
+    candidateModels.push("gemini-2.5-flash");
   }
 
   let lastError: any = null;
@@ -275,7 +274,13 @@ async function callGroq(
     throw new Error("GROQ_API_KEY environment variable is not configured.");
   }
 
-  const model = "llama-3.3-70b-versatile";
+  const candidateGroqModels = [
+    process.env.GROQ_MODEL,
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "mixtral-8x7b-32768",
+  ].filter(Boolean) as string[];
+
   const formattedMessages = [
     { role: "system", content: systemInstruction },
     ...messages.slice(-8).map((m) => ({
@@ -285,33 +290,42 @@ async function callGroq(
     { role: "user", content: latestMessage },
   ];
 
-  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${groqKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages: formattedMessages,
-      temperature: 0.4,
-      max_tokens: 1200,
-    }),
-    signal: AbortSignal.timeout(6000),
-  });
+  let lastGroqError: any = null;
 
-  if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(`Groq API returned HTTP ${response.status}: ${errorBody}`);
+  for (const model of candidateGroqModels) {
+    try {
+      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${groqKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: formattedMessages,
+          temperature: 0.4,
+          max_tokens: 1200,
+        }),
+        signal: AbortSignal.timeout(8000),
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Groq API returned HTTP ${response.status}: ${errorBody}`);
+      }
+
+      const data = (await response.json()) as any;
+      const text = data.choices?.[0]?.message?.content?.trim();
+      if (text) {
+        return { text, model };
+      }
+    } catch (err: any) {
+      lastGroqError = err;
+      logger.warn(`Groq model (${model}) failed: ${err?.message || err}. Trying next fallback...`);
+    }
   }
 
-  const data = (await response.json()) as any;
-  const text = data.choices?.[0]?.message?.content?.trim();
-  if (!text) {
-    throw new Error("Empty response received from Groq API");
-  }
-
-  return { text, model };
+  throw lastGroqError || new Error("Empty response received from Groq API");
 }
 
 /**

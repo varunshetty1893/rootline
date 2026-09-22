@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   GitBranch,
@@ -22,11 +22,14 @@ import {
   Sparkles,
   User,
   X,
+  Clock,
+  Check,
 } from "lucide-react";
 import AppHeader from "./AppHeader.jsx";
 import { useAuth } from "../AuthContext.jsx";
 import { useFamily } from "./FamilyContext.jsx";
 import ShareModal from "./ShareModal.jsx";
+import { api } from "../api.js";
 
 export default function SharedTrees() {
   const { user } = useAuth();
@@ -45,6 +48,63 @@ export default function SharedTrees() {
 
   const [activeTab, setActiveTab] = useState("shared"); // 'shared' | 'owned'
   const [shareModalTree, setShareModalTree] = useState(null);
+
+  // Pending invitations state
+  const [pendingInvites, setPendingInvites] = useState([]);
+  const [loadingInvites, setLoadingInvites] = useState(false);
+  const [inviteActionId, setInviteActionId] = useState(null);
+  const [inviteSuccessMsg, setInviteSuccessMsg] = useState("");
+  const [inviteErrorMsg, setInviteErrorMsg] = useState("");
+
+  const loadPendingInvites = useCallback(async () => {
+    setLoadingInvites(true);
+    try {
+      const res = await api.getMyPendingInvitations();
+      setPendingInvites(res.invitations || []);
+    } catch {
+      // silent ignore if unauthenticated or error
+    } finally {
+      setLoadingInvites(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadPendingInvites();
+  }, [loadPendingInvites]);
+
+  const handleAcceptInvite = async (inv) => {
+    setInviteActionId(inv.id);
+    setInviteSuccessMsg("");
+    setInviteErrorMsg("");
+    try {
+      const res = await api.acceptInvitation(inv.token);
+      setInviteSuccessMsg(res.message || `Accepted invitation to ${inv.family_name}!`);
+      await refreshTreeList();
+      await loadPendingInvites();
+      setTimeout(() => setInviteSuccessMsg(""), 5000);
+    } catch (err) {
+      setInviteErrorMsg(err.message || "Failed to accept invitation.");
+    } finally {
+      setInviteActionId(null);
+    }
+  };
+
+  const handleDeclineInvite = async (inv) => {
+    if (!window.confirm(`Decline invitation to "${inv.family_name}"?`)) return;
+    setInviteActionId(inv.id);
+    setInviteSuccessMsg("");
+    setInviteErrorMsg("");
+    try {
+      await api.declineInvitation(inv.token);
+      setInviteSuccessMsg(`Declined invitation to ${inv.family_name}.`);
+      await loadPendingInvites();
+      setTimeout(() => setInviteSuccessMsg(""), 5000);
+    } catch (err) {
+      setInviteErrorMsg(err.message || "Failed to decline invitation.");
+    } finally {
+      setInviteActionId(null);
+    }
+  };
 
   // Create tree modal state
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -207,6 +267,90 @@ export default function SharedTrees() {
             )}
           </div>
         </div>
+
+        {/* Pending Invitations Banner / Card List */}
+        {inviteSuccessMsg && (
+          <div className="mt-6 p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm flex items-center gap-2">
+            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+            <span>{inviteSuccessMsg}</span>
+          </div>
+        )}
+        {inviteErrorMsg && (
+          <div className="mt-6 p-4 rounded-xl bg-red-50 border border-red-200 text-red-800 text-sm flex items-center gap-2">
+            <AlertCircle className="w-5 h-5 text-red-600 shrink-0" />
+            <span>{inviteErrorMsg}</span>
+          </div>
+        )}
+
+        {pendingInvites.length > 0 && (
+          <div className="mt-6 p-5 rounded-2xl bg-amber-50/60 border border-amber-200/80 shadow-xs space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 rounded-lg bg-amber-100 text-amber-800">
+                  <Mail className="w-4 h-4" />
+                </span>
+                <h2 className="text-sm font-bold text-amber-900">
+                  Pending Invitations for You ({pendingInvites.length})
+                </h2>
+              </div>
+              <span className="text-[11px] text-amber-700">
+                Action required to join
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+              {pendingInvites.map((inv) => (
+                <div
+                  key={inv.id}
+                  className="p-4 rounded-xl bg-white border border-amber-200/90 shadow-2xs space-y-3 flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="text-sm font-bold text-[#1C1F1D] truncate">
+                        {inv.family_name}
+                      </h3>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#1C4B3C]/10 text-[#1C4B3C] border border-[#1C4B3C]/20 capitalize">
+                        {inv.permission}
+                      </span>
+                    </div>
+                    <p className="text-xs text-[#6B7280] mt-1">
+                      Invited by: <strong>{inv.inviter_name}</strong> ({inv.inviter_email})
+                    </p>
+                    {inv.message && (
+                      <p className="text-xs italic text-[#4B5563] mt-2 bg-[#F7F5F0] p-2 rounded border border-[#E7E2D6]">
+                        "{inv.message}"
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-2 border-t border-[#E7E2D6]">
+                    <button
+                      type="button"
+                      disabled={inviteActionId === inv.id}
+                      onClick={() => handleAcceptInvite(inv)}
+                      className="flex-1 py-1.5 px-3 bg-[#1C4B3C] hover:bg-[#163C30] disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 shadow-2xs transition-colors"
+                    >
+                      {inviteActionId === inv.id ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Check className="w-3.5 h-3.5" />
+                      )}
+                      Accept Invitation
+                    </button>
+                    <button
+                      type="button"
+                      disabled={inviteActionId === inv.id}
+                      onClick={() => handleDeclineInvite(inv)}
+                      className="py-1.5 px-3 border border-[#E7E2D6] hover:bg-red-50 hover:text-red-700 text-[#6B7280] rounded-lg text-xs font-semibold transition-colors"
+                    >
+                      Decline
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Navigation Tabs: Shared With Me vs My Family Trees */}
         <div className="flex items-center gap-2 mt-8 mb-6 border-b border-[#E7E2D6] pb-px">
