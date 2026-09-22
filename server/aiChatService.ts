@@ -210,19 +210,18 @@ async function callGemini(
     parts: [{ text: latestMessage }],
   });
 
-  // Candidate models: respect non-deprecated configured model or default to gemini-3.6-flash, with gemini-3.8-flash fallback
+  // Candidate models: respect non-deprecated configured model or default to gemini-2.5-flash, with gemini-3.8-flash fallback
   const candidateModels: string[] = [];
   const configuredModel = process.env.GEMINI_MODEL;
   if (
     configuredModel &&
-    !configuredModel.includes("2.5") &&
     !configuredModel.includes("1.5") &&
     !configuredModel.includes("2.0")
   ) {
     candidateModels.push(configuredModel);
   }
-  if (!candidateModels.includes("gemini-3.6-flash")) {
-    candidateModels.push("gemini-3.6-flash");
+  if (!candidateModels.includes("gemini-2.5-flash")) {
+    candidateModels.push("gemini-2.5-flash");
   }
   if (!candidateModels.includes("gemini-3.8-flash")) {
     candidateModels.push("gemini-3.8-flash");

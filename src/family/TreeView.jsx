@@ -77,6 +77,15 @@ export function getShortFamily(allPeople, focusId) {
     for (const fam of person.parentFamilies || []) {
       for (const pid of fam.partner_ids || []) parentIds.add(pid);
     }
+    // Also check reverse: any person whose partnerFamilies include person.id as a child
+    for (const p of allPeople) {
+      for (const fam of p.partnerFamilies || []) {
+        if ((fam.child_ids || []).includes(person.id)) {
+          for (const pid of fam.partner_ids || []) parentIds.add(pid);
+          parentIds.add(p.id);
+        }
+      }
+    }
     return [...parentIds].filter((id) => id !== person.id && byId.has(id));
   };
 
@@ -121,7 +130,7 @@ export function getShortFamily(allPeople, focusId) {
       const isSibling = pParents.some((pid) => myParents.includes(pid));
       if (isSibling) {
         resultIds.add(p.id);
-        // Sibling's partners ("simply her sbling and thier parterns")
+        // Sibling's partners ("simply her sibling and their partners")
         for (const partnerId of getPartners(p)) {
           resultIds.add(partnerId);
         }
@@ -136,7 +145,7 @@ export function getShortFamily(allPeople, focusId) {
     const partner = byId.get(partnerId);
     if (partner) {
       // 4. In-laws: Father-in-law & Mother-in-law (parents of partner)
-      // ("her parter n her parteners parents")
+      // ("her partner n her partners parents")
       const inLawParents = getParents(partner);
       for (const inLawId of inLawParents) {
         resultIds.add(inLawId);
@@ -154,6 +163,25 @@ export function getShortFamily(allPeople, focusId) {
     if (partner) {
       for (const partnerChildId of getChildren(partner)) {
         resultIds.add(partnerChildId);
+      }
+    }
+  }
+
+  // 6. Grandparents: If focus person is in the latest generation (has no children),
+  // show their parents AND their grandparents (mother's parents and father's parents).
+  if (myChildren.length === 0 && myParents.length > 0) {
+    for (const parentId of myParents) {
+      const parent = byId.get(parentId);
+      if (!parent) continue;
+      const grandParents = getParents(parent);
+      for (const gpId of grandParents) {
+        resultIds.add(gpId);
+        const gp = byId.get(gpId);
+        if (gp) {
+          for (const spId of getPartners(gp)) {
+            resultIds.add(spId);
+          }
+        }
       }
     }
   }
@@ -482,10 +510,17 @@ export default function TreeView() {
     return new Set([root, ...ancestorsOf(root, people)]);
   }, [rootPersonId, people]);
 
-  // Focused Short Family: when a person is selected, display only their immediate short family
-  // (parents, spouse, children, in-laws, and siblings with their partners).
-  // The full tree across all generations can still be toggled with one click.
+  // Focused Short Family: centered around the active tree starter or selected person,
+  // showing ONLY:
+  // 1. You (focus person)
+  // 2. Parents of focus
+  // 3. Siblings of focus (and their partners)
+  // 4. Partner(s) of focus (husband/wife)
+  // 5. Children of focus (and partner's shared children)
+  // 6. In-laws: Partner's parents (Father-in-law & Mother-in-law)
+  // Sibling's children and beyond are hidden to keep the tree compact and readable.
   const focusId = selectedId || rootPersonId;
+
   const scopedPeople = useMemo(
     () => (focusedView ? getShortFamily(people, focusId) : people),
     [people, focusedView, focusId]
@@ -713,6 +748,19 @@ export default function TreeView() {
     for (const other of people) {
       if ((other.parentIds || []).includes(personId)) {
         for (const key of familyKeysFor(other)) keysToExpand.add(key);
+      }
+    }
+
+    // 5. Person's grandparents' parent families (so grandparents' branch isn't collapsed)
+    for (const key of familyKeysFor(person)) {
+      const parentIds = key.split("|").filter(Boolean);
+      for (const pid of parentIds) {
+        const parent = people.find((p) => p.id === pid);
+        if (parent) {
+          for (const gpKey of familyKeysFor(parent)) {
+            keysToExpand.add(gpKey);
+          }
+        }
       }
     }
 
