@@ -32,7 +32,7 @@ function getGenAI(): GoogleGenAI | null {
   return aiClient;
 }
 
-const PORT = Number.parseInt(process.env.PORT || "3000", 10);
+const PORT = 3000;
 const IS_PROD = process.env.NODE_ENV === "production";
 
 // Enforce SECRET_KEY in production
@@ -861,24 +861,32 @@ export async function createExpressApp() {
       if (!isText(name, 120, 1)) {
         return res.status(422).json({ detail: "Name is required" });
       }
-      if ((bio !== undefined && !isText(bio, 5000)) || (address !== undefined && !isText(address, 500)) ||
-          (phone !== undefined && !isText(phone, 50)) || (photo_url !== undefined && !isText(photo_url, 900000)) ||
-          (related_to_id !== undefined && related_to_id !== null && !isId(related_to_id)) ||
-          (partner_id !== undefined && partner_id !== null && !isId(partner_id))) {
+      if ((bio !== undefined && bio !== null && !isText(bio, 5000)) ||
+          (address !== undefined && address !== null && !isText(address, 500)) ||
+          (phone !== undefined && phone !== null && !isText(phone, 50)) ||
+          (photo_url !== undefined && photo_url !== null && !isText(photo_url, 900000)) ||
+          (date_of_birth !== undefined && date_of_birth !== null && !isText(date_of_birth, 50)) ||
+          (date_of_death !== undefined && date_of_death !== null && !isText(date_of_death, 50)) ||
+          (place_of_birth !== undefined && place_of_birth !== null && !isText(place_of_birth, 120)) ||
+          (occupation !== undefined && occupation !== null && !isText(occupation, 120)) ||
+          (related_to_id !== undefined && related_to_id !== null && related_to_id !== "" && !isId(related_to_id)) ||
+          (partner_id !== undefined && partner_id !== null && partner_id !== "" && !isId(partner_id))) {
         return res.status(422).json({ detail: "One or more person fields are invalid or too long" });
       }
 
       let targetFamilyId =
-        (req.query.family_id as string) ||
         (req.query.tree_id as string) ||
-        (body.family_id as string) ||
+        (req.query.family_id as string) ||
         (body.tree_id as string) ||
         null;
-      if (!targetFamilyId && related_to_id) {
+      if (related_to_id) {
         const relatedPerson = store.people.get(related_to_id);
         if (relatedPerson) {
           targetFamilyId = relatedPerson.owner_id;
         }
+      }
+      if (!targetFamilyId && body.family_id && store.families.has(body.family_id)) {
+        targetFamilyId = body.family_id;
       }
       if (!targetFamilyId) {
         const userTrees = store.getUserTrees(req.user!.id);
@@ -928,7 +936,7 @@ export async function createExpressApp() {
   app.post("/people/link", requireAuth, (req: AuthRequest, res) => {
     try {
       const { first_person_id, second_person_id, relationship_status } = req.body;
-      if (!isId(first_person_id) || !isId(second_person_id) || (relationship_status !== undefined && !isText(relationship_status, 64, 1))) {
+      if (!isId(first_person_id) || !isId(second_person_id) || (relationship_status !== undefined && relationship_status !== null && !isText(relationship_status, 64, 1))) {
         return res.status(400).json({ detail: "Both person IDs are required" });
       }
 
@@ -995,10 +1003,14 @@ export async function createExpressApp() {
       }
       if (!isRecord(req.body) || Object.keys(req.body).length === 0 ||
           (req.body.name !== undefined && !isText(req.body.name, 120, 1)) ||
-          (req.body.bio !== undefined && !isText(req.body.bio, 5000)) ||
-          (req.body.address !== undefined && !isText(req.body.address, 500)) ||
-          (req.body.phone !== undefined && !isText(req.body.phone, 50)) ||
-          (req.body.photo_url !== undefined && !isText(req.body.photo_url, 900000))) {
+          (req.body.bio !== undefined && req.body.bio !== null && !isText(req.body.bio, 5000)) ||
+          (req.body.address !== undefined && req.body.address !== null && !isText(req.body.address, 500)) ||
+          (req.body.phone !== undefined && req.body.phone !== null && !isText(req.body.phone, 50)) ||
+          (req.body.photo_url !== undefined && req.body.photo_url !== null && !isText(req.body.photo_url, 900000)) ||
+          (req.body.date_of_birth !== undefined && req.body.date_of_birth !== null && !isText(req.body.date_of_birth, 50)) ||
+          (req.body.date_of_death !== undefined && req.body.date_of_death !== null && !isText(req.body.date_of_death, 50)) ||
+          (req.body.place_of_birth !== undefined && req.body.place_of_birth !== null && !isText(req.body.place_of_birth, 120)) ||
+          (req.body.occupation !== undefined && req.body.occupation !== null && !isText(req.body.occupation, 120))) {
         return res.status(422).json({ detail: "Invalid or oversized person update" });
       }
 

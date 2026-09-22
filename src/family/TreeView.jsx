@@ -29,7 +29,7 @@ import {
 import AppHeader from "./AppHeader.jsx";
 import RelationshipChat from "./RelationshipChat.jsx";
 import { useFamily } from "./FamilyContext.jsx";
-import { computeLayout, ancestorsOf, recommendedCollapsedFamilyKeys } from "./treeLayout.js";
+import { computeLayout, ancestorsOf, recommendedCollapsedFamilyKeys, parentGroupsFor } from "./treeLayout.js";
 import { findRelationship, pathToEdgeKeySet } from "./relationship.js";
 
 const CARD_W = 136;
@@ -60,47 +60,105 @@ function familyKeyFor(person) {
   return familyKeysFor(person)[0] || "";
 }
 
-function nearbyPeople(allPeople, focusId, maxDepth = 2) {
+export function getShortFamily(allPeople, focusId) {
   if (!focusId || allPeople.length === 0) return allPeople;
 
   const byId = new Map(allPeople.map((person) => [person.id, person]));
-  const neighbours = new Map(allPeople.map((person) => [person.id, new Set()]));
-  const connect = (leftId, rightId) => {
-    if (!byId.has(leftId) || !byId.has(rightId) || leftId === rightId) return;
-    neighbours.get(leftId)?.add(rightId);
-    neighbours.get(rightId)?.add(leftId);
+  const focus = byId.get(focusId);
+  if (!focus) return allPeople;
+
+  const resultIds = new Set([focusId]);
+
+  // Helper to extract parent IDs
+  const getParents = (person) => {
+    if (!person) return [];
+    const parentIds = new Set();
+    for (const pid of person.parentIds || []) parentIds.add(pid);
+    for (const fam of person.parentFamilies || []) {
+      for (const pid of fam.partner_ids || []) parentIds.add(pid);
+    }
+    return [...parentIds].filter((id) => id !== person.id && byId.has(id));
   };
 
-  for (const person of allPeople) {
-    for (const parentId of person.parentIds || []) connect(person.id, parentId);
-    for (const spouseId of person.spouseIds || []) connect(person.id, spouseId);
-  }
-  const siblingsByParent = new Map();
-  for (const person of allPeople) {
-    for (const parentId of person.parentIds || []) {
-      if (!siblingsByParent.has(parentId)) siblingsByParent.set(parentId, []);
-      siblingsByParent.get(parentId).push(person.id);
+  // Helper to extract partner/spouse IDs
+  const getPartners = (person) => {
+    if (!person) return [];
+    const partnerIds = new Set();
+    for (const sid of person.spouseIds || []) partnerIds.add(sid);
+    for (const fam of person.partnerFamilies || []) {
+      for (const pid of fam.partner_ids || []) {
+        if (pid !== person.id) partnerIds.add(pid);
+      }
     }
-  }
-  for (const siblings of siblingsByParent.values()) {
-    for (const personId of siblings) {
-      for (const siblingId of siblings) connect(personId, siblingId);
+    return [...partnerIds].filter((id) => byId.has(id));
+  };
+
+  // Helper to extract child IDs
+  const getChildren = (person) => {
+    if (!person) return [];
+    const childIds = new Set();
+    for (const fam of person.partnerFamilies || []) {
+      for (const cid of fam.child_ids || []) childIds.add(cid);
+    }
+    for (const p of allPeople) {
+      if ((p.parentIds || []).includes(person.id)) childIds.add(p.id);
+      if ((p.parentFamilies || []).some((f) => f.partner_ids?.includes(person.id))) {
+        childIds.add(p.id);
+      }
+    }
+    return [...childIds].filter((id) => id !== person.id && byId.has(id));
+  };
+
+  // 1. Direct Parents of focus
+  const myParents = getParents(focus);
+  for (const pid of myParents) resultIds.add(pid);
+
+  // 2. Siblings of focus and their partners
+  if (myParents.length > 0) {
+    for (const p of allPeople) {
+      if (p.id === focusId) continue;
+      const pParents = getParents(p);
+      const isSibling = pParents.some((pid) => myParents.includes(pid));
+      if (isSibling) {
+        resultIds.add(p.id);
+        // Sibling's partners ("simply her sbling and thier parterns")
+        for (const partnerId of getPartners(p)) {
+          resultIds.add(partnerId);
+        }
+      }
     }
   }
 
-  const visible = new Set([focusId]);
-  const queue = [{ id: focusId, depth: 0 }];
-  while (queue.length) {
-    const current = queue.shift();
-    if (current.depth >= maxDepth) continue;
-    for (const nextId of neighbours.get(current.id) || []) {
-      if (visible.has(nextId)) continue;
-      visible.add(nextId);
-      queue.push({ id: nextId, depth: current.depth + 1 });
+  // 3. Partners of focus (husband/wife)
+  const myPartners = getPartners(focus);
+  for (const partnerId of myPartners) {
+    resultIds.add(partnerId);
+    const partner = byId.get(partnerId);
+    if (partner) {
+      // 4. In-laws: Father-in-law & Mother-in-law (parents of partner)
+      // ("her parter n her parteners parents")
+      const inLawParents = getParents(partner);
+      for (const inLawId of inLawParents) {
+        resultIds.add(inLawId);
+      }
     }
   }
 
-  return allPeople.filter((person) => visible.has(person.id));
+  // 5. Children of focus (and partner's shared children)
+  const myChildren = getChildren(focus);
+  for (const childId of myChildren) {
+    resultIds.add(childId);
+  }
+  for (const partnerId of myPartners) {
+    const partner = byId.get(partnerId);
+    if (partner) {
+      for (const partnerChildId of getChildren(partner)) {
+        resultIds.add(partnerChildId);
+      }
+    }
+  }
+
+  return allPeople.filter((person) => resultIds.has(person.id));
 }
 
 /* ------------------------------------------------------------------ */
@@ -410,23 +468,32 @@ export default function TreeView() {
   const [confirmSetMePerson, setConfirmSetMePerson] = useState(null);
   const [isPanning, setIsPanning] = useState(false);
   const [collapseControls, setCollapseControls] = useState([]);
-  const [focusedView, setFocusedView] = useState(false);
+  const [focusedView, setFocusedView] = useState(true);
+  const [smartAccordion, setSmartAccordion] = useState(true);
   const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
   const [mobileSheetMinimized, setMobileSheetMinimized] = useState(false);
   const panState = useRef(null);
   const lastRootRef = useRef(null);
 
-  // Large trees are easier to understand when the selected person's nearby
-  // family is shown first. The full tree is still available with one click.
+  const peopleById = useMemo(() => new Map(people.map((p) => [p.id, p])), [people]);
+  const directAncestors = useMemo(() => {
+    const root = rootPersonId || people[0]?.id;
+    if (!root) return new Set();
+    return new Set([root, ...ancestorsOf(root, people)]);
+  }, [rootPersonId, people]);
+
+  // Focused Short Family: when a person is selected, display only their immediate short family
+  // (parents, spouse, children, in-laws, and siblings with their partners).
+  // The full tree across all generations can still be toggled with one click.
   const focusId = selectedId || rootPersonId;
   const scopedPeople = useMemo(
-    () => (focusedView ? nearbyPeople(people, focusId, 2) : people),
+    () => (focusedView ? getShortFamily(people, focusId) : people),
     [people, focusedView, focusId]
   );
 
   const { rows, edges, layoutWidth } = useMemo(
-    () => computeLayout(scopedPeople, collapsedFamilyKeys, rootPersonId),
-    [scopedPeople, collapsedFamilyKeys, rootPersonId]
+    () => computeLayout(scopedPeople, focusedView ? new Set() : collapsedFamilyKeys, focusId),
+    [scopedPeople, focusedView, collapsedFamilyKeys, focusId]
   );
 
   // Initialize recommended collapsed branches on first load or when the root person changes,
@@ -692,7 +759,13 @@ export default function TreeView() {
   };
 
   const handleSelectPerson = (id) => {
-    setSelectedId((cur) => (cur === id ? null : id));
+    if (!id) {
+      setSelectedId(null);
+      return;
+    }
+    setSelectedId(id);
+    setFocusedView(true);
+    revealAndFocus(id);
   };
 
   const handleDeleteSelected = async () => {
@@ -857,16 +930,47 @@ export default function TreeView() {
   const toggleCollapse = (familyKey) => {
     setCollapsedFamilyKeys((prev) => {
       const next = new Set(prev);
-      if (next.has(familyKey)) {
+      const isExpanding = next.has(familyKey);
+      if (isExpanding) {
         next.delete(familyKey);
+
+        if (smartAccordion) {
+          // When expanding a collateral sibling family branch, auto-collapse other
+          // collateral sibling families in the same generation sharing parents
+          // so branches remain centered under parents and don't push each other outwards or overlap.
+          const partnerIds = familyKey.split("|").filter(Boolean);
+          const parentGroupKeys = new Set();
+          for (const pid of partnerIds) {
+            const person = peopleById.get(pid);
+            if (!person) continue;
+            for (const group of parentGroupsFor(person, peopleById)) {
+              parentGroupKeys.add(group.slice().sort().join("|"));
+            }
+          }
+
+          if (parentGroupKeys.size > 0) {
+            for (const person of people) {
+              if (partnerIds.includes(person.id)) continue;
+              if (directAncestors.has(person.id)) continue;
+
+              const personParentGroups = parentGroupsFor(person, peopleById).map((g) =>
+                g.slice().sort().join("|")
+              );
+              const isSibling = personParentGroups.some((g) => parentGroupKeys.has(g));
+              if (!isSibling) continue;
+
+              for (const fam of person.partnerFamilies || []) {
+                const famKey = [...(fam.partner_ids || [])].sort().join("|");
+                next.add(famKey);
+              }
+            }
+          }
+        }
       } else {
         next.add(familyKey);
       }
       return next;
     });
-    if (focusedView) {
-      setFocusedView(false);
-    }
   };
 
   const collapseAll = () => {
@@ -886,6 +990,7 @@ export default function TreeView() {
   const handleBackToMe = useCallback(() => {
     if (!rootPersonId) return;
     setSelectedId(rootPersonId);
+    setFocusedView(true);
     uncollapseImmediateFamily(rootPersonId);
     requestAnimationFrame(() => {
       centerPerson(rootPersonId);
@@ -896,7 +1001,7 @@ export default function TreeView() {
     e.preventDefault();
     const q = query.trim().toLowerCase();
     if (!q) return;
-    const match = scopedPeople.find((p) => p.name.toLowerCase().includes(q));
+    const match = people.find((p) => p.name.toLowerCase().includes(q));
     if (!match) return;
 
     // If an ancestor is collapsed, this person is hidden — reveal them first.
@@ -918,6 +1023,7 @@ export default function TreeView() {
 
     setHighlightId(match.id);
     setSelectedId(match.id); // also surfaces "how you're related" + path highlight
+    setFocusedView(true);
     // Wait a tick for any expand to re-render, then scroll to it.
     requestAnimationFrame(() => {
       const el = cardRefs.current[match.id];
@@ -1421,11 +1527,11 @@ export default function TreeView() {
                 </span>
               )}
 
-              {/* Nearby vs Full tree mode */}
+              {/* Short family vs Full tree mode */}
               <button
                 type="button"
                 onClick={() => setFocusedView((value) => !value)}
-                title={focusedView ? "Show the complete tree" : "Show the selected person's nearby family"}
+                title={focusedView ? "Switch to viewing the complete tree across all branches" : "Switch to viewing the selected person's immediate short family"}
                 className={`hidden xs:flex items-center gap-1 text-xs border rounded-lg px-2 sm:px-2.5 py-1.5 transition-colors ${
                   focusedView
                     ? "border-[#1C4B3C] bg-[#E7F1EB] text-[#1C4B3C] font-semibold"
@@ -1433,7 +1539,26 @@ export default function TreeView() {
                 }`}
               >
                 <Focus className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">{focusedView ? "Nearby" : "Full tree"}</span>
+                <span className="hidden sm:inline">{focusedView ? "Short family" : "Full tree"}</span>
+              </button>
+
+              {/* Branch auto-accordion focus toggle */}
+              <button
+                type="button"
+                onClick={() => setSmartAccordion((val) => !val)}
+                title={
+                  smartAccordion
+                    ? "Branch focus is ON: Expanding a branch automatically collapses other sibling branches to keep the layout neat and prevent sprawling or overlapping."
+                    : "Branch focus is OFF: Multiple sibling branches can remain open simultaneously."
+                }
+                className={`hidden md:flex items-center gap-1 text-xs border rounded-lg px-2 sm:px-2.5 py-1.5 transition-colors shadow-2xs ${
+                  smartAccordion
+                    ? "border-[#1C4B3C] bg-[#E7F1EB] text-[#1C4B3C] font-semibold"
+                    : "border-[#D9D3C3] bg-white text-[#374151] hover:bg-[#F0EDE3]"
+                }`}
+              >
+                <GitBranch className="w-3.5 h-3.5" />
+                <span>{smartAccordion ? "Branch focus" : "Branch focus: off"}</span>
               </button>
 
               {/* Zoom controls */}
@@ -1546,6 +1671,17 @@ export default function TreeView() {
                     >
                       <Focus className="w-3.5 h-3.5 text-[#1C4B3C]" />
                       {focusedView ? "Full tree view" : "Nearby family view"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSmartAccordion((v) => !v);
+                        setMobileToolsOpen(false);
+                      }}
+                      className="w-full px-3 py-2 text-left text-xs text-[#374151] hover:bg-[#F7F5F0] flex items-center gap-2"
+                    >
+                      <GitBranch className="w-3.5 h-3.5 text-[#1C4B3C]" />
+                      {smartAccordion ? "Branch focus: ON" : "Branch focus: OFF"}
                     </button>
                     <button
                       type="button"
@@ -1686,22 +1822,23 @@ export default function TreeView() {
                       })}
                     </div>
                   ))}
-                  {collapseControls.map((control) => (
-                    <button
-                      key={control.key}
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleCollapse(control.key);
-                      }}
-                      title={control.collapsed ? "Show this family's children" : "Hide this family's children"}
-                      aria-label={control.collapsed ? "Show this family's children" : "Hide this family's children"}
-                      className="absolute z-10 flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-white bg-[#174F61] text-white shadow-md hover:bg-[#1C4B3C] focus:outline-none focus:ring-2 focus:ring-[#174F61]/40"
-                      style={{ left: control.x, top: control.y }}
-                    >
-                      {control.collapsed ? <Plus className="h-3.5 w-3.5" /> : <Minus className="h-3.5 w-3.5" />}
-                    </button>
-                  ))}
+                  {!focusedView &&
+                    collapseControls.map((control) => (
+                      <button
+                        key={control.key}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleCollapse(control.key);
+                        }}
+                        title={control.collapsed ? "Show this family's children" : "Hide this family's children"}
+                        aria-label={control.collapsed ? "Show this family's children" : "Hide this family's children"}
+                        className="absolute z-10 flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-white bg-[#174F61] text-white shadow-md hover:bg-[#1C4B3C] focus:outline-none focus:ring-2 focus:ring-[#174F61]/40"
+                        style={{ left: control.x, top: control.y }}
+                      >
+                        {control.collapsed ? <Plus className="h-3.5 w-3.5" /> : <Minus className="h-3.5 w-3.5" />}
+                      </button>
+                    ))}
                 </div>
               </div>
             </div>
@@ -2093,6 +2230,7 @@ export default function TreeView() {
                   const targetId = confirmSetMePerson.id;
                   setRootPersonId(targetId);
                   setSelectedId(targetId);
+                  setFocusedView(true);
                   setCollapsedFamilyKeys(new Set());
                   uncollapseImmediateFamily(targetId);
                   setConfirmSetMePerson(null);

@@ -19,7 +19,7 @@ import { layoutUnitCenters, makeRows } from "./layout/spacing.js";
 import { makeEdges } from "./layout/edges.js";
 import { recommendedCollapsedFamilyKeys, ancestorsOf } from "./layout/collapse.js";
 
-export { fullChildrenMap, recommendedCollapsedFamilyKeys, ancestorsOf };
+export { fullChildrenMap, parentGroupsFor, recommendedCollapsedFamilyKeys, ancestorsOf };
 
 export function computeLayout(allPeople, collapsedFamilyKeys = new Set(), rootPersonId = null) {
   if (!allPeople.length) {
@@ -43,21 +43,36 @@ export function computeLayout(allPeople, collapsedFamilyKeys = new Set(), rootPe
 
   const spouseMap = spouseMapFor(allPeople, allById);
 
-  // A person who is directly collapsed should NOT be hidden if they are married
-  // to a spouse whose parents' branch is NOT collapsed (i.e. an in-law marrying
-  // into an active, visible branch).
+  const effectiveRoot =
+    rootPersonId && allById.has(rootPersonId)
+      ? rootPersonId
+      : (allPeople[0]?.id || null);
+
+  const directAncestors = new Set();
+  if (effectiveRoot) {
+    directAncestors.add(effectiveRoot);
+    for (const aId of ancestorsOf(effectiveRoot, allPeople)) {
+      directAncestors.add(aId);
+    }
+  }
+
+  // A person who is directly collapsed should NOT be hidden if:
+  // 1. They are the root focus person or in the direct ancestral line of the root person
+  // 2. Or they are married to someone in directAncestors
+  // 3. Or they are married to a spouse whose parents' branch is NOT collapsed (in-law marrying into an active branch)
   const isProtectedSpouse = (personId) => {
+    if (directAncestors.has(personId)) return true;
     for (const spouseId of spouseMap.get(personId) || []) {
+      if (directAncestors.has(spouseId)) return true;
       const spouse = allById.get(spouseId);
       if (!spouse) continue;
       const spouseParentFamilies = parentGroupsFor(spouse, allById);
-      if (!spouseParentFamilies.length) {
-        continue;
+      if (
+        spouseParentFamilies.length > 0 &&
+        spouseParentFamilies.some((parents) => !collapsedFamilyKeys.has(parents.join("|")))
+      ) {
+        return true;
       }
-      const spouseHasUncollapsedParentFamily = spouseParentFamilies.some(
-        (parents) => !collapsedFamilyKeys.has(parents.join("|"))
-      );
-      if (spouseHasUncollapsedParentFamily) return true;
     }
     return false;
   };
@@ -68,11 +83,12 @@ export function computeLayout(allPeople, collapsedFamilyKeys = new Set(), rootPe
       hidden.add(childId);
       for (const sId of spouseMap.get(childId) || []) {
         const spouse = allById.get(sId);
-        if (spouse && parentGroupsFor(spouse, allById).length === 0) {
+        if (spouse && parentGroupsFor(spouse, allById).length === 0 && !directAncestors.has(sId)) {
           hidden.add(sId);
         }
       }
       descendantsOf(childId, childrenMapFull).forEach((descendantId) => {
+        if (directAncestors.has(descendantId)) return;
         const descendant = allById.get(descendantId);
         const otherParentVisible = (descendant?.parentIds || []).some(
           (pId) => pId !== childId && !hidden.has(pId) && allById.has(pId)
@@ -81,7 +97,7 @@ export function computeLayout(allPeople, collapsedFamilyKeys = new Set(), rootPe
           hidden.add(descendantId);
           for (const sId of spouseMap.get(descendantId) || []) {
             const spouse = allById.get(sId);
-            if (spouse && parentGroupsFor(spouse, allById).length === 0) {
+            if (spouse && parentGroupsFor(spouse, allById).length === 0 && !directAncestors.has(sId)) {
               hidden.add(sId);
             }
           }
@@ -96,6 +112,11 @@ export function computeLayout(allPeople, collapsedFamilyKeys = new Set(), rootPe
   while (changed) {
     changed = false;
     for (const hiddenId of [...hidden]) {
+      if (directAncestors.has(hiddenId)) {
+        hidden.delete(hiddenId);
+        changed = true;
+        continue;
+      }
       const person = allById.get(hiddenId);
       const parentFamilies = parentGroupsFor(person, allById);
       const hasUncollapsedFamily = parentFamilies.some(
@@ -106,15 +127,15 @@ export function computeLayout(allPeople, collapsedFamilyKeys = new Set(), rootPe
         changed = true;
         continue;
       }
-      const hasVisibleSpouse = [...(spouseMap.get(hiddenId) || [])].some(
-        (spouseId) => !hidden.has(spouseId) && allById.has(spouseId)
+      const visibleSpouses = [...(spouseMap.get(hiddenId) || [])].filter(
+        (sId) => !hidden.has(sId) && allById.has(sId)
       );
-      if (hasVisibleSpouse) {
-        const visibleSpouses = [...(spouseMap.get(hiddenId) || [])].filter(
-          (sId) => !hidden.has(sId) && allById.has(sId)
-        );
+      if (visibleSpouses.length > 0) {
         const spouseWithLineage = visibleSpouses.some(
-          (sId) => parentGroupsFor(allById.get(sId), allById).length > 0 || (childrenMapFull.get(sId) || []).some((c) => !hidden.has(c))
+          (sId) =>
+            directAncestors.has(sId) ||
+            parentGroupsFor(allById.get(sId), allById).length > 0 ||
+            (childrenMapFull.get(sId) || []).some((c) => !hidden.has(c))
         );
         if (spouseWithLineage) {
           hidden.delete(hiddenId);
@@ -124,18 +145,31 @@ export function computeLayout(allPeople, collapsedFamilyKeys = new Set(), rootPe
     }
   }
 
-  // Third pass: if an in-law couple has NO parents in the tree, and ALL of their
-  // children in allPeople are hidden, hide the in-law parents too so they don't
-  // float as disconnected orphan cards at the top row.
+  // Third pass: only hide unconnected orphan couples that are NOT direct ancestors,
+  // NOT parents of a collapsed family (they must stay to host the "+" button),
+  // and only if all of their children are hidden.
   for (const person of allPeople) {
     if (hidden.has(person.id)) continue;
+    if (directAncestors.has(person.id)) continue;
+
+    // Do not hide parents of any family directly in collapsedFamilyKeys, because their
+    // card is the anchor for the "+" expand button.
+    const isDirectlyCollapsedParent = [...(person.partnerFamilies || [])].some((f) =>
+      collapsedFamilyKeys.has([...(f.partner_ids || [])].sort().join("|"))
+    );
+    if (isDirectlyCollapsedParent) continue;
+
     const parentFamilies = parentGroupsFor(person, allById);
     if (parentFamilies.length === 0) {
       const children = childrenMapFull.get(person.id) || [];
       if (children.length > 0 && children.every((cId) => hidden.has(cId))) {
         const spouses = [...(spouseMap.get(person.id) || [])];
         const hasVisibleSpouseWithLineage = spouses.some(
-          (sId) => !hidden.has(sId) && (parentGroupsFor(allById.get(sId), allById).length > 0 || (childrenMapFull.get(sId) || []).some((c) => !hidden.has(c)))
+          (sId) =>
+            !hidden.has(sId) &&
+            (directAncestors.has(sId) ||
+              parentGroupsFor(allById.get(sId), allById).length > 0 ||
+              (childrenMapFull.get(sId) || []).some((c) => !hidden.has(c)))
         );
         if (!hasVisibleSpouseWithLineage) {
           hidden.add(person.id);
@@ -148,15 +182,10 @@ export function computeLayout(allPeople, collapsedFamilyKeys = new Set(), rootPe
   // ensure the tree never collapses into an empty/invisible void.
   if (hidden.size >= allPeople.length) {
     hidden.clear();
-  } else if (rootPersonId && hidden.has(rootPersonId)) {
-    // If "Me" was caught in a collapsed branch, restore "Me" and their direct path
-    hidden.delete(rootPersonId);
-    let curr = allById.get(rootPersonId);
-    while (curr && (curr.parentIds || []).length > 0) {
-      for (const pId of curr.parentIds) {
-        hidden.delete(pId);
-      }
-      curr = allById.get(curr.parentIds[0]);
+  } else if (effectiveRoot && hidden.has(effectiveRoot)) {
+    // If focus person was caught in a collapsed branch, restore them and their direct path
+    for (const aId of directAncestors) {
+      hidden.delete(aId);
     }
   }
 

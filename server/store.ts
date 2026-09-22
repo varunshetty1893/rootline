@@ -2141,11 +2141,29 @@ export class MemoryStore {
     child("reshma", "padmavathi", "Reshma", { gender: "female" });
     child("munna", "padmavathi", "Munna", { gender: "male", ...DECEASED });
 
-    spouse("praveen", "nimmi", "Praveen", { gender: "male" });
+    // Praveen's family: parents Suresh & Geetha, 2 siblings Pradeep & Pooja
+    root("suresh", "Suresh", { gender: "male", bio: "Praveen's father" });
+    spouse("geetha", "suresh", "Geetha", { gender: "female", bio: "Praveen's mother" });
+    child("praveen", "suresh", "Praveen", { gender: "male" });
+    child("pradeep", "suresh", "Pradeep", { gender: "male", bio: "Praveen's brother" });
+    child("pooja", "suresh", "Pooja", { gender: "female", bio: "Praveen's sister" });
+    spouse("sneha", "pradeep", "Sneha", { gender: "female", bio: "Pradeep's wife" });
+
+    // Link Praveen and Nimmi as spouses, with children Sristi & Sanvi
+    link("praveen", "nimmi");
     child("sristi", "nimmi", "Sristi", { gender: "female" });
     child("sanvi", "nimmi", "Sanvi", { gender: "female" });
 
-    spouse("ganesh", "reshma", "Ganesh", { gender: "male" });
+    // Ganesh's family: parents Manjunath & Sharada, 2 siblings Giridhara & Gayathri
+    root("manjunath", "Manjunath", { gender: "male", bio: "Ganesh's father" });
+    spouse("sharada", "manjunath", "Sharada", { gender: "female", bio: "Ganesh's mother" });
+    child("ganesh", "manjunath", "Ganesh", { gender: "male" });
+    child("giridhara", "manjunath", "Giridhara", { gender: "male", bio: "Ganesh's brother" });
+    child("gayathri", "manjunath", "Gayathri", { gender: "female", bio: "Ganesh's sister" });
+    spouse("swathi", "giridhara", "Swathi", { gender: "female", bio: "Giridhara's wife" });
+
+    // Link Ganesh and Reshma as spouses, with children Poorvi & Gaman
+    link("ganesh", "reshma");
     child("poorvi", "reshma", "Poorvi", { gender: "female" });
     child("gaman", "reshma", "Gaman", { gender: "male" });
 

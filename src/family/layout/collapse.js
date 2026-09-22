@@ -82,7 +82,11 @@ export function ancestorsOf(id, people) {
   while (queue.length) {
     const current = byId.get(queue.shift());
     if (!current) continue;
-    for (const parentId of current.parentIds || []) {
+    const parentIds = new Set(current.parentIds || []);
+    for (const group of parentGroupsFor(current, byId)) {
+      for (const pId of group) parentIds.add(pId);
+    }
+    for (const parentId of parentIds) {
       if (acc.has(parentId)) continue;
       acc.add(parentId);
       queue.push(parentId);
