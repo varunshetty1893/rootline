@@ -400,14 +400,42 @@ export async function createExpressApp() {
   app.patch("/api/auth/me", requireAuth, handleUpdateProfile);
 
   async function sendPasswordResetEmail(toEmail: string, resetToken: string, req: Request) {
+    const baseUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get("host")}`;
+    const resetUrl = `${baseUrl}/reset-password?token=${resetToken}`;
+
+    if (process.env.LOG_RESET_LINKS === "true" || !IS_PROD) {
+      logger.info(`[Password Reset Link] For ${toEmail}: ${resetUrl}`);
+    }
+
+    if (process.env.RESEND_API_KEY) {
+      const from = process.env.EMAIL_FROM || "Rootline <onboarding@resend.dev>";
+      const res = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from,
+          to: [toEmail],
+          subject: "Reset your Rootline password",
+          html: `<p>You requested a password reset for your Rootline account.</p><p><a href="${resetUrl}">Click here to reset your password</a> (valid for 60 minutes).</p><p>Or copy and paste this URL into your browser:</p><p>${resetUrl}</p><p>If you did not request this, you can safely ignore this email.</p>`,
+          text: `You requested a password reset for your Rootline account. Please use the following link within 60 minutes:\n\n${resetUrl}\n\nIf you did not request this, you can safely ignore this email.`,
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Resend API failed (${res.status}): ${errText}`);
+      }
+      return;
+    }
+
     const host = process.env.SMTP_HOST;
     const port = parseInt(process.env.SMTP_PORT || "587", 10);
     const user = process.env.SMTP_USERNAME;
     // Strip all spaces from SMTP_PASSWORD / Google App Password
     const pass = (process.env.SMTP_PASSWORD || "").replace(/\s+/g, "");
     const from = process.env.EMAIL_FROM || user || "noreply@rootline.example";
-    const baseUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get("host")}`;
-    const resetUrl = `${baseUrl}/reset-password?token=${resetToken}`;
 
     const transporter = nodemailer.createTransport({
       host,
@@ -417,6 +445,7 @@ export async function createExpressApp() {
         user,
         pass,
       },
+      connectionTimeout: 10000,
     });
 
     await transporter.sendMail({
@@ -436,64 +465,93 @@ export async function createExpressApp() {
     message?: string | null;
     req: Request;
   }) {
+    const baseUrl = process.env.FRONTEND_URL || `${params.req.protocol}://${params.req.get("host")}`;
+    const inviteUrl = `${baseUrl}/invite/accept?token=${params.invitationToken}`;
+
+    const customMsg = params.message
+      ? `<p style="font-style: italic; color: #4B5563; border-left: 3px solid #1C4B3C; padding-left: 12px; margin: 16px 0;">"${params.message}"</p>`
+      : "";
+
+    const emailHtml = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 32px 24px; color: #1C1F1D; background: #F7F5F0; border-radius: 12px;">
+        <div style="text-align: center; margin-bottom: 28px;">
+          <h2 style="color: #1C4B3C; margin: 0; font-size: 20px; letter-spacing: 0.15em; font-weight: 700;">ROOTLINE</h2>
+          <p style="color: #6B7280; font-size: 13px; margin-top: 4px;">Family Tree & Genealogy Collaboration</p>
+        </div>
+        <div style="background: #FFFFFF; padding: 28px; border-radius: 8px; border: 1px solid #E7E2D6; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+          <h3 style="margin-top: 0; color: #111827; font-size: 18px; font-weight: 600;">You're Invited!</h3>
+          <p style="color: #374151; font-size: 15px; line-height: 1.6;">
+            <strong>${params.inviterName}</strong> has invited you to collaborate on <strong>${params.familyName}</strong> on Rootline.
+          </p>
+          ${customMsg}
+          <div style="margin: 28px 0; text-align: center;">
+            <a href="${inviteUrl}" style="background-color: #1C4B3C; color: #FFFFFF; text-decoration: none; padding: 12px 28px; border-radius: 6px; font-size: 14px; font-weight: 600; display: inline-block;">Accept Invitation</a>
+          </div>
+          <p style="color: #6B7280; font-size: 12px; line-height: 1.5; margin-bottom: 0;">
+            Or copy and paste this link into your browser:<br/>
+            <span style="color: #1C4B3C; word-break: break-all;">${inviteUrl}</span>
+          </p>
+        </div>
+        <p style="text-align: center; color: #9CA3AF; font-size: 12px; margin-top: 24px;">
+          This invitation is valid for 7 days. If you were not expecting this, you can safely ignore this email.
+        </p>
+      </div>
+    `;
+
+    const emailText = `${params.inviterName} has invited you to collaborate on ${params.familyName} on Rootline.\n\n${
+      params.message ? `"${params.message}"\n\n` : ""
+    }Accept your invitation here:\n${inviteUrl}\n\nThis link will expire in 7 days.`;
+
+    if (process.env.RESEND_API_KEY) {
+      const from = process.env.EMAIL_FROM || "Rootline <onboarding@resend.dev>";
+      const res = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from,
+          to: [params.toEmail],
+          subject: `${params.inviterName} invited you to join their family tree on Rootline`,
+          html: emailHtml,
+          text: emailText,
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Resend API failed (${res.status}): ${errText}`);
+      }
+      return;
+    }
+
     const host = process.env.SMTP_HOST;
     const port = parseInt(process.env.SMTP_PORT || "587", 10);
     const user = process.env.SMTP_USERNAME;
     const pass = (process.env.SMTP_PASSWORD || "").replace(/\s+/g, "");
     const from = process.env.EMAIL_FROM || user || "noreply@rootline.example";
-    const baseUrl = process.env.FRONTEND_URL || `${params.req.protocol}://${params.req.get("host")}`;
-    const inviteUrl = `${baseUrl}/invite/accept?token=${params.invitationToken}`;
 
     const transporter = nodemailer.createTransport({
       host,
       port,
       secure: port === 465,
       auth: { user, pass },
+      connectionTimeout: 10000,
     });
-
-    const customMsg = params.message
-      ? `<p style="font-style: italic; color: #4B5563; border-left: 3px solid #1C4B3C; padding-left: 12px; margin: 16px 0;">"${params.message}"</p>`
-      : "";
 
     await transporter.sendMail({
       from,
       to: params.toEmail,
       subject: `${params.inviterName} invited you to join their family tree on Rootline`,
-      text: `${params.inviterName} has invited you to collaborate on ${params.familyName} on Rootline.\n\n${
-        params.message ? `"${params.message}"\n\n` : ""
-      }Accept your invitation here:\n${inviteUrl}\n\nThis link will expire in 7 days.`,
-      html: `
-        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 32px 24px; color: #1C1F1D; background: #F7F5F0; border-radius: 12px;">
-          <div style="text-align: center; margin-bottom: 28px;">
-            <h2 style="color: #1C4B3C; margin: 0; font-size: 20px; letter-spacing: 0.15em; font-weight: 700;">ROOTLINE</h2>
-            <p style="color: #6B7280; font-size: 13px; margin-top: 4px;">Family Tree & Genealogy Collaboration</p>
-          </div>
-          <div style="background: #FFFFFF; padding: 28px; border-radius: 8px; border: 1px solid #E7E2D6; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-            <h3 style="margin-top: 0; color: #111827; font-size: 18px; font-weight: 600;">You're Invited!</h3>
-            <p style="color: #374151; font-size: 15px; line-height: 1.6;">
-              <strong>${params.inviterName}</strong> has invited you to collaborate on <strong>${params.familyName}</strong> on Rootline.
-            </p>
-            ${customMsg}
-            <div style="margin: 28px 0; text-align: center;">
-              <a href="${inviteUrl}" style="background-color: #1C4B3C; color: #FFFFFF; text-decoration: none; padding: 12px 28px; border-radius: 6px; font-size: 14px; font-weight: 600; display: inline-block;">Accept Invitation</a>
-            </div>
-            <p style="color: #6B7280; font-size: 12px; line-height: 1.5; margin-bottom: 0;">
-              Or copy and paste this link into your browser:<br/>
-              <span style="color: #1C4B3C; word-break: break-all;">${inviteUrl}</span>
-            </p>
-          </div>
-          <p style="text-align: center; color: #9CA3AF; font-size: 12px; margin-top: 24px;">
-            This invitation is valid for 7 days. If you were not expecting this, you can safely ignore this email.
-          </p>
-        </div>
-      `,
+      text: emailText,
+      html: emailHtml,
     });
   }
 
   // Password Reset with Transparent Email Handling (Fixes Issue 3)
   app.post("/auth/forgot-password", passwordResetLimiter, async (req, res) => {
     const { email } = isRecord(req.body) ? req.body : {};
-    const isSmtpConfigured = !!(process.env.SMTP_HOST && process.env.SMTP_USERNAME);
+    const isEmailConfigured = !!(process.env.RESEND_API_KEY || (process.env.SMTP_HOST && process.env.SMTP_USERNAME));
 
     if (!isText(email, 254, 3) || !EMAIL_RE.test(email.trim())) {
       return res.status(400).json({ detail: "Email is required" });
@@ -507,10 +565,13 @@ export async function createExpressApp() {
       store.createResetToken(user.id, rawToken);
     }
 
-    if (isSmtpConfigured) {
+    if (isEmailConfigured) {
       if (rawToken && user) {
-        sendPasswordResetEmail(user.email, rawToken, req).catch((err) => {
-          logger.error("Failed to send password reset email:", err);
+        sendPasswordResetEmail(user.email, rawToken, req).catch((err: any) => {
+          logger.error("Failed to send password reset email:", err?.message || err);
+          if (err?.code === "ETIMEDOUT" || err?.code === "ECONNREFUSED") {
+            logger.warn("SMTP connection timed out. On Render Free tier, outbound SMTP ports 25, 465, and 587 are blocked. Set RESEND_API_KEY or LOG_RESET_LINKS=true in Render environment variables.");
+          }
         });
       }
       return res.json({
