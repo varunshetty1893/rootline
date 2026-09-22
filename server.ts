@@ -7,6 +7,14 @@ try {
 }
 
 import express, { Request, Response, NextFunction } from "express";
+import dns from "dns";
+
+// Force IPv4 lookup order. Cloud platforms like Render often lack outbound IPv6 routing,
+// which causes 'connect ENETUNREACH 2404:6800:...' when connecting to dual-stack services like smtp.gmail.com.
+if (typeof dns.setDefaultResultOrder === "function") {
+  dns.setDefaultResultOrder("ipv4first");
+}
+
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import path from "path";
@@ -408,33 +416,101 @@ export async function createExpressApp() {
   app.patch("/auth/me", requireAuth, handleUpdateProfile);
   app.patch("/api/auth/me", requireAuth, handleUpdateProfile);
 
-  function createEmailTransporter() {
+  function isEmailProviderConfigured(): boolean {
+    if (process.env.RESEND_API_KEY?.trim()) return true;
+    const user = process.env.SMTP_USERNAME?.trim();
+    const pass = process.env.SMTP_PASSWORD?.trim();
+    return !!(user && pass);
+  }
+
+  function getEmailSenderAddress(): string {
+    const user = process.env.SMTP_USERNAME?.trim() || "";
+    const customFrom = process.env.EMAIL_FROM?.trim();
+    if (customFrom) {
+      // If customFrom already has an angle bracket format e.g. "Rootline <xxx@example.com>"
+      return customFrom;
+    }
+    if (user) {
+      return `Rootline <${user}>`;
+    }
+    return "Rootline <noreply@rootline.example>";
+  }
+
+  function createEmailTransporter(overridePort?: number) {
     const host = process.env.SMTP_HOST?.trim();
     const service = process.env.SMTP_SERVICE?.trim();
     const user = process.env.SMTP_USERNAME?.trim();
     const pass = (process.env.SMTP_PASSWORD || "").replace(/\s+/g, "");
-    const port = parseInt(process.env.SMTP_PORT || "587", 10);
+    const rawPort = process.env.SMTP_PORT?.trim();
+    const port = overridePort ?? (rawPort ? parseInt(rawPort, 10) : 465);
 
     const isGoogle =
       service?.toLowerCase() === "gmail" ||
       host === "smtp.gmail.com" ||
       user?.toLowerCase().endsWith("@gmail.com");
 
-    if (isGoogle) {
-      return nodemailer.createTransport({
-        service: "gmail",
-        auth: { user, pass },
-        connectionTimeout: 15000,
-      });
-    }
+    const resolvedHost = isGoogle ? "smtp.gmail.com" : (host || "smtp.gmail.com");
 
     return nodemailer.createTransport({
-      host,
+      host: resolvedHost,
       port,
       secure: port === 465,
       auth: { user, pass },
+      tls: {
+        rejectUnauthorized: false,
+      },
+      // CRITICAL: Force IPv4 connection (family: 4) to prevent 'connect ENETUNREACH' on Render & cloud containers
+      family: 4,
       connectionTimeout: 15000,
-    });
+      greetingTimeout: 15000,
+      socketTimeout: 15000,
+    } as any);
+  }
+
+  async function sendSmtpEmail(mailOptions: {
+    from: string;
+    to: string;
+    subject: string;
+    text: string;
+    html?: string;
+    replyTo?: string;
+  }) {
+    const host = process.env.SMTP_HOST?.trim();
+    const service = process.env.SMTP_SERVICE?.trim();
+    const user = process.env.SMTP_USERNAME?.trim();
+    const rawPort = process.env.SMTP_PORT?.trim();
+    const primaryPort = rawPort ? parseInt(rawPort, 10) : 465;
+
+    const isGoogle =
+      service?.toLowerCase() === "gmail" ||
+      host === "smtp.gmail.com" ||
+      user?.toLowerCase().endsWith("@gmail.com");
+
+    const primaryTransporter = createEmailTransporter(primaryPort);
+
+    try {
+      await primaryTransporter.sendMail(mailOptions);
+      logger.info(`[Email] Successfully delivered via SMTP (port ${primaryPort}, IPv4) to ${mailOptions.to}`);
+      return;
+    } catch (primaryErr: any) {
+      const isConnectionError =
+        primaryErr?.code === "ENETUNREACH" ||
+        primaryErr?.code === "ETIMEDOUT" ||
+        primaryErr?.code === "ECONNREFUSED" ||
+        primaryErr?.message?.includes("ENETUNREACH") ||
+        primaryErr?.message?.includes("ETIMEDOUT");
+
+      // For Google/Gmail, if primary port (e.g. 465) fails due to network routing, automatically try 587 (or vice-versa)
+      if (isGoogle && isConnectionError) {
+        const fallbackPort = primaryPort === 465 ? 587 : 465;
+        logger.warn(`[Email] Primary port ${primaryPort} connection failed (${primaryErr.message}). Retrying via fallback port ${fallbackPort} on IPv4...`);
+        const fallbackTransporter = createEmailTransporter(fallbackPort);
+        await fallbackTransporter.sendMail(mailOptions);
+        logger.info(`[Email] Successfully delivered via fallback SMTP port ${fallbackPort} (IPv4) to ${mailOptions.to}`);
+        return;
+      }
+      throw primaryErr;
+    }
   }
 
   async function sendPasswordResetEmail(toEmail: string, resetToken: string, req: Request) {
@@ -446,7 +522,7 @@ export async function createExpressApp() {
     }
 
     if (process.env.RESEND_API_KEY) {
-      const from = process.env.EMAIL_FROM || "Rootline <onboarding@resend.dev>";
+      const from = getEmailSenderAddress();
       const res = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: {
@@ -468,10 +544,8 @@ export async function createExpressApp() {
       return;
     }
 
-    const transporter = createEmailTransporter();
-    const from = process.env.EMAIL_FROM || process.env.SMTP_USERNAME || "noreply@rootline.example";
-
-    await transporter.sendMail({
+    const from = getEmailSenderAddress();
+    await sendSmtpEmail({
       from,
       to: toEmail,
       subject: "Reset your Rootline password",
@@ -534,7 +608,7 @@ export async function createExpressApp() {
 
     try {
       if (process.env.RESEND_API_KEY) {
-        const from = process.env.EMAIL_FROM || "Rootline <onboarding@resend.dev>";
+        const from = getEmailSenderAddress();
         const res = await fetch("https://api.resend.com/emails", {
           method: "POST",
           headers: {
@@ -553,19 +627,20 @@ export async function createExpressApp() {
           const errText = await res.text();
           throw new Error(`Resend API failed (${res.status}): ${errText}`);
         }
+        logger.info(`[Email] Sent invitation email to ${params.toEmail} via Resend`);
         return { success: true, inviteUrl };
       }
 
       if (process.env.SMTP_USERNAME && process.env.SMTP_PASSWORD) {
-        const transporter = createEmailTransporter();
-        const from = process.env.EMAIL_FROM || process.env.SMTP_USERNAME;
-        await transporter.sendMail({
+        const from = getEmailSenderAddress();
+        await sendSmtpEmail({
           from,
           to: params.toEmail,
           subject: `${params.inviterName} invited you to join "${params.familyName}" on Rootline`,
           text: emailText,
           html: emailHtml,
         });
+        logger.info(`[Email] Sent invitation email to ${params.toEmail} via Google/SMTP`);
         return { success: true, inviteUrl };
       }
 
@@ -580,7 +655,7 @@ export async function createExpressApp() {
   // Password Reset with Transparent Email Handling (Fixes Issue 3)
   app.post("/auth/forgot-password", passwordResetLimiter, async (req, res) => {
     const { email } = isRecord(req.body) ? req.body : {};
-    const isEmailConfigured = !!(process.env.RESEND_API_KEY || (process.env.SMTP_HOST && process.env.SMTP_USERNAME));
+    const isEmailConfigured = isEmailProviderConfigured();
 
     if (!isText(email, 254, 3) || !EMAIL_RE.test(email.trim())) {
       return res.status(400).json({ detail: "Email is required" });
@@ -647,29 +722,36 @@ export async function createExpressApp() {
 
     logger.info(`Contact Form submission from: ${name || "Anonymous"} <${email}> | Subject: ${subject || "General Inquiry"}`);
 
-    const isSmtpConfigured = !!(process.env.SMTP_HOST && process.env.SMTP_USERNAME);
-    if (isSmtpConfigured) {
+    if (isEmailProviderConfigured()) {
       try {
-        const host = process.env.SMTP_HOST;
-        const port = parseInt(process.env.SMTP_PORT || "587", 10);
-        const user = process.env.SMTP_USERNAME;
-        const pass = (process.env.SMTP_PASSWORD || "").replace(/\s+/g, "");
+        const user = process.env.SMTP_USERNAME?.trim() || "";
         const targetEmail = process.env.CONTACT_EMAIL || process.env.EMAIL_FROM || user;
+        const from = getEmailSenderAddress();
 
-        const transporter = nodemailer.createTransport({
-          host,
-          port,
-          secure: port === 465,
-          auth: { user, pass },
-        });
-
-        await transporter.sendMail({
-          from: user,
-          to: targetEmail,
-          replyTo: email,
-          subject: `[Rootline Contact] ${subject || "New Inquiry from " + (name || email)}`,
-          text: `Name: ${name || "N/A"}\nEmail: ${email}\nSubject: ${subject || "General Inquiry"}\n\nMessage:\n${message}`,
-        });
+        if (process.env.RESEND_API_KEY) {
+          await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              from,
+              to: [targetEmail],
+              reply_to: email,
+              subject: `[Rootline Contact] ${subject || "New Inquiry from " + (name || email)}`,
+              text: `Name: ${name || "N/A"}\nEmail: ${email}\nSubject: ${subject || "General Inquiry"}\n\nMessage:\n${message}`,
+            }),
+          });
+        } else if (process.env.SMTP_USERNAME && process.env.SMTP_PASSWORD) {
+          await sendSmtpEmail({
+            from,
+            to: targetEmail,
+            replyTo: email,
+            subject: `[Rootline Contact] ${subject || "New Inquiry from " + (name || email)}`,
+            text: `Name: ${name || "N/A"}\nEmail: ${email}\nSubject: ${subject || "General Inquiry"}\n\nMessage:\n${message}`,
+          });
+        }
       } catch (mailErr) {
         logger.error("Contact Mail Error:", mailErr);
       }
