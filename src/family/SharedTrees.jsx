@@ -133,8 +133,47 @@ export default function SharedTrees() {
   const [leaveSubmitting, setLeaveSubmitting] = useState(false);
   const [leaveError, setLeaveError] = useState("");
 
-  const sharedTrees = treeList?.shared_trees || [];
-  const ownedTrees = treeList?.owned_trees || [];
+  const sharedTrees = useMemo(() => {
+    const list = [...(treeList?.shared_trees || [])];
+    if (
+      activeTree &&
+      (!activeTree.isOwned || myRole !== "owner") &&
+      !list.some((t) => t.id === activeTree.id)
+    ) {
+      list.push({
+        id: activeTree.id,
+        name: activeTree.name || "Family Tree",
+        owner_id: activeTree.owner_id,
+        owner_name: activeTree.owner_name || "Tree Owner",
+        owner_email: activeTree.owner_email || "",
+        role: myRole || activeTree.role || "viewer",
+        isOwned: false,
+        people_count: activeTree.people_count ?? people?.length ?? 0,
+        created_at: activeTree.created_at || new Date().toISOString(),
+      });
+    }
+    return list;
+  }, [treeList?.shared_trees, activeTree, myRole, people?.length]);
+
+  const ownedTrees = useMemo(() => {
+    const list = [...(treeList?.owned_trees || [])];
+    if (
+      activeTree &&
+      (activeTree.isOwned || myRole === "owner") &&
+      !list.some((t) => t.id === activeTree.id)
+    ) {
+      list.push({
+        id: activeTree.id,
+        name: activeTree.name || "My Family Tree",
+        owner_id: user?.id,
+        role: "owner",
+        isOwned: true,
+        people_count: activeTree.people_count ?? people?.length ?? 0,
+        created_at: activeTree.created_at || new Date().toISOString(),
+      });
+    }
+    return list;
+  }, [treeList?.owned_trees, activeTree, myRole, user?.id, people?.length]);
 
   const handleOpenTree = (treeId, destination = "/tree") => {
     setActiveTreeId(treeId);
@@ -554,115 +593,157 @@ export default function SharedTrees() {
         {/* Tab 2: My Family Trees */}
         {activeTab === "owned" && (
           <div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {ownedTrees.map((tree) => {
-                const isActive = activeTreeId === tree.id;
-                const canDelete = ownedTrees.length > 1;
+            {ownedTrees.length === 0 ? (
+              <div className="bg-white border border-[#E7E2D6] rounded-2xl p-8 sm:p-12 text-center max-w-2xl mx-auto shadow-sm">
+                <div className="w-14 h-14 rounded-2xl bg-[#1C4B3C]/10 text-[#1C4B3C] flex items-center justify-center mx-auto mb-4">
+                  <TreeIcon className="w-7 h-7" />
+                </div>
+                <h3 className="text-lg font-serif font-bold text-[#1C1F1D] mb-2">
+                  No personal family trees created yet
+                </h3>
+                <p className="text-xs sm:text-sm text-[#6B7280] leading-relaxed mb-6 max-w-md mx-auto">
+                  {sharedTrees.length > 0
+                    ? `You are currently collaborating on ${sharedTrees.length} shared tree${sharedTrees.length === 1 ? "" : "s"}. You can also create and build your own independent family tree anytime.`
+                    : "Create your own family tree to start mapping your ancestors, parents, and relatives."}
+                </p>
 
-                return (
-                  <div
-                    key={tree.id}
-                    className={`bg-white border rounded-2xl p-5 sm:p-6 shadow-sm flex flex-col justify-between transition-all ${
-                      isActive
-                        ? "border-[#1C4B3C] ring-2 ring-[#1C4B3C]/10 shadow-md"
-                        : "border-[#E7E2D6] hover:border-[#1C4B3C]/40"
-                    }`}
+                <div className="flex items-center justify-center gap-3 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewTreeName("");
+                      setCreateError("");
+                      setCreateModalOpen(true);
+                    }}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#1C4B3C] hover:bg-[#163C30] text-white text-xs font-semibold shadow-sm transition-colors"
                   >
-                    <div>
-                      {/* Header */}
-                      <div className="flex items-start justify-between gap-3 mb-3">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h3 className="text-base sm:text-lg font-serif font-bold text-[#1C1F1D]">
-                              {tree.name}
-                            </h3>
-                            {isActive && (
-                              <span className="text-[10px] font-bold uppercase tracking-wider bg-[#1C4B3C] text-white px-2 py-0.5 rounded-full">
-                                Active
-                              </span>
-                            )}
+                    <Plus className="w-4 h-4" />
+                    <span>Create Your Family Tree</span>
+                  </button>
+
+                  {sharedTrees.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("shared")}
+                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#FAF8F4] hover:bg-[#F0EBE1] text-[#1C1F1D] border border-[#E7E2D6] text-xs font-semibold shadow-2xs transition-colors"
+                    >
+                      <Users className="w-4 h-4 text-[#1C4B3C]" />
+                      <span>View Shared Trees ({sharedTrees.length})</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {ownedTrees.map((tree) => {
+                  const isActive = activeTreeId === tree.id;
+                  const canDelete = ownedTrees.length > 1;
+
+                  return (
+                    <div
+                      key={tree.id}
+                      className={`bg-white border rounded-2xl p-5 sm:p-6 shadow-sm flex flex-col justify-between transition-all ${
+                        isActive
+                          ? "border-[#1C4B3C] ring-2 ring-[#1C4B3C]/10 shadow-md"
+                          : "border-[#E7E2D6] hover:border-[#1C4B3C]/40"
+                      }`}
+                    >
+                      <div>
+                        {/* Header */}
+                        <div className="flex items-start justify-between gap-3 mb-3">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h3 className="text-base sm:text-lg font-serif font-bold text-[#1C1F1D]">
+                                {tree.name}
+                              </h3>
+                              {isActive && (
+                                <span className="text-[10px] font-bold uppercase tracking-wider bg-[#1C4B3C] text-white px-2 py-0.5 rounded-full">
+                                  Active
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-[#6B7280] mt-0.5">
+                              {tree.people_count}{" "}
+                              {tree.people_count === 1 ? "family member" : "family members"}
+                            </p>
                           </div>
-                          <p className="text-xs text-[#6B7280] mt-0.5">
-                            {tree.people_count}{" "}
-                            {tree.people_count === 1 ? "family member" : "family members"}
-                          </p>
+
+                          <span className="text-xs px-2.5 py-1 rounded-full font-semibold bg-[#1C4B3C]/10 text-[#1C4B3C] border border-[#1C4B3C]/20 flex items-center gap-1">
+                            <UserCheck className="w-3 h-3" />
+                            <span>Owner</span>
+                          </span>
                         </div>
 
-                        <span className="text-xs px-2.5 py-1 rounded-full font-semibold bg-[#1C4B3C]/10 text-[#1C4B3C] border border-[#1C4B3C]/20 flex items-center gap-1">
-                          <UserCheck className="w-3 h-3" />
-                          <span>Owner</span>
-                        </span>
+                        {/* Info snippet */}
+                        <div className="p-3 bg-[#FAF8F4] border border-[#E7E2D6] rounded-xl mb-4 text-xs text-[#6B7280] flex items-center justify-between">
+                          <span>Created by you</span>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRenameModalTree(tree);
+                                setRenameName(tree.name);
+                                setRenameError("");
+                              }}
+                              className="text-[#1C4B3C] hover:underline font-semibold flex items-center gap-1 p-1"
+                            >
+                              <Pencil className="w-3 h-3" />
+                              <span>Rename</span>
+                            </button>
+                            <span className="text-[#D9D3C3]">·</span>
+                            <button
+                              type="button"
+                              onClick={() => setShareModalTree(tree)}
+                              className="text-[#1C4B3C] hover:underline font-semibold flex items-center gap-1 p-1"
+                            >
+                              <Share2 className="w-3 h-3" />
+                              <span>Share</span>
+                            </button>
+                          </div>
+                        </div>
                       </div>
 
-                      {/* Info snippet */}
-                      <div className="p-3 bg-[#FAF8F4] border border-[#E7E2D6] rounded-xl mb-4 text-xs text-[#6B7280] flex items-center justify-between">
-                        <span>Created by you</span>
-                        <div className="flex items-center gap-1.5">
+                      {/* Card Actions */}
+                      <div className="pt-3 border-t border-[#E7E2D6] flex items-center justify-between gap-2">
+                        {canDelete ? (
                           <button
                             type="button"
                             onClick={() => {
-                              setRenameModalTree(tree);
-                              setRenameName(tree.name);
-                              setRenameError("");
+                              setDeleteModalTree(tree);
+                              setDeleteError("");
                             }}
-                            className="text-[#1C4B3C] hover:underline font-semibold flex items-center gap-1 p-1"
+                            className="text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1"
                           >
-                            <Pencil className="w-3 h-3" />
-                            <span>Rename</span>
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Delete</span>
                           </button>
-                          <span className="text-[#D9D3C3]">·</span>
+                        ) : (
+                          <span className="text-[11px] text-[#9CA3AF]">Primary family tree</span>
+                        )}
+
+                        <div className="flex items-center gap-2">
                           <button
                             type="button"
-                            onClick={() => setShareModalTree(tree)}
-                            className="text-[#1C4B3C] hover:underline font-semibold flex items-center gap-1 p-1"
+                            onClick={() => handleOpenTree(tree.id, "/people")}
+                            className="text-xs font-medium text-[#374151] hover:text-[#1C1F1D] bg-[#F7F5F0] hover:bg-[#EAE6DD] px-3 py-1.5 rounded-lg transition-colors"
                           >
-                            <Share2 className="w-3 h-3" />
-                            <span>Share</span>
+                            View People
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenTree(tree.id, "/tree")}
+                            className="text-xs font-semibold text-white bg-[#1C4B3C] hover:bg-[#163C30] px-3.5 py-1.5 rounded-lg shadow-2xs flex items-center gap-1 transition-colors"
+                          >
+                            <span>Open Tree</span>
+                            <ChevronRight className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       </div>
                     </div>
-
-                    {/* Card Actions */}
-                    <div className="pt-3 border-t border-[#E7E2D6] flex items-center justify-between gap-2">
-                      {canDelete ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setDeleteModalTree(tree);
-                            setDeleteError("");
-                          }}
-                          className="text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          <span>Delete</span>
-                        </button>
-                      ) : (
-                        <span className="text-[11px] text-[#9CA3AF]">Primary family tree</span>
-                      )}
-
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenTree(tree.id, "/people")}
-                          className="text-xs font-medium text-[#374151] hover:text-[#1C1F1D] bg-[#F7F5F0] hover:bg-[#EAE6DD] px-3 py-1.5 rounded-lg transition-colors"
-                        >
-                          View People
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleOpenTree(tree.id, "/tree")}
-                          className="text-xs font-semibold text-white bg-[#1C4B3C] hover:bg-[#163C30] px-3.5 py-1.5 rounded-lg shadow-2xs flex items-center gap-1 transition-colors"
-                        >
-                          <span>Open Tree</span>
-                          <ChevronRight className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </main>

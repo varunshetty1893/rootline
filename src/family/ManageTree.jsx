@@ -510,7 +510,7 @@ export default function ManageTree({ defaultTab = "people" }) {
                       : "text-[#6B7280] hover:text-[#1C1F1D]"
                   }`}
                 >
-                  My Trees ({ownedTrees.length})
+                  My Trees ({allTrees.filter((t) => t.isOwned).length})
                 </button>
                 <button
                   type="button"
@@ -521,7 +521,7 @@ export default function ManageTree({ defaultTab = "people" }) {
                       : "text-[#6B7280] hover:text-[#1C1F1D]"
                   }`}
                 >
-                  Shared with Me ({sharedTrees.length})
+                  Shared with Me ({allTrees.filter((t) => !t.isOwned).length})
                 </button>
               </div>
             </div>

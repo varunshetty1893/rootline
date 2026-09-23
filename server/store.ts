@@ -1829,7 +1829,16 @@ export class MemoryStore {
         s.user_id === userId ||
         (normalizedUserEmail && s.user_id.toLowerCase().trim() === normalizedUserEmail);
       if (matchesUser) {
-        const fam = this.families.get(s.family_id);
+        let fam = this.families.get(s.family_id);
+        if (!fam && s.family_id) {
+          fam = {
+            id: s.family_id,
+            owner_id: s.owner_id || "owner",
+            name: "Family Tree",
+            created_at: s.created_at || new Date().toISOString(),
+          };
+          this.families.set(fam.id, fam);
+        }
         if (fam && fam.owner_id !== userId) {
           const ownerUser = this.users.get(s.owner_id) || this.users.get(fam.owner_id);
           if (!shared.some((sh) => sh.family?.id === fam.id)) {
@@ -1851,7 +1860,16 @@ export class MemoryStore {
     for (const m of this.familyMembers.values()) {
       if (m.user_id === userId && m.role !== "owner") {
         if (!shared.some((sh) => sh.family?.id === m.family_id)) {
-          const fam = this.families.get(m.family_id);
+          let fam = this.families.get(m.family_id);
+          if (!fam && m.family_id) {
+            fam = {
+              id: m.family_id,
+              owner_id: "owner",
+              name: "Family Tree",
+              created_at: m.joined_at || new Date().toISOString(),
+            };
+            this.families.set(fam.id, fam);
+          }
           if (fam && fam.owner_id !== userId) {
             const ownerUser = this.users.get(fam.owner_id);
             shared.push({
@@ -1876,7 +1894,16 @@ export class MemoryStore {
           (normalizedUserEmail && inv.invitee_email.toLowerCase().trim() === normalizedUserEmail))
       ) {
         if (!shared.some((sh) => sh.family?.id === inv.family_id)) {
-          const fam = this.families.get(inv.family_id);
+          let fam = this.families.get(inv.family_id);
+          if (!fam && inv.family_id) {
+            fam = {
+              id: inv.family_id,
+              owner_id: inv.inviter_id || "owner",
+              name: inv.family_name || "Family Tree",
+              created_at: inv.created_at || new Date().toISOString(),
+            };
+            this.families.set(fam.id, fam);
+          }
           if (fam && fam.owner_id !== userId) {
             const ownerUser = this.users.get(inv.inviter_id) || this.users.get(fam.owner_id);
             shared.push({

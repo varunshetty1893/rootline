@@ -1632,19 +1632,34 @@ export async function createExpressApp() {
 
   app.get("/api/family/current", requireAuth, (req: AuthRequest, res) => {
     try {
+      if (req.user && !store.users.has(req.user.id)) {
+        store.users.set(req.user.id, req.user);
+      }
       const requestedId = (req.query.family_id as string) || (req.query.tree_id as string) || req.user!.id;
-      const userTrees = store.getUserTrees(req.user!.id);
+      const userTrees = store.getUserTrees(req.user!.id, req.user);
 
       let currentFamily = userTrees.owned.family;
       let currentRole: FamilyRole = userTrees.owned.role;
       let treeOwner = { id: req.user!.id, name: req.user!.name, email: req.user!.email };
 
-      if (requestedId !== userTrees.owned.family.id) {
+      if (requestedId && requestedId !== userTrees.owned.family.id) {
         const sharedMatch = userTrees.shared.find((s) => s.family.id === requestedId);
         if (sharedMatch) {
           currentFamily = sharedMatch.family;
           currentRole = sharedMatch.role;
           treeOwner = sharedMatch.owner;
+        } else {
+          const access = store.checkFamilyAccess(req.user!.id, requestedId);
+          if (access) {
+            currentFamily = access.family;
+            currentRole = access.role;
+            const ownerUser = store.users.get(access.family.owner_id);
+            treeOwner = {
+              id: access.family.owner_id,
+              name: ownerUser?.name || "Tree Owner",
+              email: ownerUser?.email || "",
+            };
+          }
         }
       }
 

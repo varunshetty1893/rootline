@@ -485,6 +485,48 @@ export function FamilyProvider({ children }) {
     [activeTreeId, refreshTreeList, setActiveTreeId]
   );
 
+  // ── Unified Tree List guaranteed to include activeTree if loaded ────────
+  const unifiedTreeList = useMemo(() => {
+    const owned = [...(treeList?.owned_trees || [])];
+    const shared = [...(treeList?.shared_trees || [])];
+
+    if (activeTree) {
+      const isOwned = activeTree.isOwned ?? (myRole === "owner");
+      if (isOwned) {
+        if (!owned.some((t) => t.id === activeTree.id)) {
+          owned.push({
+            id: activeTree.id,
+            name: activeTree.name || "My Family Tree",
+            role: "owner",
+            isOwned: true,
+            people_count: activeTree.people_count ?? people?.length ?? 0,
+            created_at: activeTree.created_at || new Date().toISOString(),
+          });
+        }
+      } else {
+        if (!shared.some((t) => t.id === activeTree.id)) {
+          shared.push({
+            id: activeTree.id,
+            name: activeTree.name || "Family Tree",
+            owner_id: activeTree.owner_id,
+            owner_name: activeTree.owner_name || "Tree Owner",
+            owner_email: activeTree.owner_email || "",
+            role: myRole || activeTree.role || "viewer",
+            isOwned: false,
+            people_count: activeTree.people_count ?? people?.length ?? 0,
+            created_at: activeTree.created_at || new Date().toISOString(),
+          });
+        }
+      }
+    }
+
+    return {
+      ...treeList,
+      owned_trees: owned,
+      shared_trees: shared,
+    };
+  }, [treeList, activeTree, myRole, people?.length]);
+
   return (
     <FamilyContext.Provider
       value={{
@@ -507,7 +549,7 @@ export function FamilyProvider({ children }) {
         myRole,
         canEdit,
         canManage,
-        treeList,
+        treeList: unifiedTreeList,
         treesLoading,
         refreshTreeList,
         refresh,
