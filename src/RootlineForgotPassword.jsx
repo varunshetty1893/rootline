@@ -487,6 +487,20 @@ export default function RootlineForgotPassword() {
               onChange={(e) => setConfirmPassword(e.target.value)}
               minLength={8}
               required
+              trailing={
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((s) => !s)}
+                  className="text-[#9CA3AF] hover:text-[#6B7280]"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? (
+                    <EyeOff className="w-4 h-4" />
+                  ) : (
+                    <Eye className="w-4 h-4" />
+                  )}
+                </button>
+              }
             />
 
             <div className="text-xs text-[#6B7280] space-y-1 bg-white p-3 rounded-lg border border-[#E5E7EB]">

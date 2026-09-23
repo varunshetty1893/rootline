@@ -76,8 +76,17 @@ export const api = {
     request("/auth/forgot-password", { method: "POST", body: { email } }),
   verifyOtp: (email, otp) =>
     request("/auth/verify-otp", { method: "POST", body: { email, otp } }),
-  resetPassword: (token, new_password) =>
-    request("/auth/reset-password", { method: "POST", body: { token, new_password } }),
+  resetPassword: (tokenOrPayload, new_password) => {
+    if (typeof tokenOrPayload === "object" && tokenOrPayload !== null) {
+      return request("/auth/reset-password", { method: "POST", body: tokenOrPayload });
+    }
+    return request("/auth/reset-password", {
+      method: "POST",
+      body: { token: tokenOrPayload, reset_token: tokenOrPayload, new_password },
+    });
+  },
+  resetPasswordWithOtp: (email, otp, new_password) =>
+    request("/auth/reset-password", { method: "POST", body: { email, otp, new_password } }),
   askRelationshipAssistant: (payload) =>
     request("/api/ai/chat", { method: "POST", body: payload }).then((data) => ({
       answer: data?.message?.content || data?.message || "I could not generate an answer.",

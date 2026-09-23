@@ -607,37 +607,32 @@ export async function createExpressApp() {
   }
 
   async function sendPasswordResetEmail(toEmail: string, resetToken: string, req: Request, rawOtp?: string) {
-    const baseUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get("host")}`;
-    const resetUrl = `${baseUrl}/reset-password?token=${resetToken}`;
-
     if (process.env.LOG_RESET_LINKS === "true" || !IS_PROD) {
-      logger.info(`[Password Reset Link] For ${toEmail}: ${resetUrl}${rawOtp ? ` | OTP: ${rawOtp}` : ""}`);
+      logger.info(`[Password Reset Verification Code] For ${toEmail}: ${rawOtp || "N/A"}`);
     }
 
     const otpHtml = rawOtp
       ? `<div style="margin: 28px 0; text-align: center;">
           <p style="font-size: 14px; color: #4B5563; margin-bottom: 12px; font-weight: 500;">Your 6-Digit Password Reset Verification Code:</p>
           <div style="font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #1C4B3C; background: #F4F6F4; padding: 18px 32px; display: inline-block; border-radius: 12px; font-family: monospace; border: 1px solid #D1DDD8;">${rawOtp}</div>
-          <p style="font-size: 13px; color: #6B7280; margin-top: 12px;">Enter this code on the verification screen in your browser to choose a new password.<br/><strong>This code will expire in 10 minutes.</strong></p>
+          <p style="font-size: 13px; color: #6B7280; margin-top: 14px; line-height: 1.5;">Enter this code on the verification screen in your browser to choose a new password.<br/><strong style="color: #1C4B3C;">This code will expire in 15 minutes.</strong></p>
         </div>`
       : "";
 
-    const otpText = rawOtp ? `Your 6-Digit Password Reset Code: ${rawOtp}\n(Enter this code on the verification screen. Valid for 10 minutes)\n\n` : "";
+    const otpText = rawOtp
+      ? `Your 6-Digit Password Reset Verification Code: ${rawOtp}\n(Enter this code on the verification screen in your browser. Valid for 15 minutes)\n\n`
+      : "";
 
     const fullHtml = `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 32px; border: 1px solid #E5E7EB; border-radius: 16px; background: #FFFFFF;">
         <h2 style="color: #1C4B3C; margin-top: 0; font-size: 22px;">Reset Your Rootline Password</h2>
         <p style="color: #374151; font-size: 15px; line-height: 1.6;">We received a request to reset your Rootline password.</p>
         ${otpHtml}
-        <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid #F3F4F6; text-align: center;">
-          <p style="color: #6B7280; font-size: 13px; line-height: 1.5; margin: 0 0 8px 0;">Alternatively, you can open the reset page directly:</p>
-          <a href="${resetUrl}" style="color: #1C4B3C; font-size: 13px; font-weight: 600; text-decoration: underline; word-break: break-all;">${resetUrl}</a>
-        </div>
         <p style="color: #9CA3AF; font-size: 12px; margin-top: 24px; border-top: 1px solid #E5E7EB; padding-top: 16px; text-align: center;">If you did not request a password reset, you can safely ignore this email.</p>
       </div>
     `;
 
-    const fullText = `Reset Your Rootline Password\n\n${otpText}Alternatively, you can open the reset page directly:\n${resetUrl}\n\nIf you did not request this, please disregard this email.`;
+    const fullText = `Reset Your Rootline Password\n\n${otpText}If you did not request this, please disregard this email.`;
 
     const subject = rawOtp
       ? `Your Rootline verification code: ${rawOtp}`
@@ -840,10 +835,10 @@ export async function createExpressApp() {
       email: user.email,
       user_name: user.name,
       otp_code: rawOtp,
-      expires_in_minutes: 10,
+      expires_in_minutes: 15,
       emailjs_config: emailjsConfig,
-      reset_url: `/reset-password?token=${otpRecord.reset_token}`,
       token: otpRecord.reset_token,
+      reset_token: otpRecord.reset_token,
       email_sent: emailSent,
       email_error: emailError,
     });
@@ -871,6 +866,7 @@ export async function createExpressApp() {
       success: true,
       message: "Verification code confirmed successfully.",
       reset_token: verification.reset_token,
+      token: verification.reset_token,
     });
   };
 
@@ -1064,11 +1060,13 @@ export async function createExpressApp() {
   app.post("/api/email/test", handleEmailTest);
   app.post("/email/test", handleEmailTest);
 
-  // Atomic Token Consumption (Fixes Issue 11)
-  app.post("/auth/reset-password", passwordResetLimiter, async (req, res) => {
-    const { token, new_password } = isRecord(req.body) ? req.body : {};
-    if (!isText(token, 256, 32) || !isText(new_password, 128, 1)) {
-      return res.status(400).json({ detail: "This reset link is invalid or has expired" });
+  // Atomic Token and Direct OTP Password Reset
+  const handleResetPassword = async (req: Request, res: Response) => {
+    const { token, reset_token, email, otp, new_password } = isRecord(req.body) ? req.body : {};
+    const rawToken = (token || reset_token) as string | undefined;
+
+    if (!isText(new_password, 128, 1)) {
+      return res.status(422).json({ detail: "A new password is required." });
     }
 
     const pwdCheck = validatePasswordStrength(new_password);
@@ -1076,21 +1074,41 @@ export async function createExpressApp() {
       return res.status(422).json({ detail: pwdCheck.reason });
     }
 
-    // Atomic claim test-and-set prevents concurrent reuse of the same token
-    const resetRow = await store.claimResetTokenAsync(token);
-    if (!resetRow) {
-      return res.status(400).json({ detail: "This reset link is invalid, expired, or has already been used" });
+    let targetUserId: string | null = null;
+
+    // 1. Direct OTP verification flow: { email, otp, new_password }
+    if (email && otp && isText(email, 254, 3) && isText(otp, 10, 4)) {
+      const verification = await store.verifyPasswordResetOtpAsync(email.trim(), otp.trim());
+      if (!verification.success) {
+        return res.status(400).json({ detail: verification.error || "Verification code is invalid or has expired." });
+      }
+      const user = store.findUserByEmail(email.trim().toLowerCase());
+      if (!user) {
+        return res.status(400).json({ detail: "Account not found for this email address." });
+      }
+      targetUserId = user.id;
+    } else if (rawToken && isText(rawToken, 256, 16)) {
+      // 2. Token-based verification flow:
+      const resetRow = await store.claimResetTokenAsync(rawToken);
+      if (!resetRow) {
+        return res.status(400).json({ detail: "This verification session has expired. Please enter your 6-digit code again." });
+      }
+      const user = store.findUserById(resetRow.user_id);
+      if (!user) {
+        return res.status(400).json({ detail: "Account not found for this reset token." });
+      }
+      targetUserId = user.id;
+    } else {
+      return res.status(400).json({ detail: "Verification code is missing or session expired. Please enter the 6-digit code." });
     }
 
-    const user = store.findUserById(resetRow.user_id);
-    if (!user) {
-      return res.status(400).json({ detail: "This reset link is invalid or has expired" });
-    }
+    store.updateUserPassword(targetUserId, new_password);
 
-    store.updateUserPassword(user.id, new_password);
+    return res.json({ success: true, message: "Password updated successfully. You can now log in." });
+  };
 
-    return res.json({ message: "Password updated. You can now log in." });
-  });
+  app.post("/auth/reset-password", passwordResetLimiter, handleResetPassword);
+  app.post("/api/auth/reset-password", passwordResetLimiter, handleResetPassword);
 
   function getOAuthRedirectUri(req: Request): string {
     if (process.env.GOOGLE_REDIRECT_URI) {

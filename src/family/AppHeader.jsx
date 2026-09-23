@@ -6,6 +6,7 @@ import {
   ChevronDown,
   Share2,
   Eye,
+  EyeOff,
   User,
   Pencil,
   KeyRound,
@@ -82,6 +83,8 @@ export default function AppHeader() {
   const [resetOtp, setResetOtp] = useState("");
   const [resetNewPassword, setResetNewPassword] = useState("");
   const [resetConfirmPassword, setResetConfirmPassword] = useState("");
+  const [showResetNewPassword, setShowResetNewPassword] = useState(false);
+  const [showResetConfirmPassword, setShowResetConfirmPassword] = useState(false);
   const [resetSending, setResetSending] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
   const [resetError, setResetError] = useState("");
@@ -164,7 +167,12 @@ export default function AppHeader() {
     setResetError("");
     try {
       const verifyRes = await api.verifyOtp(user.email, cleanOtp);
-      await api.resetPassword(verifyRes.token, resetNewPassword);
+      const token = verifyRes?.token || verifyRes?.reset_token;
+      if (token) {
+        await api.resetPassword(token, resetNewPassword);
+      } else {
+        await api.resetPasswordWithOtp(user.email, cleanOtp, resetNewPassword);
+      }
       setResetStep(3);
       setResetSuccess(true);
     } catch (err) {
@@ -1106,26 +1114,46 @@ export default function AppHeader() {
                   <label className="block text-[11px] font-semibold text-[#374151] mb-1">
                     New Password
                   </label>
-                  <input
-                    type="password"
-                    placeholder="At least 8 characters"
-                    value={resetNewPassword}
-                    onChange={(e) => setResetNewPassword(e.target.value)}
-                    className="w-full px-3 py-2 text-xs rounded-xl border border-[#E7E2D6] focus:border-[#1C4B3C] focus:ring-1 focus:ring-[#1C4B3C] outline-none"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showResetNewPassword ? "text" : "password"}
+                      placeholder="At least 8 characters"
+                      value={resetNewPassword}
+                      onChange={(e) => setResetNewPassword(e.target.value)}
+                      className="w-full pl-3 pr-9 py-2 text-xs rounded-xl border border-[#E7E2D6] focus:border-[#1C4B3C] focus:ring-1 focus:ring-[#1C4B3C] outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowResetNewPassword((prev) => !prev)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#9CA3AF] hover:text-[#374151] transition-colors p-1"
+                      aria-label={showResetNewPassword ? "Hide password" : "Show password"}
+                    >
+                      {showResetNewPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
                 </div>
 
                 <div>
                   <label className="block text-[11px] font-semibold text-[#374151] mb-1">
                     Confirm New Password
                   </label>
-                  <input
-                    type="password"
-                    placeholder="Re-type new password"
-                    value={resetConfirmPassword}
-                    onChange={(e) => setResetConfirmPassword(e.target.value)}
-                    className="w-full px-3 py-2 text-xs rounded-xl border border-[#E7E2D6] focus:border-[#1C4B3C] focus:ring-1 focus:ring-[#1C4B3C] outline-none"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showResetConfirmPassword ? "text" : "password"}
+                      placeholder="Re-type new password"
+                      value={resetConfirmPassword}
+                      onChange={(e) => setResetConfirmPassword(e.target.value)}
+                      className="w-full pl-3 pr-9 py-2 text-xs rounded-xl border border-[#E7E2D6] focus:border-[#1C4B3C] focus:ring-1 focus:ring-[#1C4B3C] outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowResetConfirmPassword((prev) => !prev)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#9CA3AF] hover:text-[#374151] transition-colors p-1"
+                      aria-label={showResetConfirmPassword ? "Hide password" : "Show password"}
+                    >
+                      {showResetConfirmPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
                 </div>
 
                 {resetError && (

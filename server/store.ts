@@ -675,7 +675,7 @@ export class MemoryStore {
   }
 
   // --- Browser Email OTP Generation & Verification (Option 1) ---
-  createPasswordResetOtp(userId: string, email: string, rawOtp: string, expireMinutes = 10): PasswordResetOtp {
+  createPasswordResetOtp(userId: string, email: string, rawOtp: string, expireMinutes = 15): PasswordResetOtp {
     const normalizedEmail = email.toLowerCase().trim();
     // Invalidate previous unexpired OTPs for this user
     for (const otp of this.resetOtps.values()) {
