@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Shield,
   UserCheck,
+  UserPlus,
   Calendar,
   Layers,
   Heart,

@@ -31,9 +31,14 @@ export class ErrorBoundary extends React.Component {
             <h2 className="text-xl font-serif font-bold text-[#1C1F1D] mb-2">
               Something went wrong
             </h2>
-            <p className="text-xs text-[#6B7280] mb-6 leading-relaxed">
+            <p className="text-xs text-[#6B7280] mb-4 leading-relaxed">
               We encountered an unexpected issue while rendering this page.
             </p>
+            {this.state.error?.message && (
+              <p className="text-[11px] text-red-700 bg-red-50 border border-red-200 rounded-xl p-3 mb-6 text-left font-mono break-words">
+                {this.state.error.message}
+              </p>
+            )}
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <button
                 type="button"
