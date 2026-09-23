@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   GitBranch,
+  GitBranch as TreeIcon,
   Users,
   Eye,
   Edit3,
@@ -35,9 +36,11 @@ export default function SharedTrees() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const {
+    people,
     activeTreeId,
     setActiveTreeId,
     activeTree,
+    myRole,
     treeList = { owned_trees: [], shared_trees: [] },
     refreshTreeList,
     createTree,

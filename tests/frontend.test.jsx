@@ -13,6 +13,7 @@ import RootlineDashboard from "../src/RootlineDashboard.jsx";
 import PeopleList from "../src/family/PeopleList.jsx";
 import PersonDetail from "../src/family/PersonDetail.jsx";
 import PersonForm from "../src/family/PersonForm.jsx";
+import SharedTrees from "../src/family/SharedTrees.jsx";
 
 // Mock API
 vi.mock("../src/api.js", () => ({
@@ -28,6 +29,10 @@ vi.mock("../src/api.js", () => ({
     updatePerson: vi.fn(),
     deletePerson: vi.fn(),
     sendContactMessage: vi.fn(),
+    getMyPendingInvitations: vi.fn().mockResolvedValue({ invitations: [] }),
+    listTrees: vi.fn().mockResolvedValue({ owned_trees: [], shared_trees: [] }),
+    acceptInvitation: vi.fn(),
+    declineInvitation: vi.fn(),
   },
 }));
 
@@ -87,6 +92,21 @@ vi.mock("../src/family/FamilyContext.jsx", () => ({
     getPerson: (id) => mockPeopleData.find((p) => p.id === id) || null,
     setRootPerson: vi.fn(),
     rootPersonId: "p1",
+    activeTreeId: "tree-1",
+    setActiveTreeId: vi.fn(),
+    activeTree: null,
+    myRole: "owner",
+    canEdit: true,
+    canManage: true,
+    treeList: {
+      owned_trees: [{ id: "tree-1", name: "Smith Family Tree", role: "owner", isOwned: true, people_count: 2 }],
+      shared_trees: [],
+    },
+    refreshTreeList: vi.fn(),
+    createTree: vi.fn(),
+    renameTree: vi.fn(),
+    deleteTree: vi.fn(),
+    leaveSharedTree: vi.fn(),
   }),
   FamilyProvider: ({ children }) => <div>{children}</div>,
 }));
@@ -299,6 +319,19 @@ describe("Frontend UI Test Suite (Issue 16)", () => {
       expect(screen.getByPlaceholderText(/e\.g\. civil engineer, teacher/i)).toBeDefined();
       expect(screen.getByPlaceholderText(/e\.g\. 12 mg road, bengaluru/i)).toBeDefined();
       expect(screen.getByPlaceholderText(/e\.g\. \+91 98765 43210/i)).toBeDefined();
+    });
+  });
+
+  describe("SharedTrees component", () => {
+    it("renders shared trees navigation, tabs, and content without crashing", () => {
+      render(
+        <MemoryRouter>
+          <SharedTrees />
+        </MemoryRouter>
+      );
+
+      expect(screen.getByText(/shared with me/i)).toBeDefined();
+      expect(screen.getByText(/my family trees/i)).toBeDefined();
     });
   });
 });
