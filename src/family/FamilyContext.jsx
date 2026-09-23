@@ -82,35 +82,48 @@ function normalizeTreeList(raw, currentUserId) {
   }
 
   // CRITICAL SANITIZATION: Strict ownership separation based on currentUserId
-  if (currentUserId) {
-    const all = [...owned_trees, ...shared_trees];
-    const actualOwned = [];
-    const actualShared = [];
-    const seenIds = new Set();
+  const all = [...owned_trees, ...shared_trees];
+  const actualOwned = [];
+  const actualShared = [];
+  const seenIds = new Set();
 
-    for (const tree of all) {
-      if (!tree || !tree.id || seenIds.has(tree.id)) continue;
-      seenIds.add(tree.id);
+  for (const tree of all) {
+    if (!tree || !tree.id || seenIds.has(tree.id)) continue;
+    seenIds.add(tree.id);
 
-      const isOwnedByUser = tree.owner_id === currentUserId || tree.id === currentUserId;
-      if (isOwnedByUser) {
-        actualOwned.push({
-          ...tree,
-          role: "owner",
-          isOwned: true,
-          owner_id: currentUserId,
-        });
-      } else {
-        actualShared.push({
-          ...tree,
-          isOwned: false,
-          role: tree.role && tree.role !== "owner" ? tree.role : "viewer",
-        });
-      }
+    // STRICT OWNERSHIP RULE:
+    // A tree is ONLY owned by the current user if:
+    // 1. Its role is NOT explicitly "viewer" or "editor"
+    // 2. Its isOwned flag is not false
+    // 3. Its owner_id does not point to a different user
+    // 4. Either tree.owner_id === currentUserId OR (tree.id === currentUserId && (!tree.owner_id || tree.owner_id === currentUserId))
+    const isExplicitCollaborator = tree.role === "viewer" || tree.role === "editor" || tree.isOwned === false;
+    const hasDifferentOwner = Boolean(currentUserId && tree.owner_id && tree.owner_id !== currentUserId);
+    const isOwnedByUser =
+      !isExplicitCollaborator &&
+      !hasDifferentOwner &&
+      Boolean(
+        currentUserId &&
+        (tree.owner_id === currentUserId || (tree.id === currentUserId && (!tree.owner_id || tree.owner_id === currentUserId)))
+      );
+
+    if (isOwnedByUser) {
+      actualOwned.push({
+        ...tree,
+        role: "owner",
+        isOwned: true,
+        owner_id: currentUserId,
+      });
+    } else {
+      actualShared.push({
+        ...tree,
+        isOwned: false,
+        role: tree.role && tree.role !== "owner" ? tree.role : "viewer",
+      });
     }
-    owned_trees = actualOwned;
-    shared_trees = actualShared;
   }
+  owned_trees = actualOwned;
+  shared_trees = actualShared;
 
   return {
     ...raw,

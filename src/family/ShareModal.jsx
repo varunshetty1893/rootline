@@ -101,13 +101,27 @@ export default function ShareModal({ treeId, treeName, onClose }) {
   const [loadError, setLoadError] = useState("");
 
   // Determine permissions strictly for this specific tree
-  const isOwnerOfThisTree = Boolean(
-    (sharesData?.owner && user?.id && sharesData.owner.id === user.id) ||
-    treeList?.owned_trees?.some((t) => t.id === treeId && (t.owner_id === user?.id || t.id === user?.id))
-  );
+  const isOwnerOfThisTree = sharesData?.owner
+    ? Boolean(user?.id && sharesData.owner.id === user.id)
+    : Boolean(
+        user?.id &&
+        treeList?.owned_trees?.some(
+          (t) =>
+            t.id === treeId &&
+            t.role === "owner" &&
+            t.isOwned !== false &&
+            (!t.owner_id || t.owner_id === user.id)
+        )
+      );
+
   const mySharedTree = treeList?.shared_trees?.find((t) => t.id === treeId);
-  const mySharedRole = mySharedTree?.role || (isOwnerOfThisTree ? "owner" : "viewer");
-  const canManage = isOwnerOfThisTree;
+  const myEffectiveRole = sharesData?.currentUserRole
+    ? sharesData.currentUserRole
+    : isOwnerOfThisTree
+    ? "owner"
+    : mySharedTree?.role || "viewer";
+
+  const canManage = Boolean(isOwnerOfThisTree && myEffectiveRole === "owner");
 
   // Revoke confirmation state
   const [confirmRevokeId, setConfirmRevokeId] = useState(null);
@@ -312,14 +326,14 @@ export default function ShareModal({ treeId, treeName, onClose }) {
               ) : (
                 <span className="text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full flex items-center gap-1 capitalize">
                   <Eye className="w-3 h-3" />
-                  <span>{mySharedRole}</span>
+                  <span>{myEffectiveRole}</span>
                 </span>
               )}
             </div>
             <p className="text-xs text-[#6B7280] mt-0.5">
               {canManage
                 ? "Invite collaborators, manage access roles, and track invitation status."
-                : `Created by ${sharesData?.owner?.name || "Tree Owner"}. View tree members and your access.`}
+                : `Created by ${sharesData?.owner?.name || "Tree Owner"}. You have ${myEffectiveRole} access.`}
             </p>
           </div>
           <button
@@ -433,7 +447,7 @@ export default function ShareModal({ treeId, treeName, onClose }) {
                   </span>
                 </div>
                 <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full capitalize bg-amber-50 text-amber-800 border border-amber-200/60">
-                  {mySharedRole}
+                  {myEffectiveRole}
                 </span>
               </div>
               <p className="text-xs text-[#4B5563] leading-relaxed">

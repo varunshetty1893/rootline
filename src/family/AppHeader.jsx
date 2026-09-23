@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import {
   GitBranch,
@@ -247,11 +247,32 @@ export default function AppHeader() {
     }
   };
 
-  const ownedTrees = treeList?.owned_trees || [];
-  const sharedTrees = treeList?.shared_trees || [];
+  const ownedTrees = useMemo(() => {
+    return (treeList?.owned_trees || []).filter((t) => {
+      if (!t || !t.id) return false;
+      if (t.role === "viewer" || t.role === "editor" || t.isOwned === false) return false;
+      if (t.owner_id && user?.id && t.owner_id !== user.id) return false;
+      return Boolean(user?.id && (t.owner_id === user.id || (t.id === user.id && (!t.owner_id || t.owner_id === user.id))));
+    });
+  }, [treeList?.owned_trees, user?.id]);
+
+  const sharedTrees = useMemo(() => {
+    const fromShared = treeList?.shared_trees || [];
+    const misplaced = (treeList?.owned_trees || []).filter(
+      (t) => t && (t.role === "viewer" || t.role === "editor" || t.isOwned === false || (t.owner_id && user?.id && t.owner_id !== user.id))
+    );
+    const combined = [...fromShared, ...misplaced];
+    const seen = new Set();
+    return combined.filter((t) => {
+      if (!t || !t.id || seen.has(t.id)) return false;
+      seen.add(t.id);
+      return !user?.id || t.owner_id !== user.id;
+    });
+  }, [treeList, user?.id]);
+
   const allTrees = [
-    ...ownedTrees.map((t) => ({ ...t, role: "owner" })),
-    ...sharedTrees,
+    ...ownedTrees.map((t) => ({ ...t, role: "owner", isOwned: true })),
+    ...sharedTrees.map((t) => ({ ...t, isOwned: false })),
   ];
 
   const displayName = activeTree?.name || "My Family Tree";

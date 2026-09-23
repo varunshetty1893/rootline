@@ -137,17 +137,29 @@ export default function SharedTrees() {
   const [leaveSubmitting, setLeaveSubmitting] = useState(false);
   const [leaveError, setLeaveError] = useState("");
 
-  const sharedTrees = useMemo(() => {
-    return (treeList?.shared_trees || []).filter(
-      (t) => t && t.owner_id !== user?.id && t.id !== user?.id
-    );
-  }, [treeList?.shared_trees, user?.id]);
-
   const ownedTrees = useMemo(() => {
-    return (treeList?.owned_trees || []).filter(
-      (t) => t && (t.owner_id === user?.id || t.id === user?.id)
-    );
+    return (treeList?.owned_trees || []).filter((t) => {
+      if (!t || !t.id) return false;
+      if (t.role === "viewer" || t.role === "editor" || t.isOwned === false) return false;
+      if (t.owner_id && user?.id && t.owner_id !== user.id) return false;
+      return Boolean(user?.id && (t.owner_id === user.id || (t.id === user.id && (!t.owner_id || t.owner_id === user.id))));
+    });
   }, [treeList?.owned_trees, user?.id]);
+
+  const sharedTrees = useMemo(() => {
+    const fromShared = treeList?.shared_trees || [];
+    // Any tree that was mistakenly stored in owned_trees but is actually a shared tree
+    const misplaced = (treeList?.owned_trees || []).filter(
+      (t) => t && (t.role === "viewer" || t.role === "editor" || t.isOwned === false || (t.owner_id && user?.id && t.owner_id !== user.id))
+    );
+    const combined = [...fromShared, ...misplaced];
+    const seen = new Set();
+    return combined.filter((t) => {
+      if (!t || !t.id || seen.has(t.id)) return false;
+      seen.add(t.id);
+      return !user?.id || t.owner_id !== user.id;
+    });
+  }, [treeList, user?.id]);
 
   const handleOpenTree = (treeId, destination = "/tree") => {
     setActiveTreeId(treeId);

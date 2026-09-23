@@ -1798,12 +1798,44 @@ export class MemoryStore {
       this.users.set(user.id, user);
     }
 
+    const normalizedUserEmail = user?.email && typeof user.email === "string" ? user.email.toLowerCase().trim() : "";
+
+    // Identify all families where user is known to be a non-owner collaborator (shared)
+    const nonOwnerFamilyIds = new Set<string>();
+    for (const s of this.treeShares.values()) {
+      if (
+        (s.user_id === userId || (normalizedUserEmail && s.user_id && typeof s.user_id === "string" && s.user_id.toLowerCase().trim() === normalizedUserEmail)) &&
+        s.owner_id !== userId
+      ) {
+        nonOwnerFamilyIds.add(s.family_id);
+      }
+    }
+    for (const m of this.familyMembers.values()) {
+      if (m.user_id === userId && m.role !== "owner") {
+        nonOwnerFamilyIds.add(m.family_id);
+      }
+    }
+    for (const inv of this.familyInvitations.values()) {
+      if (
+        inv.status === "accepted" &&
+        (inv.accepted_by_user_id === userId ||
+          (normalizedUserEmail && inv.invitee_email && typeof inv.invitee_email === "string" && inv.invitee_email.toLowerCase().trim() === normalizedUserEmail)) &&
+        inv.inviter_id !== userId
+      ) {
+        nonOwnerFamilyIds.add(inv.family_id);
+      }
+    }
+
     const ownedList: Family[] = [];
     for (const fam of this.families.values()) {
-      if (fam && (fam.owner_id === userId || fam.id === userId)) {
-        if (fam.owner_id !== userId) {
-          fam.owner_id = userId;
-        }
+      if (!fam) continue;
+      // If the user was explicitly invited or is a member with non-owner role, this tree is NEVER owned
+      if (nonOwnerFamilyIds.has(fam.id)) continue;
+
+      if (fam.owner_id === userId) {
+        ownedList.push(fam);
+      } else if (fam.id === userId && (!fam.owner_id || fam.owner_id === userId)) {
+        fam.owner_id = userId;
         ownedList.push(fam);
       }
     }
@@ -1830,7 +1862,6 @@ export class MemoryStore {
     ownedFamilyIds.add(userId);
 
     const shared: { family: Family; role: SharePermission; owner: { id: string; name: string; email: string } }[] = [];
-    const normalizedUserEmail = user?.email && typeof user.email === "string" ? user.email.toLowerCase().trim() : "";
 
     // 1. Look up via treeShares
     for (const s of this.treeShares.values()) {

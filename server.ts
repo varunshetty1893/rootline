@@ -1698,10 +1698,9 @@ export async function createExpressApp() {
       });
 
       const ownedIds = new Set<string>(ownedTrees.map((t) => t.id));
-      ownedIds.add(req.user!.id);
 
       const sharedTrees = (trees.shared || [])
-        .filter((s) => s && s.family && s.family.owner_id !== req.user!.id && s.family.id !== req.user!.id && !ownedIds.has(s.family.id))
+        .filter((s) => s && s.family && s.family.owner_id !== req.user!.id && !ownedIds.has(s.family.id))
         .map((s) => {
           const count = store.getPeopleCount(s.family.id);
           return {
