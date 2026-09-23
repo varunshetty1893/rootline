@@ -1357,7 +1357,11 @@ export async function createExpressApp() {
   // People endpoints with Multi-Family Collaboration & Activity Tracking
   app.get(["/people", "/api/people"], requireAuth, (req: AuthRequest, res) => {
     try {
-      const familyId = (req.query.family_id as string) || (req.query.tree_id as string) || req.user!.id;
+      const rawFamilyId = (req.query.family_id as string) || (req.query.tree_id as string);
+      const familyId = rawFamilyId || req.user!.id;
+      if (rawFamilyId && rawFamilyId !== req.user!.id && !store.families.has(rawFamilyId)) {
+        return res.status(404).json({ detail: "Family tree not found or has been deleted." });
+      }
       const access = store.checkFamilyAccess(req.user!.id, familyId);
       if (!access) {
         return res.status(403).json({ detail: "Access denied to this family tree." });
@@ -1644,10 +1648,15 @@ export async function createExpressApp() {
 
       if (requestedId && requestedId !== userTrees.owned.family.id) {
         const sharedMatch = userTrees.shared.find((s) => s.family.id === requestedId);
+        const ownedMatch = (userTrees.ownedList || []).find((f) => f.id === requestedId);
         if (sharedMatch) {
           currentFamily = sharedMatch.family;
           currentRole = sharedMatch.role;
           treeOwner = sharedMatch.owner;
+        } else if (ownedMatch) {
+          currentFamily = ownedMatch;
+          currentRole = "owner";
+          treeOwner = { id: req.user!.id, name: req.user!.name, email: req.user!.email };
         } else {
           const access = store.checkFamilyAccess(req.user!.id, requestedId);
           if (access) {
@@ -1659,6 +1668,8 @@ export async function createExpressApp() {
               name: ownerUser?.name || "Tree Owner",
               email: ownerUser?.email || "",
             };
+          } else {
+            return res.status(404).json({ detail: "Family tree not found or has been deleted." });
           }
         }
       }
@@ -2091,20 +2102,36 @@ export async function createExpressApp() {
         return res.status(400).json({ detail: "Tree name cannot exceed 100 characters." });
       }
 
-      const initialPerson = {
-        name: (typeof first_person_name === "string" && first_person_name.trim()) ? first_person_name.trim() : (req.user!.name || "Tree Starter"),
-        gender: (typeof first_person_gender === "string" && first_person_gender !== "unspecified") ? first_person_gender : null,
-        date_of_birth: (typeof first_person_dob === "string" && first_person_dob.trim()) ? first_person_dob.trim() : (req.user!.dob || null),
-        bio: (typeof first_person_bio === "string" && first_person_bio.trim()) ? first_person_bio.trim() : "Tree Starter (Owner)",
-      };
+      // Check unique tree name per user (user_id + tree_name)
+      const trimmedName = name.trim();
+      const userTrees = store.getUserTrees(req.user!.id, req.user);
+      const duplicate = (userTrees.ownedList || []).some(
+        (f) => f && f.name.trim().toLowerCase() === trimmedName.toLowerCase()
+      );
+      if (duplicate) {
+        return res.status(400).json({
+          detail: `You already have a family tree named "${trimmedName}". Please choose a different name.`,
+        });
+      }
 
-      const result = store.createFamily(req.user!, name.trim(), initialPerson);
+      let initialPerson: any = undefined;
+      if (typeof first_person_name === "string" && first_person_name.trim()) {
+        initialPerson = {
+          name: first_person_name.trim(),
+          gender: (typeof first_person_gender === "string" && first_person_gender !== "unspecified") ? first_person_gender : null,
+          date_of_birth: (typeof first_person_dob === "string" && first_person_dob.trim()) ? first_person_dob.trim() : null,
+          bio: (typeof first_person_bio === "string" && first_person_bio.trim()) ? first_person_bio.trim() : "Tree Starter (Owner)",
+        };
+      }
+
+      const result = store.createFamily(req.user!, trimmedName, initialPerson);
       return res.status(201).json({
         ...result.family,
         first_person: result.person,
       });
     } catch (err: any) {
-      return res.status(500).json({ detail: err.message || "Failed to create family tree." });
+      const status = err.message?.includes("already have") ? 400 : 500;
+      return res.status(status).json({ detail: err.message || "Failed to create family tree." });
     }
   };
   app.post("/api/families", requireAuth, handleCreateFamily);
@@ -2131,14 +2158,14 @@ export async function createExpressApp() {
   app.patch("/api/families/:id", requireAuth, handleUpdateFamily);
   app.patch("/families/:id", requireAuth, handleUpdateFamily);
 
-  const handleDeleteFamily = (req: AuthRequest, res: any) => {
+  const handleDeleteFamily = async (req: AuthRequest, res: any) => {
     try {
       const rawFamilyId = req.params.id;
       const familyId = Array.isArray(rawFamilyId) ? rawFamilyId[0] : rawFamilyId;
-      store.deleteFamily(req.user!.id, familyId);
+      await store.deleteFamily(req.user!.id, familyId);
       return res.json({ message: "Family tree deleted successfully." });
     } catch (err: any) {
-      const status = err.message.includes("owner") ? 403 : err.message.includes("only") ? 400 : 400;
+      const status = err.message.includes("owner") ? 403 : err.message.includes("only") ? 400 : err.message.includes("not found") ? 404 : 400;
       return res.status(status).json({ detail: err.message || "Failed to delete family tree." });
     }
   };

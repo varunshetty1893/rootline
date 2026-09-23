@@ -108,17 +108,34 @@ function normalizeTreeList(raw, currentUserId) {
       );
 
     if (isOwnedByUser) {
-      actualOwned.push({
-        ...tree,
-        role: "owner",
-        isOwned: true,
-        owner_id: currentUserId,
-      });
+      const pCount = tree.people_count ?? 0;
+      // Staging logic: Newly created trees with 0 members appear in the Shared Trees tab
+      // until the user actually adds or associates people with that tree.
+      // Once people are added, the tree correctly moves to the My Trees tab.
+      if (pCount === 0) {
+        actualShared.push({
+          ...tree,
+          role: "owner",
+          isOwned: true,
+          owner_id: currentUserId,
+          people_count: 0,
+          isNewlyCreatedPendingPeople: true,
+        });
+      } else {
+        actualOwned.push({
+          ...tree,
+          role: "owner",
+          isOwned: true,
+          owner_id: currentUserId,
+          people_count: pCount,
+        });
+      }
     } else {
       actualShared.push({
         ...tree,
         isOwned: false,
         role: tree.role && tree.role !== "owner" ? tree.role : "viewer",
+        people_count: tree.people_count ?? 0,
       });
     }
   }
@@ -246,14 +263,29 @@ export function FamilyProvider({ children }) {
     }
     const shared = sharedTrees.find((t) => t.id === activeTreeId);
     if (shared) {
-      setMyRole(shared.role || "viewer");
+      setMyRole(shared.role || (shared.isOwned ? "owner" : "viewer"));
       return;
     }
     // If tree list is still loading, wait
     if (treesLoading) {
       return;
     }
-    // Safe default for non-owned tree is viewer
+
+    // If activeTreeId was set but is NOT present in owned or shared trees (e.g. deleted or access revoked),
+    // automatically reset activeTreeId to the first available tree and remove stale reference
+    const all = [...ownedTrees, ...sharedTrees];
+    if (all.length > 0) {
+      const fallback = ownedTrees[0] || sharedTrees[0];
+      const fallbackId = fallback ? fallback.id : null;
+      setActiveTreeIdState(fallbackId);
+      if (user?.id) {
+        if (fallbackId) localStorage.setItem(activeTreeStorageKey(user.id), fallbackId);
+        else localStorage.removeItem(activeTreeStorageKey(user.id));
+      }
+      setMyRole(fallback?.role || (fallback?.isOwned ? "owner" : "viewer"));
+      return;
+    }
+
     setMyRole("viewer");
   }, [activeTreeId, treeList, user?.id, treesLoading]);
 
@@ -265,9 +297,12 @@ export function FamilyProvider({ children }) {
   const activeTree = useMemo(() => {
     const ownedTrees = treeList?.owned_trees || [];
     const sharedTrees = treeList?.shared_trees || [];
+    const allTrees = [...ownedTrees, ...sharedTrees];
+
     if (!activeTreeId) {
       return (
-        ownedTrees[0] || {
+        ownedTrees[0] ||
+        sharedTrees[0] || {
           id: user?.id || "default",
           name: `${user?.name || "My"}'s Family Tree`,
           owner_id: user?.id,
@@ -289,21 +324,13 @@ export function FamilyProvider({ children }) {
     if (sharedFound) {
       return {
         ...sharedFound,
-        isOwned: false,
-        role: sharedFound.role || myRole || "viewer",
+        isOwned: Boolean(sharedFound.isOwned),
+        role: sharedFound.role || (sharedFound.isOwned ? "owner" : myRole || "viewer"),
       };
     }
 
-    // Resilient fallback: activeTreeId is selected
-    const isActualOwner = activeTreeId === user?.id;
-    return {
-      id: activeTreeId,
-      name: isActualOwner ? `${user?.name || "My"}'s Family Tree` : "Family Tree",
-      owner_id: isActualOwner ? user?.id : null,
-      role: isActualOwner ? "owner" : (myRole || "viewer"),
-      isOwned: isActualOwner,
-      people_count: people?.length || 0,
-    };
+    // Never synthesize a phantom tree for deleted or nonexistent trees!
+    return ownedTrees[0] || sharedTrees[0] || null;
   }, [activeTreeId, treeList, myRole, user?.id, user?.name, people?.length]);
 
   // ── People for the active tree ─────────────────────────────────────────
@@ -436,9 +463,10 @@ export function FamilyProvider({ children }) {
       // (e.g. a new spouse links back to the existing partner), so
       // refresh the whole list rather than patching just the new node.
       await refresh();
+      await refreshTreeList();
       return created.id;
     },
-    [refresh, activeTreeId, people.length, setRootPersonId]
+    [refresh, refreshTreeList, activeTreeId, people.length, setRootPersonId]
   );
 
   const updatePerson = useCallback(
@@ -471,16 +499,18 @@ export function FamilyProvider({ children }) {
         activeTreeId || undefined
       );
       await refresh();
+      await refreshTreeList();
     },
-    [refresh, activeTreeId]
+    [refresh, refreshTreeList, activeTreeId]
   );
 
   const deletePerson = useCallback(
     async (id) => {
       await api.deletePerson(id);
       await refresh();
+      await refreshTreeList();
     },
-    [refresh]
+    [refresh, refreshTreeList]
   );
 
   const childrenOf = useCallback(
@@ -545,75 +575,82 @@ export function FamilyProvider({ children }) {
 
   const deleteTree = useCallback(
     async (treeId) => {
-      await api.deleteTree(treeId);
-      const updatedList = await refreshTreeList();
+      // 1. Immediately determine next active tree if deleting the currently selected tree
+      const remainingOwned = (treeList?.owned_trees || []).filter((t) => t.id !== treeId);
+      const remainingShared = (treeList?.shared_trees || []).filter((t) => t.id !== treeId);
+      const nextTree = remainingOwned[0] || remainingShared[0] || null;
+      const nextTreeId = nextTree ? nextTree.id : null;
+
       if (activeTreeId === treeId) {
-        const nextTree =
-          updatedList?.owned_trees?.find((t) => t.id !== treeId) || updatedList?.owned_trees?.[0];
-        setActiveTreeId(nextTree ? nextTree.id : null);
+        setActiveTreeIdState(nextTreeId);
+        if (user?.id) {
+          if (nextTreeId) localStorage.setItem(activeTreeStorageKey(user.id), nextTreeId);
+          else localStorage.removeItem(activeTreeStorageKey(user.id));
+        }
       }
+
+      // 2. Synchronously remove tree from state and localStorage to prevent any stale flash
+      const updatedList = {
+        owned_trees: remainingOwned,
+        shared_trees: remainingShared,
+      };
+      setTreeList(updatedList);
+      if (typeof window !== "undefined" && user?.id) {
+        try {
+          localStorage.setItem(treeListStorageKey(user.id), JSON.stringify(updatedList));
+          localStorage.removeItem(`rootline_people_${treeId}`);
+          localStorage.removeItem(`rootline_tree_${treeId}`);
+          localStorage.removeItem(`rootline_relationships_${treeId}`);
+        } catch (_) {}
+      }
+
+      // 3. Call backend API to permanently cascade-delete from DB/store
+      await api.deleteTree(treeId);
+
+      // 4. Refetch fresh list and people data
+      await refreshTreeList();
+      await refresh();
     },
-    [activeTreeId, refreshTreeList, setActiveTreeId]
+    [activeTreeId, treeList, user?.id, refreshTreeList, refresh]
   );
 
   const leaveSharedTree = useCallback(
     async (treeId) => {
-      await api.leaveSharedTree(treeId);
-      const updatedList = await refreshTreeList();
+      const remainingOwned = (treeList?.owned_trees || []).filter((t) => t.id !== treeId);
+      const remainingShared = (treeList?.shared_trees || []).filter((t) => t.id !== treeId);
+      const nextTree = remainingOwned[0] || remainingShared[0] || null;
+      const nextTreeId = nextTree ? nextTree.id : null;
+
       if (activeTreeId === treeId) {
-        const nextTree = updatedList?.owned_trees?.[0];
-        setActiveTreeId(nextTree ? nextTree.id : null);
+        setActiveTreeIdState(nextTreeId);
+        if (user?.id) {
+          if (nextTreeId) localStorage.setItem(activeTreeStorageKey(user.id), nextTreeId);
+          else localStorage.removeItem(activeTreeStorageKey(user.id));
+        }
       }
+
+      const updatedList = {
+        owned_trees: remainingOwned,
+        shared_trees: remainingShared,
+      };
+      setTreeList(updatedList);
+      if (typeof window !== "undefined" && user?.id) {
+        try {
+          localStorage.setItem(treeListStorageKey(user.id), JSON.stringify(updatedList));
+        } catch (_) {}
+      }
+
+      await api.leaveSharedTree(treeId);
+      await refreshTreeList();
+      await refresh();
     },
-    [activeTreeId, refreshTreeList, setActiveTreeId]
+    [activeTreeId, treeList, user?.id, refreshTreeList, refresh]
   );
 
-  // ── Unified Tree List guaranteed to include activeTree if loaded ────────
+  // ── Unified Tree List (strictly based on sanitized server state) ────────
   const unifiedTreeList = useMemo(() => {
-    const owned = [...(treeList?.owned_trees || [])].filter(
-      (t) => t && (t.owner_id === user?.id || t.id === user?.id)
-    );
-    const shared = [...(treeList?.shared_trees || [])].filter(
-      (t) => t && t.owner_id !== user?.id && t.id !== user?.id
-    );
-
-    if (activeTree && activeTree.id) {
-      const isActualOwner = activeTree.owner_id === user?.id || activeTree.id === user?.id;
-      if (isActualOwner) {
-        if (!owned.some((t) => t.id === activeTree.id)) {
-          owned.push({
-            id: activeTree.id,
-            name: activeTree.name || `${user?.name || "My"}'s Family Tree`,
-            role: "owner",
-            isOwned: true,
-            owner_id: user?.id,
-            people_count: activeTree.people_count ?? people?.length ?? 0,
-            created_at: activeTree.created_at || new Date().toISOString(),
-          });
-        }
-      } else {
-        if (!shared.some((t) => t.id === activeTree.id)) {
-          shared.push({
-            id: activeTree.id,
-            name: activeTree.name || "Family Tree",
-            owner_id: activeTree.owner_id,
-            owner_name: activeTree.owner_name || "Tree Owner",
-            owner_email: activeTree.owner_email || "",
-            role: activeTree.role || myRole || "viewer",
-            isOwned: false,
-            people_count: activeTree.people_count ?? people?.length ?? 0,
-            created_at: activeTree.created_at || new Date().toISOString(),
-          });
-        }
-      }
-    }
-
-    return {
-      ...treeList,
-      owned_trees: owned,
-      shared_trees: shared,
-    };
-  }, [treeList, activeTree, myRole, user?.id, user?.name, people?.length]);
+    return treeList;
+  }, [treeList]);
 
   return (
     <FamilyContext.Provider

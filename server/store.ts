@@ -1969,11 +1969,24 @@ export class MemoryStore {
       photo_url?: string | null;
       bio?: string | null;
     }
-  ): { family: Family; person: PersonOut } {
+  ): { family: Family; person?: PersonOut } {
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      throw new Error("Tree name is required.");
+    }
+
+    // Enforce unique tree name per user (user_id + tree_name)
+    const normalizedName = trimmedName.toLowerCase();
+    for (const f of this.families.values()) {
+      if (f.owner_id === user.id && f.name.trim().toLowerCase() === normalizedName) {
+        throw new Error(`You already have a family tree named "${trimmedName}". Please choose a different name.`);
+      }
+    }
+
     const family: Family = {
       id: crypto.randomUUID(),
       owner_id: user.id,
-      name: name.trim(),
+      name: trimmedName,
       created_at: new Date().toISOString(),
     };
     this.families.set(family.id, family);
@@ -1990,25 +2003,28 @@ export class MemoryStore {
     this.familyMembers.set(memberId, member);
     dbSaveFamilyMember(member).catch((e) => logger.error("dbSaveFamilyMember error:", e));
 
-    // Automatically create the first person as the owner in this newly created family tree
-    const personName = initialPerson?.name?.trim() || user.name || "Tree Starter";
-    const personGender = initialPerson?.gender && initialPerson.gender !== "unspecified" ? initialPerson.gender : null;
-    const personDob = initialPerson?.date_of_birth || user.dob || null;
-    const personPhoto = initialPerson?.photo_url || user.photo_url || null;
-    const personBio = initialPerson?.bio || "Tree Starter (Owner)";
+    let person: PersonOut | undefined = undefined;
+    // Starting person is optional: only create if a non-empty name is explicitly provided
+    if (initialPerson && initialPerson.name && initialPerson.name.trim()) {
+      const personName = initialPerson.name.trim();
+      const personGender = initialPerson.gender && initialPerson.gender !== "unspecified" ? initialPerson.gender : null;
+      const personDob = initialPerson.date_of_birth || null;
+      const personPhoto = initialPerson.photo_url || null;
+      const personBio = initialPerson.bio || "Tree Starter (Owner)";
 
-    const person = this.createPerson(
-      family.id,
-      {
-        name: personName,
-        gender: personGender,
-        date_of_birth: personDob,
-        photo_url: personPhoto,
-        bio: personBio,
-      },
-      undefined,
-      { id: user.id, name: user.name }
-    );
+      person = this.createPerson(
+        family.id,
+        {
+          name: personName,
+          gender: personGender,
+          date_of_birth: personDob,
+          photo_url: personPhoto,
+          bio: personBio,
+        },
+        undefined,
+        { id: user.id, name: user.name }
+      );
+    }
 
     this.logActivity({
       family_id: family.id,
@@ -2018,7 +2034,9 @@ export class MemoryStore {
       target_type: "family",
       target_id: family.id,
       target_name: family.name,
-      description: `${user.name} created family tree "${family.name}" with first person "${personName}"`,
+      description: person
+        ? `${user.name} created family tree "${family.name}" with starting person "${person.name}"`
+        : `${user.name} created family tree "${family.name}"`,
     });
 
     return { family, person };
@@ -2030,7 +2048,21 @@ export class MemoryStore {
     if (family.owner_id !== userId) {
       throw new Error("Only the tree owner can rename this family tree.");
     }
-    family.name = name.trim();
+
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      throw new Error("Tree name is required.");
+    }
+
+    // Enforce unique tree name per user (user_id + tree_name)
+    const normalizedName = trimmedName.toLowerCase();
+    for (const f of this.families.values()) {
+      if (f.owner_id === userId && f.id !== familyId && f.name.trim().toLowerCase() === normalizedName) {
+        throw new Error(`You already have a family tree named "${trimmedName}". Please choose a different name.`);
+      }
+    }
+
+    family.name = trimmedName;
     dbSaveFamily(family).catch((e) => logger.error("dbSaveFamily error:", e));
 
     this.logActivity({
@@ -2047,7 +2079,7 @@ export class MemoryStore {
     return family;
   }
 
-  deleteFamily(userId: string, familyId: string): boolean {
+  async deleteFamily(userId: string, familyId: string): Promise<boolean> {
     const family = this.families.get(familyId);
     if (!family) throw new Error("Family tree not found.");
     if (family.owner_id !== userId) {
@@ -2062,20 +2094,31 @@ export class MemoryStore {
       throw new Error("You cannot delete your only family tree.");
     }
 
+    // 1. Delete the family record
     this.families.delete(familyId);
 
+    // 2. Delete all family memberships
     for (const [key, m] of this.familyMembers.entries()) {
       if (m.family_id === familyId) {
         this.familyMembers.delete(key);
       }
     }
 
+    // 3. Delete all tree shares
     for (const [key, s] of this.treeShares.entries()) {
       if (s.family_id === familyId) {
         this.treeShares.delete(key);
       }
     }
 
+    // 4. Delete all invitations for this family
+    for (const [key, inv] of this.familyInvitations.entries()) {
+      if (inv.family_id === familyId) {
+        this.familyInvitations.delete(key);
+      }
+    }
+
+    // 5. Delete all people belonging to this family
     const personIdsToDelete: string[] = [];
     for (const p of this.people.values()) {
       if (p.owner_id === familyId) {
@@ -2086,6 +2129,7 @@ export class MemoryStore {
       this.people.delete(pid);
     }
 
+    // 6. Delete all family units and child associations
     const unitIdsToDelete: string[] = [];
     for (const u of this.familyUnits.values()) {
       if (u.owner_id === familyId) {
@@ -2101,7 +2145,23 @@ export class MemoryStore {
       }
     }
 
-    dbDeleteFamily(familyId).catch((e) => logger.error("dbDeleteFamily error:", e));
+    // 7. Delete all activity logs for this family
+    this.activityLogs = this.activityLogs.filter((log) => log.family_id !== familyId);
+
+    // 8. Delete all AI chat histories for this family
+    for (const key of Array.from(this.chatHistories.keys())) {
+      if (key.endsWith(`:${familyId}`)) {
+        this.chatHistories.delete(key);
+      }
+    }
+
+    // 9. Cascade delete from PostgreSQL database
+    try {
+      await dbDeleteFamily(familyId);
+    } catch (e) {
+      logger.error("dbDeleteFamily error:", e);
+    }
+
     return true;
   }
 
@@ -2801,7 +2861,7 @@ export class MemoryStore {
 
   getFamilyInvitations(userId: string, familyId: string): FamilyInvitation[] {
     const access = this.checkFamilyAccess(userId, familyId);
-    if (!access) {
+    if (!access || access.role !== "owner") {
       return [];
     }
 

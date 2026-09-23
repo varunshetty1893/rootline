@@ -48,55 +48,23 @@ export default function RootlineDashboard() {
 
   const sharedTrees = treeList?.shared_trees || [];
   const ownedTrees = useMemo(() => {
-    return (treeList?.owned_trees || []).filter((t) => {
-      if (!t || !t.id) return false;
-      if (t.role === "viewer" || t.role === "editor" || t.isOwned === false) return false;
-      if (t.owner_id && user?.id && t.owner_id !== user.id) return false;
-      return Boolean(user?.id && (t.owner_id === user.id || (t.id === user.id && (!t.owner_id || t.owner_id === user.id))));
-    });
-  }, [treeList?.owned_trees, user?.id]);
+    return treeList?.owned_trees || [];
+  }, [treeList?.owned_trees]);
 
   const allSharedTrees = useMemo(() => {
-    const fromShared = treeList?.shared_trees || [];
-    const misplaced = (treeList?.owned_trees || []).filter(
-      (t) => t && (t.role === "viewer" || t.role === "editor" || t.isOwned === false || (t.owner_id && user?.id && t.owner_id !== user.id))
-    );
-    const combined = [...fromShared, ...misplaced];
-    const seen = new Set();
-    return combined.filter((t) => {
-      if (!t || !t.id || seen.has(t.id)) return false;
-      seen.add(t.id);
-      return !user?.id || t.owner_id !== user.id;
-    });
-  }, [treeList, user?.id]);
+    return treeList?.shared_trees || [];
+  }, [treeList?.shared_trees]);
 
   // Unified list of all trees available to this user
   const allTrees = useMemo(() => {
-    const list = [
+    return [
       ...ownedTrees.map((t) => ({ ...t, role: "owner", isOwned: true, owner_id: user?.id || t.owner_id })),
       ...allSharedTrees.map((t) => ({
         ...t,
-        isOwned: false,
-        role: t.role && t.role !== "owner" ? t.role : "viewer",
+        role: t.role || (t.isOwned ? "owner" : "viewer"),
       })),
     ];
-    if (activeTree && !list.some((t) => t.id === activeTree.id)) {
-      const isExplicitCollaborator = activeTree.role === "viewer" || activeTree.role === "editor" || activeTree.isOwned === false;
-      const hasDifferentOwner = Boolean(activeTree.owner_id && user?.id && activeTree.owner_id !== user.id);
-      const isOwned = !isExplicitCollaborator && !hasDifferentOwner && Boolean(user?.id && (activeTree.id === user.id || activeTree.owner_id === user.id));
-
-      list.push({
-        id: activeTree.id,
-        name: activeTree.name || (isOwned ? `${user?.name || "My"}'s Family Tree` : "Family Tree"),
-        owner_id: isOwned ? user?.id : activeTree.owner_id,
-        owner_name: isOwned ? (user?.name || "You") : (activeTree.owner_name || "Tree Owner"),
-        role: isOwned ? "owner" : (activeTree.role || myRole || "viewer"),
-        isOwned,
-        people_count: activeTree.people_count ?? people?.length ?? 0,
-      });
-    }
-    return list;
-  }, [ownedTrees, allSharedTrees, activeTree, myRole, user?.id, user?.name, people?.length]);
+  }, [ownedTrees, allSharedTrees, user?.id]);
 
   // Calculate generational hierarchy safely
   const generationsCount = useMemo(() => {

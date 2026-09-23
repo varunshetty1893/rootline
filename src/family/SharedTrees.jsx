@@ -138,28 +138,12 @@ export default function SharedTrees() {
   const [leaveError, setLeaveError] = useState("");
 
   const ownedTrees = useMemo(() => {
-    return (treeList?.owned_trees || []).filter((t) => {
-      if (!t || !t.id) return false;
-      if (t.role === "viewer" || t.role === "editor" || t.isOwned === false) return false;
-      if (t.owner_id && user?.id && t.owner_id !== user.id) return false;
-      return Boolean(user?.id && (t.owner_id === user.id || (t.id === user.id && (!t.owner_id || t.owner_id === user.id))));
-    });
-  }, [treeList?.owned_trees, user?.id]);
+    return treeList?.owned_trees || [];
+  }, [treeList?.owned_trees]);
 
   const sharedTrees = useMemo(() => {
-    const fromShared = treeList?.shared_trees || [];
-    // Any tree that was mistakenly stored in owned_trees but is actually a shared tree
-    const misplaced = (treeList?.owned_trees || []).filter(
-      (t) => t && (t.role === "viewer" || t.role === "editor" || t.isOwned === false || (t.owner_id && user?.id && t.owner_id !== user.id))
-    );
-    const combined = [...fromShared, ...misplaced];
-    const seen = new Set();
-    return combined.filter((t) => {
-      if (!t || !t.id || seen.has(t.id)) return false;
-      seen.add(t.id);
-      return !user?.id || t.owner_id !== user.id;
-    });
-  }, [treeList, user?.id]);
+    return treeList?.shared_trees || [];
+  }, [treeList?.shared_trees]);
 
   const handleOpenTree = (treeId, destination = "/tree") => {
     setActiveTreeId(treeId);
@@ -168,28 +152,48 @@ export default function SharedTrees() {
 
   const handleCreateTreeSubmit = async (e) => {
     e.preventDefault();
-    if (!newTreeName.trim()) {
+    const trimmed = newTreeName.trim();
+    if (!trimmed) {
       setCreateError("Please provide a name for your family tree.");
       return;
     }
-    if (!firstPersonName.trim()) {
-      setCreateError("Every family tree requires at least one starting person. Please enter their name.");
+
+    // Tree names must be unique per user
+    const allUserTrees = [...ownedTrees, ...sharedTrees];
+    const duplicate = allUserTrees.some(
+      (t) => t.isOwned && t.name.trim().toLowerCase() === trimmed.toLowerCase()
+    );
+    if (duplicate) {
+      setCreateError(`You already have a family tree named "${trimmed}". Please choose a different name.`);
       return;
     }
+
     setCreateSubmitting(true);
     setCreateError("");
     try {
-      await createTree(newTreeName.trim(), {
-        name: firstPersonName.trim(),
-        gender: firstPersonGender,
-        dob: firstPersonDob,
-      });
+      const initialPersonPayload = firstPersonName.trim()
+        ? {
+            name: firstPersonName.trim(),
+            gender: firstPersonGender,
+            dob: firstPersonDob,
+          }
+        : undefined;
+
+      await createTree(trimmed, initialPersonPayload);
       setCreateModalOpen(false);
       setNewTreeName("");
       setFirstPersonName("");
       setFirstPersonGender("unspecified");
       setFirstPersonDob("");
-      navigate("/tree");
+
+      if (initialPersonPayload) {
+        // Person added -> tree is in My Trees tab
+        setActiveTab("owned");
+        navigate("/tree");
+      } else {
+        // Empty tree -> appears in Shared Trees tab until people added
+        setActiveTab("shared");
+      }
     } catch (err) {
       setCreateError(err.message || "Failed to create family tree.");
     } finally {
@@ -501,8 +505,9 @@ export default function SharedTrees() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 {sharedTrees.map((tree) => {
                   const isActive = activeTreeId === tree.id;
+                  const isStagedOwned = Boolean(tree.isOwned || tree.isNewlyCreatedPendingPeople || (tree.owner_id === user?.id && (tree.people_count ?? 0) === 0));
                   const isEditor = tree.role === "editor";
-                  const ownerInitial = (tree.owner_name?.[0] || tree.owner_email?.[0] || "O").toUpperCase();
+                  const ownerInitial = (tree.owner_name?.[0] || tree.owner_email?.[0] || user?.name?.[0] || "O").toUpperCase();
 
                   return (
                     <div
@@ -528,89 +533,126 @@ export default function SharedTrees() {
                               )}
                             </div>
                             <p className="text-xs text-[#6B7280] mt-0.5">
-                              {tree.people_count}{" "}
-                              {tree.people_count === 1 ? "family member" : "family members"}
+                              {tree.people_count ?? 0}{" "}
+                              {(tree.people_count ?? 0) === 1 ? "family member" : "family members"}
                             </p>
                           </div>
 
-                          <span
-                            className={`text-xs px-2.5 py-1 rounded-full font-semibold flex items-center gap-1.5 shrink-0 ${
-                              isEditor
-                                ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-                                : "bg-amber-50 text-amber-800 border border-amber-200"
-                            }`}
-                          >
-                            {isEditor ? (
-                              <>
-                                <Edit3 className="w-3 h-3" />
-                                <span>Editor Access</span>
-                              </>
-                            ) : (
-                              <>
-                                <Eye className="w-3 h-3" />
-                                <span>Viewer (Read-only)</span>
-                              </>
-                            )}
-                          </span>
+                          {isStagedOwned ? (
+                            <span className="text-xs px-2.5 py-1 rounded-full font-semibold flex items-center gap-1.5 shrink-0 bg-amber-50 text-amber-900 border border-amber-300">
+                              <Clock className="w-3 h-3" />
+                              <span>Staging (0 Members)</span>
+                            </span>
+                          ) : (
+                            <span
+                              className={`text-xs px-2.5 py-1 rounded-full font-semibold flex items-center gap-1.5 shrink-0 ${
+                                isEditor
+                                  ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
+                                  : "bg-amber-50 text-amber-800 border border-amber-200"
+                              }`}
+                            >
+                              {isEditor ? (
+                                <>
+                                  <Edit3 className="w-3 h-3" />
+                                  <span>Editor Access</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Eye className="w-3 h-3" />
+                                  <span>Viewer (Read-only)</span>
+                                </>
+                              )}
+                            </span>
+                          )}
                         </div>
 
-                        {/* Shared by info */}
-                        <div className="flex items-center gap-3 p-3 bg-[#FAF8F4] border border-[#E7E2D6] rounded-xl mb-4">
-                          <div className="w-9 h-9 rounded-full bg-[#1C4B3C] text-white flex items-center justify-center text-xs font-bold shadow-2xs shrink-0">
-                            {ownerInitial}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-[10px] font-semibold uppercase tracking-wide text-[#9CA3AF]">
-                              Shared by owner
+                        {/* Staged info OR Shared by info */}
+                        {isStagedOwned ? (
+                          <div className="p-3.5 bg-amber-50/70 border border-amber-200/80 rounded-xl mb-4 text-xs text-amber-900">
+                            <p className="font-semibold text-amber-950 flex items-center gap-1.5 mb-1">
+                              <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                              Newly Created Tree · Awaiting Family Members
                             </p>
-                            <p className="text-xs font-semibold text-[#1C1F1D] truncate">
-                              {tree.owner_name}
-                            </p>
-                            <p className="text-[11px] text-[#6B7280] truncate flex items-center gap-1 mt-0.5">
-                              <Mail className="w-3 h-3 text-[#9CA3AF] shrink-0" />
-                              {tree.owner_email}
+                            <p className="text-[11px] leading-relaxed text-amber-900/90">
+                              This tree remains in the Shared Trees tab until you add or associate people. Once you start adding people, it automatically moves to your <strong>My Family Trees</strong> tab.
                             </p>
                           </div>
-                        </div>
+                        ) : (
+                          <div className="flex items-center gap-3 p-3 bg-[#FAF8F4] border border-[#E7E2D6] rounded-xl mb-4">
+                            <div className="w-9 h-9 rounded-full bg-[#1C4B3C] text-white flex items-center justify-center text-xs font-bold shadow-2xs shrink-0">
+                              {ownerInitial}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-[#9CA3AF]">
+                                Shared by owner
+                              </p>
+                              <p className="text-xs font-semibold text-[#1C1F1D] truncate">
+                                {tree.owner_name}
+                              </p>
+                              <p className="text-[11px] text-[#6B7280] truncate flex items-center gap-1 mt-0.5">
+                                <Mail className="w-3 h-3 text-[#9CA3AF] shrink-0" />
+                                {tree.owner_email}
+                              </p>
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       {/* Card Action Buttons */}
                       <div className="pt-3 border-t border-[#E7E2D6] flex items-center justify-between gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setLeaveModalTree(tree);
-                            setLeaveError("");
-                          }}
-                          className="text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1"
-                        >
-                          <LogOut className="w-3.5 h-3.5" />
-                          <span>Leave Tree</span>
-                        </button>
+                        {isStagedOwned ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDeleteModalTree(tree);
+                              setDeleteError("");
+                            }}
+                            className="text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Delete</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setLeaveModalTree(tree);
+                              setLeaveError("");
+                            }}
+                            className="text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1"
+                          >
+                            <LogOut className="w-3.5 h-3.5" />
+                            <span>Leave Tree</span>
+                          </button>
+                        )}
 
                         <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setShareModalTree(tree)}
-                            className="text-xs font-medium text-[#1C4B3C] hover:text-[#163C30] bg-[#1C4B3C]/10 hover:bg-[#1C4B3C]/20 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1"
-                            title="View collaborators & access details"
-                          >
-                            <Users className="w-3.5 h-3.5" />
-                            <span>Collaborators</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenTree(tree.id, "/people")}
-                            className="text-xs font-medium text-[#374151] hover:text-[#1C1F1D] bg-[#F7F5F0] hover:bg-[#EAE6DD] px-3 py-1.5 rounded-lg transition-colors"
-                          >
-                            View People
-                          </button>
+                          {!isStagedOwned && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => setShareModalTree(tree)}
+                                className="text-xs font-medium text-[#1C4B3C] hover:text-[#163C30] bg-[#1C4B3C]/10 hover:bg-[#1C4B3C]/20 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1"
+                                title="View collaborators & access details"
+                              >
+                                <Users className="w-3.5 h-3.5" />
+                                <span>Collaborators</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenTree(tree.id, "/people")}
+                                className="text-xs font-medium text-[#374151] hover:text-[#1C1F1D] bg-[#F7F5F0] hover:bg-[#EAE6DD] px-3 py-1.5 rounded-lg transition-colors"
+                              >
+                                View People
+                              </button>
+                            </>
+                          )}
                           <button
                             type="button"
                             onClick={() => handleOpenTree(tree.id, "/tree")}
-                            className="text-xs font-semibold text-white bg-[#1C4B3C] hover:bg-[#163C30] px-3.5 py-1.5 rounded-lg shadow-2xs flex items-center gap-1 transition-colors"
+                            className="text-xs font-semibold text-white bg-[#1C4B3C] hover:bg-[#163C30] px-3.5 py-1.5 rounded-lg shadow-2xs flex items-center gap-1.5 transition-colors"
                           >
-                            <span>Open Tree</span>
+                            <span>{isStagedOwned ? "Add People & Move to My Trees" : "Open Tree"}</span>
                             <ChevronRight className="w-3.5 h-3.5" />
                           </button>
                         </div>
@@ -667,7 +709,26 @@ export default function SharedTrees() {
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div>
+                {sharedTrees.some((t) => t.isOwned || t.isNewlyCreatedPendingPeople) && (
+                  <div className="mb-5 p-3.5 bg-amber-50/80 border border-amber-200/90 rounded-xl flex items-center justify-between gap-3 text-xs text-amber-900">
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span>
+                        You have {sharedTrees.filter((t) => t.isOwned || t.isNewlyCreatedPendingPeople).length} newly created tree(s) in staging under the <strong>Shared With Me</strong> tab awaiting family members.
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("shared")}
+                      className="shrink-0 font-bold text-[#1C4B3C] hover:underline"
+                    >
+                      View in Shared Trees &rarr;
+                    </button>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 {ownedTrees.map((tree) => {
                   const isActive = activeTreeId === tree.id;
                   const canDelete = ownedTrees.length > 1;
@@ -775,6 +836,7 @@ export default function SharedTrees() {
                     </div>
                   );
                 })}
+                </div>
               </div>
             )}
           </div>
@@ -826,7 +888,7 @@ export default function SharedTrees() {
                 />
               </div>
 
-              {/* Mandatory First Person Section */}
+              {/* Starting Person Section */}
               <div className="rounded-xl border border-[#DCE3E1] bg-[#F7F9F7] p-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5">
@@ -834,8 +896,8 @@ export default function SharedTrees() {
                     <span className="text-xs font-bold text-[#1C4B3C]">
                       First Person (Tree Starter)
                     </span>
-                    <span className="text-[10px] bg-[#1C4B3C] text-white px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider">
-                      Required
+                    <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider border border-amber-200">
+                      Optional
                     </span>
                   </div>
                   {user?.name && (
@@ -853,16 +915,19 @@ export default function SharedTrees() {
                   )}
                 </div>
 
+                <p className="text-[11px] text-[#6B7280]">
+                  If you don't add someone now, this tree will appear in your <strong>Shared Trees</strong> tab until you add family members.
+                </p>
+
                 <div>
                   <label className="block text-xs font-medium text-[#374151] mb-1">
-                    Full Name <span className="text-red-500">*</span>
+                    Full Name <span className="text-[#9CA3AF] font-normal">(optional)</span>
                   </label>
                   <input
                     type="text"
                     value={firstPersonName}
                     onChange={(e) => setFirstPersonName(e.target.value)}
-                    placeholder="e.g. Julian Vance"
-                    required
+                    placeholder="e.g. Julian Vance (leave empty to add later)"
                     maxLength={120}
                     className="w-full text-sm rounded-xl border border-[#D9D3C3] px-3.5 py-2 bg-white text-[#1C1F1D] focus:outline-none focus:ring-2 focus:ring-[#1C4B3C]/30 focus:border-[#1C4B3C]"
                   />

@@ -58,10 +58,10 @@ describe("Shared Tree Ownership Isolation & Privacy Tests", () => {
     expect(family?.name).toBe("Apchus fam");
   });
 
-  it("collaborator cannot delete someone else's tree", () => {
-    expect(() => {
-      store.deleteFamily(collaborator.id, pachhuFamily.id);
-    }).toThrow(/Only the tree owner can delete/);
+  it("collaborator cannot delete someone else's tree", async () => {
+    await expect(
+      store.deleteFamily(collaborator.id, pachhuFamily.id)
+    ).rejects.toThrow(/Only the tree owner can delete/);
 
     const family = store.getFamily(pachhuFamily.id);
     expect(family).toBeDefined();
@@ -95,5 +95,95 @@ describe("Shared Tree Ownership Isolation & Privacy Tests", () => {
 
     const treesAfter = store.getUserTrees(collaborator.id);
     expect(treesAfter.shared.some((s) => s.family.id === pachhuFamily.id)).toBe(false);
+  });
+
+  it("enforces unique tree names per user, but allows different users to use the same name", () => {
+    // User A cannot create another tree with the same name (case-insensitive)
+    expect(() => {
+      store.createFamily(pachhu, "Apchus fam");
+    }).toThrow(/already have a family tree named/i);
+
+    expect(() => {
+      store.createFamily(pachhu, "apchus FAM");
+    }).toThrow(/already have a family tree named/i);
+
+    // User B (collaborator) CAN create a tree with the exact same name ("Apchus fam")
+    const userBResult = store.createFamily(collaborator, "Apchus fam");
+    expect(userBResult.family).toBeDefined();
+    expect(userBResult.family.owner_id).toBe(collaborator.id);
+    expect(userBResult.family.name).toBe("Apchus fam");
+
+    // Collaborator cannot create a second tree with that same name
+    expect(() => {
+      store.createFamily(collaborator, "Apchus fam");
+    }).toThrow(/already have a family tree named/i);
+  });
+
+  it("completely deletes a tree and all associated records from all data sources", async () => {
+    // Add people to pachhu's family
+    const person1 = store.createPerson(
+      pachhu.id,
+      { name: "Grandparent", gender: "male" },
+      { family_id: pachhuFamily.id }
+    );
+    const person2 = store.createPerson(
+      pachhu.id,
+      { name: "Child", gender: "female" },
+      { family_id: pachhuFamily.id }
+    );
+
+    expect(store.getPeopleForOwner(pachhu.id).length).toBe(2);
+    expect(store.getFamily(pachhuFamily.id)).toBeDefined();
+
+    // Delete the family tree
+    await store.deleteFamily(pachhu.id, pachhuFamily.id);
+
+    // Verify family is completely removed
+    expect(store.getFamily(pachhuFamily.id)).toBeFalsy();
+
+    // Verify people are completely deleted
+    expect(store.getPeopleForOwner(pachhu.id).length).toBe(0);
+    expect(store.people.has(person1.id)).toBe(false);
+    expect(store.people.has(person2.id)).toBe(false);
+
+    // Verify shares are wiped
+    const remainingShares = Array.from(store.treeShares.values()).filter(
+      (s) => s.family_id === pachhuFamily.id
+    );
+    expect(remainingShares.length).toBe(0);
+
+    // Verify it disappears from collaborator's shared trees list
+    const collaboratorTrees = store.getUserTrees(collaborator.id);
+    expect(collaboratorTrees.shared.some((s) => s.family.id === pachhuFamily.id)).toBe(false);
+
+    // Verify it disappears from owner's owned trees list
+    const ownerTrees = store.getUserTrees(pachhu.id);
+    expect(ownerTrees.ownedList.some((f) => f.id === pachhuFamily.id)).toBe(false);
+  });
+
+  it("isolates data: User B only sees the explicitly shared tree and cannot see User A's private trees or people", () => {
+    // Pachhu creates a private tree that is NOT shared
+    const privateResult = store.createFamily(pachhu, "Pachhu Secret Branch");
+    const privateFamily = privateResult.family;
+
+    store.createPerson(
+      pachhu.id,
+      { name: "Private Uncle", gender: "male" },
+      { family_id: privateFamily.id }
+    );
+
+    // Collaborator should only see pachhuFamily, never privateFamily
+    const trees = store.getUserTrees(collaborator.id);
+    const visibleFamilyIds = [
+      ...trees.ownedList.map((f) => f.id),
+      ...trees.shared.map((s) => s.family.id),
+    ];
+
+    expect(visibleFamilyIds).toContain(pachhuFamily.id);
+    expect(visibleFamilyIds).not.toContain(privateFamily.id);
+
+    // Collaborator cannot access people in pachhu's private family
+    const collaboratorFamilies = store.getUserFamilies(collaborator.id);
+    expect(collaboratorFamilies.some((f) => f.family.id === privateFamily.id)).toBe(false);
   });
 });

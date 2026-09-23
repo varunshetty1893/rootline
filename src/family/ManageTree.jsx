@@ -102,59 +102,26 @@ export default function ManageTree({ defaultTab = "people" }) {
   // ──────────────────────────────────────────────────────────────────────────
   const [treeCardFilter, setTreeCardFilter] = useState("all"); // 'all' | 'owned' | 'shared'
   const ownedTrees = useMemo(() => {
-    return (treeList?.owned_trees || []).filter((t) => {
-      if (!t || !t.id) return false;
-      if (t.role === "viewer" || t.role === "editor" || t.isOwned === false) return false;
-      if (t.owner_id && user?.id && t.owner_id !== user.id) return false;
-      return Boolean(user?.id && (t.owner_id === user.id || (t.id === user.id && (!t.owner_id || t.owner_id === user.id))));
-    });
-  }, [treeList?.owned_trees, user?.id]);
+    return treeList?.owned_trees || [];
+  }, [treeList?.owned_trees]);
 
   const sharedTrees = useMemo(() => {
-    const fromShared = treeList?.shared_trees || [];
-    const misplaced = (treeList?.owned_trees || []).filter(
-      (t) => t && (t.role === "viewer" || t.role === "editor" || t.isOwned === false || (t.owner_id && user?.id && t.owner_id !== user.id))
-    );
-    const combined = [...fromShared, ...misplaced];
-    const seen = new Set();
-    return combined.filter((t) => {
-      if (!t || !t.id || seen.has(t.id)) return false;
-      seen.add(t.id);
-      return !user?.id || t.owner_id !== user.id;
-    });
-  }, [treeList, user?.id]);
+    return treeList?.shared_trees || [];
+  }, [treeList?.shared_trees]);
 
   const allTrees = useMemo(() => {
-    const list = [
+    return [
       ...ownedTrees.map((t) => ({ ...t, role: "owner", isOwned: true, owner_id: user?.id || t.owner_id })),
       ...sharedTrees.map((t) => ({
         ...t,
-        isOwned: false,
-        role: t.role && t.role !== "owner" ? t.role : "viewer",
+        role: t.role || (t.isOwned ? "owner" : "viewer"),
       })),
     ];
-    // Resilient fallback: if an active tree is loaded but not yet present in list, include it
-    if (activeTreeId && !list.some((t) => t.id === activeTreeId)) {
-      const isExplicitCollaborator = activeTree?.role === "viewer" || activeTree?.role === "editor" || activeTree?.isOwned === false;
-      const hasDifferentOwner = Boolean(activeTree?.owner_id && user?.id && activeTree.owner_id !== user.id);
-      const isOwned = !isExplicitCollaborator && !hasDifferentOwner && Boolean(user?.id && (activeTreeId === user.id || activeTree?.owner_id === user.id));
-
-      list.push({
-        id: activeTreeId,
-        name: activeTree?.name || (isOwned ? `${user?.name || "My"}'s Family Tree` : "Family Tree"),
-        owner_id: isOwned ? user?.id : activeTree?.owner_id,
-        owner_name: isOwned ? (user?.name || "You") : (activeTree?.owner_name || "Tree Owner"),
-        role: isOwned ? "owner" : (activeTree?.role || myRole || "viewer"),
-        isOwned,
-        people_count: people?.length || 0,
-      });
-    }
-    return list;
-  }, [ownedTrees, sharedTrees, activeTreeId, activeTree, myRole, user?.id, user?.name, people?.length]);
+  }, [ownedTrees, sharedTrees, user?.id]);
 
   const filteredTreeCards = useMemo(() => {
-    if (treeCardFilter === "owned") return allTrees.filter((t) => t.isOwned);
-    if (treeCardFilter === "shared") return allTrees.filter((t) => !t.isOwned);
+    if (treeCardFilter === "owned") return allTrees.filter((t) => t.isOwned && (t.people_count || 0) > 0);
+    if (treeCardFilter === "shared") return allTrees.filter((t) => !t.isOwned || (t.people_count || 0) === 0);
     return allTrees;
   }, [allTrees, treeCardFilter]);
 
@@ -387,22 +354,33 @@ export default function ManageTree({ defaultTab = "people" }) {
 
   const handleCreateTreeSubmit = async (e) => {
     e.preventDefault();
-    if (!newTreeName.trim()) {
+    const trimmed = newTreeName.trim();
+    if (!trimmed) {
       setCreateError("Please enter a name for your family tree.");
       return;
     }
-    if (!firstPersonName.trim()) {
-      setCreateError("Every family tree requires at least one starting person. Please enter their name.");
+
+    // Check unique tree name per user (user_id + tree_name)
+    const duplicate = allTrees.some(
+      (t) => t.isOwned && t.name.trim().toLowerCase() === trimmed.toLowerCase()
+    );
+    if (duplicate) {
+      setCreateError(`You already have a family tree named "${trimmed}". Please choose a different name.`);
       return;
     }
+
     setCreateSubmitting(true);
     setCreateError("");
     try {
-      const result = await createTree(newTreeName.trim(), {
-        name: firstPersonName.trim(),
-        gender: firstPersonGender,
-        dob: firstPersonDob,
-      });
+      const initialPersonPayload = firstPersonName.trim()
+        ? {
+            name: firstPersonName.trim(),
+            gender: firstPersonGender,
+            dob: firstPersonDob,
+          }
+        : undefined;
+
+      const result = await createTree(trimmed, initialPersonPayload);
       setCreateModalOpen(false);
       setNewTreeName("");
       setFirstPersonName("");
@@ -411,7 +389,9 @@ export default function ManageTree({ defaultTab = "people" }) {
       if (result?.family?.id) {
         setActiveTreeId(result.family.id);
       }
-      navigate("/tree");
+      if (initialPersonPayload) {
+        navigate("/tree");
+      }
     } catch (err) {
       setCreateError(err.message || "Failed to create tree.");
     } finally {
@@ -1531,8 +1511,8 @@ export default function ManageTree({ defaultTab = "people" }) {
                     <span className="text-xs font-bold text-[#1C4B3C]">
                       First Person (Tree Starter)
                     </span>
-                    <span className="text-[10px] bg-[#1C4B3C] text-white px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider">
-                      Required
+                    <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider border border-amber-200">
+                      Optional
                     </span>
                   </div>
                   {user?.name && (
@@ -1550,16 +1530,19 @@ export default function ManageTree({ defaultTab = "people" }) {
                   )}
                 </div>
 
+                <p className="text-[11px] text-[#6B7280]">
+                  If you do not add someone now, this tree will appear in your <strong>Shared Trees</strong> tab until you add family members.
+                </p>
+
                 <div>
                   <label className="block text-xs font-medium text-[#374151] mb-1">
-                    Full Name <span className="text-red-500">*</span>
+                    Full Name <span className="text-[#9CA3AF] font-normal">(optional)</span>
                   </label>
                   <input
                     type="text"
                     value={firstPersonName}
                     onChange={(e) => setFirstPersonName(e.target.value)}
-                    placeholder="e.g. Julian Vance"
-                    required
+                    placeholder="e.g. Julian Vance (leave empty to add later)"
                     maxLength={120}
                     className="w-full text-sm rounded-xl border border-[#D9D3C3] px-3.5 py-2 bg-white text-[#1C1F1D] focus:outline-none focus:ring-2 focus:ring-[#1C4B3C]/30 focus:border-[#1C4B3C]"
                   />
