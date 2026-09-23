@@ -138,61 +138,16 @@ export default function SharedTrees() {
   const [leaveError, setLeaveError] = useState("");
 
   const sharedTrees = useMemo(() => {
-    const list = [...(treeList?.shared_trees || [])];
-    const ownedIds = new Set((treeList?.owned_trees || []).map((t) => t.id));
-    if (user?.id) ownedIds.add(user.id);
-
-    if (
-      activeTree &&
-      activeTree.owner_id !== user?.id &&
-      activeTree.id !== user?.id &&
-      !ownedIds.has(activeTree.id) &&
-      !activeTree.isOwned &&
-      myRole !== "owner" &&
-      !list.some((t) => t.id === activeTree.id)
-    ) {
-      list.push({
-        id: activeTree.id,
-        name: activeTree.name || "Family Tree",
-        owner_id: activeTree.owner_id,
-        owner_name: activeTree.owner_name || "Tree Owner",
-        owner_email: activeTree.owner_email || "",
-        role: myRole || activeTree.role || "viewer",
-        isOwned: false,
-        people_count: activeTree.people_count ?? people?.length ?? 0,
-        created_at: activeTree.created_at || new Date().toISOString(),
-      });
-    }
-
-    // Strict filter: Exclude any tree owned by the current user
-    return list.filter(
-      (t) =>
-        t &&
-        t.owner_id !== user?.id &&
-        t.id !== user?.id &&
-        !ownedIds.has(t.id)
+    return (treeList?.shared_trees || []).filter(
+      (t) => t && t.owner_id !== user?.id && t.id !== user?.id
     );
-  }, [treeList?.shared_trees, treeList?.owned_trees, activeTree, myRole, user?.id, people?.length]);
+  }, [treeList?.shared_trees, user?.id]);
 
   const ownedTrees = useMemo(() => {
-    const list = [...(treeList?.owned_trees || [])];
-    if (
-      activeTree &&
-      (activeTree.isOwned || myRole === "owner") &&
-      !list.some((t) => t.id === activeTree.id)
-    ) {
-      list.push({
-        id: activeTree.id,
-        name: activeTree.name || "My Family Tree",
-        owner_id: user?.id,
-        role: "owner",
-        isOwned: true,
-        people_count: activeTree.people_count ?? people?.length ?? 0,
-        created_at: activeTree.created_at || new Date().toISOString(),
-      });
-    }
-    return list;
-  }, [treeList?.owned_trees, activeTree, myRole, user?.id, people?.length]);
+    return (treeList?.owned_trees || []).filter(
+      (t) => t && (t.owner_id === user?.id || t.id === user?.id)
+    );
+  }, [treeList?.owned_trees, user?.id]);
 
   const handleOpenTree = (treeId, destination = "/tree") => {
     setActiveTreeId(treeId);
@@ -324,8 +279,17 @@ export default function SharedTrees() {
                 onClick={() => setShareModalTree(activeTree)}
                 className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white border border-[#E7E2D6] text-[#1C1F1D] text-xs font-semibold hover:bg-[#FAF8F4] shadow-2xs transition-colors"
               >
-                <Share2 className="w-4 h-4 text-[#1C4B3C]" />
-                <span>Share Current Tree</span>
+                {activeTree.owner_id === user?.id || activeTree.id === user?.id ? (
+                  <>
+                    <Share2 className="w-4 h-4 text-[#1C4B3C]" />
+                    <span>Share Active Tree</span>
+                  </>
+                ) : (
+                  <>
+                    <Users className="w-4 h-4 text-[#1C4B3C]" />
+                    <span>Tree Collaborators</span>
+                  </>
+                )}
               </button>
             )}
           </div>
@@ -613,6 +577,15 @@ export default function SharedTrees() {
                         </button>
 
                         <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setShareModalTree(tree)}
+                            className="text-xs font-medium text-[#1C4B3C] hover:text-[#163C30] bg-[#1C4B3C]/10 hover:bg-[#1C4B3C]/20 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1"
+                            title="View collaborators & access details"
+                          >
+                            <Users className="w-3.5 h-3.5" />
+                            <span>Collaborators</span>
+                          </button>
                           <button
                             type="button"
                             onClick={() => handleOpenTree(tree.id, "/people")}

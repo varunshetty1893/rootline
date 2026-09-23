@@ -116,12 +116,10 @@ export default function ManageTree({ defaultTab = "people" }) {
     ];
     // Resilient fallback: if an active tree is loaded but not yet present in list, include it
     if (activeTreeId && !list.some((t) => t.id === activeTreeId)) {
-      const isOwned =
-        activeTree?.isOwned ??
-        (activeTree?.owner_id === user?.id || activeTreeId === user?.id || myRole === "owner");
+      const isOwned = Boolean(activeTreeId === user?.id || (activeTree?.owner_id && activeTree.owner_id === user?.id));
       list.push({
         id: activeTreeId,
-        name: activeTree?.name || `${user?.name || "My"}'s Family Tree`,
+        name: activeTree?.name || (isOwned ? `${user?.name || "My"}'s Family Tree` : "Family Tree"),
         owner_id: isOwned ? user?.id : activeTree?.owner_id,
         owner_name: isOwned ? (user?.name || "You") : (activeTree?.owner_name || "Tree Owner"),
         role: isOwned ? "owner" : (myRole || "viewer"),
@@ -161,6 +159,11 @@ export default function ManageTree({ defaultTab = "people" }) {
   // Leave Shared Tree Modal State
   const [leaveModalTree, setLeaveModalTree] = useState(null);
   const [leaveSubmitting, setLeaveSubmitting] = useState(false);
+
+  // Revoke Collaborator Access Modal State
+  const [revokeConfirmShare, setRevokeConfirmShare] = useState(null);
+  const [revokeSubmitting, setRevokeSubmitting] = useState(false);
+  const [revokeError, setRevokeError] = useState("");
 
   // ──────────────────────────────────────────────────────────────────────────
   // Tab 1: People Management State
@@ -332,15 +335,24 @@ export default function ManageTree({ defaultTab = "people" }) {
     setRowState((prev) => ({ ...prev, [share.id]: { saving: false, error: "" } }));
   };
 
-  const handleRevokeShare = async (share) => {
-    if (!window.confirm(`Revoke access for ${share.user_email}?`)) return;
-    setRowState((prev) => ({ ...prev, [share.id]: { revoking: true, error: "" } }));
+  const handleRevokeShare = (share) => {
+    setRevokeConfirmShare(share);
+    setRevokeError("");
+  };
+
+  const handleConfirmRevokeSubmit = async () => {
+    if (!revokeConfirmShare) return;
+    setRevokeSubmitting(true);
+    setRevokeError("");
     try {
-      await api.removeShare(activeTreeId, share.id);
+      await api.removeShare(activeTreeId, revokeConfirmShare.id);
       await loadShares();
       await refreshTreeList();
+      setRevokeConfirmShare(null);
     } catch (err) {
-      setRowState((prev) => ({ ...prev, [share.id]: { revoking: false, error: err.message } }));
+      setRevokeError(err.message || "Failed to revoke collaborator access");
+    } finally {
+      setRevokeSubmitting(false);
     }
   };
 
@@ -1350,6 +1362,12 @@ export default function ManageTree({ defaultTab = "people" }) {
                         : "U"
                     ).toUpperCase();
 
+                    const isSelf = Boolean(
+                      user?.id &&
+                      (share.user_id === user.id ||
+                        (displayEmail && user.email && displayEmail.toLowerCase() === user.email.toLowerCase()))
+                    );
+
                     return (
                       <div
                         key={share.id}
@@ -1360,9 +1378,16 @@ export default function ManageTree({ defaultTab = "people" }) {
                             {initial}
                           </div>
                           <div>
-                            <p className="text-xs font-semibold text-[#1C1F1D]">
-                              {displayName}
-                            </p>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <p className="text-xs font-semibold text-[#1C1F1D]">
+                                {displayName}
+                              </p>
+                              {isSelf && (
+                                <span className="text-[10px] font-bold bg-[#1C4B3C]/10 text-[#1C4B3C] px-1.5 py-0.2 rounded-full">
+                                  You
+                                </span>
+                              )}
+                            </div>
                             {displayEmail && (
                               <p className="text-[11px] text-[#6B7280]">{displayEmail}</p>
                             )}
@@ -1387,16 +1412,28 @@ export default function ManageTree({ defaultTab = "people" }) {
                                 type="button"
                                 disabled={state.saving || state.revoking}
                                 onClick={() => handleRevokeShare(share)}
-                                className="text-xs text-rose-600 hover:text-rose-800 p-1.5 hover:bg-rose-50 rounded-lg transition-colors"
+                                className="text-xs text-rose-600 hover:text-rose-800 hover:bg-rose-50 px-2 py-1 rounded-lg transition-colors flex items-center gap-1"
                                 title="Revoke access"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
+                                <span>Revoke</span>
                               </button>
                             </>
                           ) : (
-                            <span className="text-[11px] font-medium text-[#4B5563] capitalize bg-gray-100 px-2 py-0.5 rounded-full">
-                              {share.permission}
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] font-medium text-[#4B5563] capitalize bg-gray-100 px-2 py-0.5 rounded-full">
+                                {share.permission}
+                              </span>
+                              {isSelf && (
+                                <button
+                                  type="button"
+                                  onClick={() => setLeaveModalTree(activeTree)}
+                                  className="text-[11px] font-medium text-rose-600 hover:text-rose-800 hover:underline ml-1"
+                                >
+                                  Leave Tree
+                                </button>
+                              )}
+                            </div>
                           )}
                         </div>
                       </div>

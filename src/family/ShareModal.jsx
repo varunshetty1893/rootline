@@ -12,6 +12,7 @@ import {
   X,
   UserPlus,
   Shield,
+  ShieldCheck,
   Eye,
   Pencil,
   Trash2,
@@ -24,6 +25,8 @@ import {
   CheckCircle2,
   AlertCircle,
   ExternalLink,
+  LogOut,
+  UserMinus,
 } from "lucide-react";
 import { api } from "../api.js";
 import { useAuth } from "../AuthContext.jsx";
@@ -45,7 +48,7 @@ function PermissionBadge({ role }) {
   if (isOwner)
     return (
       <span className={`${base} bg-[#1C4B3C]/10 text-[#1C4B3C]`}>
-        <Shield className="w-3 h-3" /> Owner
+        <ShieldCheck className="w-3 h-3" /> Owner
       </span>
     );
   if (role === "editor")
@@ -92,17 +95,28 @@ function InvitationStatusBadge({ status, isExpired }) {
 
 export default function ShareModal({ treeId, treeName, onClose }) {
   const { user } = useAuth();
-  const { treeList, canManage: contextCanManage, refreshTreeList } = useFamily();
+  const { treeList, refreshTreeList, leaveSharedTree, activeTreeId, setActiveTreeId } = useFamily();
   const [sharesData, setSharesData] = useState(null); // { owner, shares }
   const [invitations, setInvitations] = useState([]);
   const [loadError, setLoadError] = useState("");
 
-  // Determine permissions accurately for this specific tree
-  const isOwnerOfThisTree =
+  // Determine permissions strictly for this specific tree
+  const isOwnerOfThisTree = Boolean(
     (sharesData?.owner && user?.id && sharesData.owner.id === user.id) ||
-    treeList?.owned_trees?.some((t) => t.id === treeId);
-  const mySharedRole = treeList?.shared_trees?.find((t) => t.id === treeId)?.role;
-  const canManage = isOwnerOfThisTree || mySharedRole === "editor" || contextCanManage;
+    treeList?.owned_trees?.some((t) => t.id === treeId && (t.owner_id === user?.id || t.id === user?.id))
+  );
+  const mySharedTree = treeList?.shared_trees?.find((t) => t.id === treeId);
+  const mySharedRole = mySharedTree?.role || (isOwnerOfThisTree ? "owner" : "viewer");
+  const canManage = isOwnerOfThisTree;
+
+  // Revoke confirmation state
+  const [confirmRevokeId, setConfirmRevokeId] = useState(null);
+  const [revokeFeedback, setRevokeFeedback] = useState("");
+
+  // Leave tree state (for non-owner collaborators)
+  const [confirmLeave, setConfirmLeave] = useState(false);
+  const [leavingTree, setLeavingTree] = useState(false);
+  const [leaveError, setLeaveError] = useState("");
 
   // Invitation action states
   const [invitationActionId, setInvitationActionId] = useState(null);
@@ -240,13 +254,18 @@ export default function ShareModal({ treeId, treeName, onClose }) {
     setRowState((prev) => ({ ...prev, [share.id]: { saving: false, error: "" } }));
   };
 
-  const handleRevoke = async (share) => {
+  const handleConfirmRevoke = async (share) => {
     setRowState((prev) => ({
       ...prev,
       [share.id]: { saving: true, error: "" },
     }));
+    setRevokeFeedback("");
     try {
       await api.removeShare(treeId, share.id);
+      setConfirmRevokeId(null);
+      const name = share.user_name || share.name || share.user_email || "User";
+      setRevokeFeedback(`Successfully revoked access for ${name}.`);
+      setTimeout(() => setRevokeFeedback(""), 4000);
       await loadData();
       await refreshTreeList();
     } catch (err) {
@@ -259,6 +278,18 @@ export default function ShareModal({ treeId, treeName, onClose }) {
     setRowState((prev) => ({ ...prev, [share.id]: { saving: false, error: "" } }));
   };
 
+  const handleLeaveTree = async () => {
+    setLeavingTree(true);
+    setLeaveError("");
+    try {
+      await leaveSharedTree(treeId);
+      onClose();
+    } catch (err) {
+      setLeaveError(err.message || "Failed to leave tree");
+      setLeavingTree(false);
+    }
+  };
+
   return (
     /* Backdrop */
     <div
@@ -269,9 +300,26 @@ export default function ShareModal({ treeId, treeName, onClose }) {
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-[#E7E2D6] bg-[#FAF9F5]">
           <div>
-            <h2 className="text-base font-semibold text-[#1C1F1D]">Share "{treeName}"</h2>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-base font-semibold text-[#1C1F1D]">
+                {canManage ? `Share "${treeName}"` : `Collaborators of "${treeName}"`}
+              </h2>
+              {isOwnerOfThisTree ? (
+                <span className="text-[11px] font-bold bg-[#1C4B3C]/10 text-[#1C4B3C] px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <ShieldCheck className="w-3 h-3" />
+                  <span>Owner</span>
+                </span>
+              ) : (
+                <span className="text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full flex items-center gap-1 capitalize">
+                  <Eye className="w-3 h-3" />
+                  <span>{mySharedRole}</span>
+                </span>
+              )}
+            </div>
             <p className="text-xs text-[#6B7280] mt-0.5">
-              Invite collaborators, track who invited whom, and manage permissions.
+              {canManage
+                ? "Invite collaborators, manage access roles, and track invitation status."
+                : `Created by ${sharesData?.owner?.name || "Tree Owner"}. View tree members and your access.`}
             </p>
           </div>
           <button
@@ -284,7 +332,7 @@ export default function ShareModal({ treeId, treeName, onClose }) {
 
         <div className="px-6 py-5 space-y-6 overflow-y-auto flex-1">
           {/* ── Add user form (Owner only) ── */}
-          {canManage && (
+          {canManage ? (
             <form onSubmit={handleAdd} className="space-y-3 bg-[#FAF9F5] p-4 rounded-xl border border-[#E7E2D6]">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-semibold text-[#1C4B3C] uppercase tracking-wide flex items-center gap-1.5">
@@ -375,6 +423,58 @@ export default function ShareModal({ treeId, treeName, onClose }) {
                 </div>
               )}
             </form>
+          ) : (
+            <div className="bg-[#FAF9F5] p-4 rounded-xl border border-[#E7E2D6] space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-[#1C4B3C]" />
+                  <span className="text-xs font-semibold text-[#1C1F1D] uppercase tracking-wider">
+                    Shared Tree Access
+                  </span>
+                </div>
+                <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full capitalize bg-amber-50 text-amber-800 border border-amber-200/60">
+                  {mySharedRole}
+                </span>
+              </div>
+              <p className="text-xs text-[#4B5563] leading-relaxed">
+                This tree is owned and maintained by <strong>{sharesData?.owner?.name || "Tree Creator"}</strong>
+                {sharesData?.owner?.email ? ` (${sharesData.owner.email})` : ""}.
+              </p>
+              <div className="pt-2 border-t border-[#E7E2D6]/70 flex items-center justify-between text-xs text-[#6B7280]">
+                <span>Only the owner can invite new collaborators or change access roles.</span>
+                {!confirmLeave ? (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmLeave(true)}
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-2 py-1 rounded transition-colors"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Leave Tree</span>
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-rose-700 font-medium">Leave this tree?</span>
+                    <button
+                      type="button"
+                      disabled={leavingTree}
+                      onClick={handleLeaveTree}
+                      className="px-2 py-1 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded transition-colors"
+                    >
+                      {leavingTree ? "Leaving…" : "Yes, Leave"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={leavingTree}
+                      onClick={() => setConfirmLeave(false)}
+                      className="px-2 py-1 text-xs text-[#4B5563] hover:bg-gray-100 rounded"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </div>
+              {leaveError && <p className="text-xs text-rose-600 mt-1">{leaveError}</p>}
+            </div>
           )}
 
           {/* ── Active Members with Access ── */}
@@ -387,6 +487,13 @@ export default function ShareModal({ treeId, treeName, onClose }) {
                 {sharesData?.shares ? `${sharesData.shares.length + 1} member(s)` : ""}
               </span>
             </div>
+
+            {revokeFeedback && (
+              <div className="mb-2 p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-800 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{revokeFeedback}</span>
+              </div>
+            )}
 
             {loadError && (
               <p className="text-xs text-red-600 mb-2">{loadError}</p>
@@ -402,13 +509,20 @@ export default function ShareModal({ treeId, treeName, onClose }) {
                 <li className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl bg-[#F7F5F0] border border-[#E7E2D6]">
                   <div className="w-8 h-8 rounded-full bg-[#1C4B3C]/15 flex items-center justify-center shrink-0">
                     <span className="text-xs font-bold text-[#1C4B3C]">
-                      {sharesData.owner?.name?.[0]?.toUpperCase() || "?"}
+                      {sharesData.owner?.name?.[0]?.toUpperCase() || "O"}
                     </span>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-[#1C1F1D] truncate">
-                      {sharesData.owner?.name || "Owner"}
-                    </p>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <p className="text-sm font-semibold text-[#1C1F1D] truncate">
+                        {sharesData.owner?.name || "Tree Owner"}
+                      </p>
+                      {user?.id && sharesData.owner?.id === user.id && (
+                        <span className="text-[10px] font-bold bg-[#1C4B3C]/10 text-[#1C4B3C] px-1.5 py-0.2 rounded-full">
+                          You
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-[#6B7280] truncate">
                       {sharesData.owner?.email}
                     </p>
@@ -439,6 +553,8 @@ export default function ShareModal({ treeId, treeName, onClose }) {
                       : "?"
                   ).toUpperCase();
 
+                  const isSelf = user?.id && (share.user_id === user.id || (displayEmail && user.email && displayEmail.toLowerCase() === user.email.toLowerCase()));
+
                   return (
                     <li
                       key={share.id}
@@ -450,9 +566,16 @@ export default function ShareModal({ treeId, treeName, onClose }) {
                         </span>
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-[#1C1F1D] truncate">
-                          {displayName}
-                        </p>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className="text-sm font-semibold text-[#1C1F1D] truncate">
+                            {displayName}
+                          </p>
+                          {isSelf && (
+                            <span className="text-[10px] font-bold bg-[#1C4B3C]/10 text-[#1C4B3C] px-1.5 py-0.2 rounded-full">
+                              You
+                            </span>
+                          )}
+                        </div>
                         {displayEmail && (
                           <p className="text-xs text-[#6B7280] truncate">{displayEmail}</p>
                         )}
@@ -462,31 +585,62 @@ export default function ShareModal({ treeId, treeName, onClose }) {
                       </div>
 
                       {canManage ? (
-                        <div className="flex items-center gap-2 shrink-0">
-                          <select
-                            value={share.permission}
-                            disabled={rs.saving}
-                            onChange={(e) => handleChangePermission(share, e.target.value)}
-                            className="text-xs border border-[#E7E2D6] rounded-md px-2 py-1 bg-[#FAFAF8] focus:outline-none focus:ring-1 focus:ring-[#1C4B3C]/30 disabled:opacity-50"
-                          >
-                            <option value="viewer">Viewer</option>
-                            <option value="editor">Editor</option>
-                          </select>
-                          <button
-                            onClick={() => handleRevoke(share)}
-                            disabled={rs.saving}
-                            className="p-1 text-[#9CA3AF] hover:text-red-600 disabled:opacity-40 transition-colors"
-                            title="Remove access"
-                          >
-                            {rs.saving ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <Trash2 className="w-4 h-4" />
-                            )}
-                          </button>
-                        </div>
+                        confirmRevokeId === share.id ? (
+                          <div className="flex items-center gap-1.5 bg-rose-50 border border-rose-200 px-2 py-1 rounded-lg shrink-0">
+                            <span className="text-xs text-rose-700 font-medium">Revoke?</span>
+                            <button
+                              type="button"
+                              disabled={rs.saving}
+                              onClick={() => handleConfirmRevoke(share)}
+                              className="text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white px-2 py-0.5 rounded transition-colors"
+                            >
+                              {rs.saving ? <Loader2 className="w-3 h-3 animate-spin" /> : "Yes"}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={rs.saving}
+                              onClick={() => setConfirmRevokeId(null)}
+                              className="text-xs text-[#4B5563] hover:bg-black/5 px-1 py-0.5 rounded"
+                            >
+                              No
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 shrink-0">
+                            <select
+                              value={share.permission}
+                              disabled={rs.saving}
+                              onChange={(e) => handleChangePermission(share, e.target.value)}
+                              className="text-xs border border-[#E7E2D6] rounded-md px-2 py-1 bg-[#FAFAF8] focus:outline-none focus:ring-1 focus:ring-[#1C4B3C]/30 disabled:opacity-50"
+                            >
+                              <option value="viewer">Viewer</option>
+                              <option value="editor">Editor</option>
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmRevokeId(share.id)}
+                              disabled={rs.saving}
+                              className="inline-flex items-center gap-1 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-2 py-1 rounded transition-colors"
+                              title="Revoke access"
+                            >
+                              <UserMinus className="w-3.5 h-3.5" />
+                              <span>Revoke</span>
+                            </button>
+                          </div>
+                        )
                       ) : (
-                        <PermissionBadge role={share.permission} />
+                        <div className="flex items-center gap-2 shrink-0">
+                          <PermissionBadge role={share.permission} />
+                          {isSelf && !confirmLeave && (
+                            <button
+                              type="button"
+                              onClick={() => setConfirmLeave(true)}
+                              className="text-[11px] font-medium text-rose-600 hover:text-rose-800 hover:underline ml-1"
+                            >
+                              Leave
+                            </button>
+                          )}
+                        </div>
                       )}
                     </li>
                   );
@@ -495,8 +649,8 @@ export default function ShareModal({ treeId, treeName, onClose }) {
             )}
           </div>
 
-          {/* ── Invitations & Tracking ("Who Sent Whom") ── */}
-          {invitations.length > 0 && (
+          {/* ── Invitations & Tracking ("Who Sent Whom") - OWNER ONLY ── */}
+          {canManage && invitations.length > 0 && (
             <div className="pt-2 border-t border-[#E7E2D6]">
               <div className="flex items-center justify-between mb-2">
                 <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide flex items-center gap-1.5">
