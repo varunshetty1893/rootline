@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   Phone,
   MapPin,
   FileText,
@@ -38,7 +39,7 @@ const navLinkClass = ({ isActive }) =>
   }`;
 
 export default function AppHeader() {
-  const { user, logout, updateProfile } = useAuth();
+  const { user, logout, updateProfile, deleteAccount } = useAuth();
   const navigate = useNavigate();
   const {
     activeTree,
@@ -56,6 +57,12 @@ export default function AppHeader() {
   const [resetModalOpen, setResetModalOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
+  // Delete Account State
+  const [deleteAccountModalOpen, setDeleteAccountModalOpen] = useState(false);
+  const [deleteConfirmationText, setDeleteConfirmationText] = useState("");
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [deleteAccountError, setDeleteAccountError] = useState("");
+
   // Profile Edit State
   const [editingProfile, setEditingProfile] = useState(false);
   const [profileName, setProfileName] = useState("");
@@ -69,7 +76,11 @@ export default function AppHeader() {
   const [profileError, setProfileError] = useState("");
   const [profileSuccess, setProfileSuccess] = useState("");
 
-  // Password reset state
+  // Password reset OTP state
+  const [resetStep, setResetStep] = useState(1); // 1 = Send Code, 2 = Verify Code & Set Password, 3 = Success
+  const [resetOtp, setResetOtp] = useState("");
+  const [resetNewPassword, setResetNewPassword] = useState("");
+  const [resetConfirmPassword, setResetConfirmPassword] = useState("");
   const [resetSending, setResetSending] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
   const [resetError, setResetError] = useState("");
@@ -81,6 +92,26 @@ export default function AppHeader() {
     setProfileMenuOpen(false);
     await logout();
     navigate("/login");
+  };
+
+  const handleConfirmDeleteAccount = async () => {
+    if (deleteConfirmationText.trim().toUpperCase() !== "DELETE") {
+      setDeleteAccountError("Please type DELETE to confirm.");
+      return;
+    }
+    setDeletingAccount(true);
+    setDeleteAccountError("");
+    try {
+      await deleteAccount();
+      setDeleteAccountModalOpen(false);
+      navigate("/register", {
+        replace: true,
+        state: { message: "Your Rootline account and all associated family trees have been permanently deleted." },
+      });
+    } catch (err) {
+      setDeleteAccountError(err?.message || "Failed to delete account. Please try again.");
+      setDeletingAccount(false);
+    }
   };
 
   // Close menus when clicking outside
@@ -98,12 +129,41 @@ export default function AppHeader() {
     if (!user?.email) return;
     setResetSending(true);
     setResetError("");
-    setResetSuccess(false);
     try {
       await api.forgotPassword(user.email);
+      setResetStep(2);
+    } catch (err) {
+      setResetError(err.message || "Failed to send verification code.");
+    } finally {
+      setResetSending(false);
+    }
+  };
+
+  const handleVerifyOtpAndChangePassword = async (e) => {
+    if (e) e.preventDefault();
+    const cleanOtp = resetOtp.trim();
+    if (!cleanOtp || cleanOtp.length !== 6) {
+      setResetError("Please enter the 6-digit verification code sent to your email.");
+      return;
+    }
+    if (!resetNewPassword || resetNewPassword.length < 8) {
+      setResetError("New password must be at least 8 characters.");
+      return;
+    }
+    if (resetNewPassword !== resetConfirmPassword) {
+      setResetError("Passwords do not match.");
+      return;
+    }
+
+    setResetSending(true);
+    setResetError("");
+    try {
+      const verifyRes = await api.verifyOtp(user.email, cleanOtp);
+      await api.resetPassword(verifyRes.token, resetNewPassword);
+      setResetStep(3);
       setResetSuccess(true);
     } catch (err) {
-      setResetError(err.message || "Failed to initiate password reset.");
+      setResetError(err.message || "Failed to reset password. Please check your verification code.");
     } finally {
       setResetSending(false);
     }
@@ -343,6 +403,10 @@ export default function AppHeader() {
                     type="button"
                     onClick={() => {
                       setProfileMenuOpen(false);
+                      setResetStep(1);
+                      setResetOtp("");
+                      setResetNewPassword("");
+                      setResetConfirmPassword("");
                       setResetSuccess(false);
                       setResetError("");
                       setResetModalOpen(true);
@@ -367,14 +431,27 @@ export default function AppHeader() {
                   </button>
                 </div>
 
-                {/* Logout Option */}
-                <div className="py-1">
+                {/* Account Actions: Delete & Logout */}
+                <div className="py-1 border-t border-[#E7E2D6]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProfileMenuOpen(false);
+                      setDeleteConfirmationText("");
+                      setDeleteAccountError("");
+                      setDeleteAccountModalOpen(true);
+                    }}
+                    className="w-full text-left px-4 py-2 text-xs font-medium text-red-600 hover:bg-red-50 flex items-center gap-2.5 transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                    <span>Delete Account</span>
+                  </button>
                   <button
                     type="button"
                     onClick={handleLogout}
-                    className="w-full text-left px-4 py-2 text-xs font-medium text-red-600 hover:bg-red-50 flex items-center gap-2.5 transition-colors"
+                    className="w-full text-left px-4 py-2 text-xs font-medium text-[#4B5563] hover:bg-[#F7F5F0] hover:text-[#1C1F1D] flex items-center gap-2.5 transition-colors cursor-pointer"
                   >
-                    <LogOut className="w-3.5 h-3.5 text-red-500" />
+                    <LogOut className="w-3.5 h-3.5 text-[#6B7280]" />
                     <span>Log out</span>
                   </button>
                 </div>
@@ -799,17 +876,156 @@ export default function AppHeader() {
                   </div>
                 </div>
 
-                <div className="mt-6 pt-4 border-t border-[#E7E2D6] flex justify-end">
+                {/* Danger Zone: Delete Account */}
+                <div className="mt-6 pt-5 border-t border-red-100">
+                  <div className="p-4 bg-red-50/80 border border-red-200 rounded-2xl">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div>
+                        <h5 className="text-xs font-bold text-red-900 flex items-center gap-1.5">
+                          <AlertTriangle className="w-3.5 h-3.5 text-red-600 shrink-0" />
+                          <span>Danger Zone: Delete Account</span>
+                        </h5>
+                        <p className="text-[11px] text-red-700 mt-1 leading-relaxed">
+                          Permanently delete your account and all created family trees, people records, and collaboration shares.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setProfileModalOpen(false);
+                          setDeleteConfirmationText("");
+                          setDeleteAccountError("");
+                          setDeleteAccountModalOpen(true);
+                        }}
+                        className="shrink-0 px-3.5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-semibold shadow-2xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Delete Account</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-[#E7E2D6] flex justify-end">
                   <button
                     type="button"
                     onClick={() => setProfileModalOpen(false)}
-                    className="px-4 py-2 text-xs font-semibold text-[#374151] hover:text-[#1C1F1D] bg-[#F7F5F0] hover:bg-[#EDE8DE] rounded-xl transition-colors"
+                    className="px-4 py-2 text-xs font-semibold text-[#374151] hover:text-[#1C1F1D] bg-[#F7F5F0] hover:bg-[#EDE8DE] rounded-xl transition-colors cursor-pointer"
                   >
                     Close
                   </button>
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete Account Confirmation Modal ── */}
+      {deleteAccountModalOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in"
+          onClick={() => {
+            if (!deletingAccount) setDeleteAccountModalOpen(false);
+          }}
+        >
+          <div
+            className="bg-white border border-red-200 rounded-2xl w-full max-w-md p-6 shadow-2xl relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-red-100 mb-4">
+              <div className="flex items-center gap-2 text-red-600">
+                <span className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center text-red-600 shrink-0">
+                  <AlertTriangle className="w-4 h-4" />
+                </span>
+                <h3 className="text-base font-serif font-bold text-red-950">
+                  Delete Account & All Data
+                </h3>
+              </div>
+              <button
+                type="button"
+                disabled={deletingAccount}
+                onClick={() => setDeleteAccountModalOpen(false)}
+                className="p-1 rounded-lg text-[#9CA3AF] hover:text-[#1C1F1D] hover:bg-[#F7F5F0] transition-colors disabled:opacity-40 cursor-pointer"
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Warning Details */}
+            <div className="space-y-3 text-xs text-[#374151]">
+              <p className="font-semibold text-red-900 bg-red-50 p-3 rounded-xl border border-red-100 leading-relaxed">
+                This action is permanent and cannot be undone. Once confirmed, all your data will be immediately and irreversibly erased.
+              </p>
+
+              <div className="space-y-1.5 pl-1">
+                <p className="font-semibold text-[#1C1F1D]">The following will be completely deleted:</p>
+                <ul className="list-disc list-inside space-y-1 text-[#6B7280]">
+                  <li>All family trees created and owned by you</li>
+                  <li>All people, relationships, notes, and photos</li>
+                  <li>All active tree shares and pending invitations</li>
+                  <li>Your user credentials and profile information</li>
+                </ul>
+              </div>
+
+              {deleteAccountError && (
+                <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+                  <span>{deleteAccountError}</span>
+                </div>
+              )}
+
+              {/* Confirmation Input */}
+              <div className="pt-2">
+                <label className="block text-xs font-semibold text-[#374151] mb-1.5">
+                  To confirm, type <span className="font-mono font-bold text-red-600">DELETE</span> below:
+                </label>
+                <input
+                  type="text"
+                  value={deleteConfirmationText}
+                  onChange={(e) => {
+                    setDeleteConfirmationText(e.target.value);
+                    if (deleteAccountError) setDeleteAccountError("");
+                  }}
+                  disabled={deletingAccount}
+                  placeholder="DELETE"
+                  className="w-full text-xs font-mono rounded-xl border border-[#D9D3C3] bg-white px-3.5 py-2.5 text-[#1C1F1D] focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/20 disabled:bg-gray-50"
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="mt-6 pt-3 border-t border-[#E7E2D6] flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={deletingAccount}
+                onClick={() => setDeleteAccountModalOpen(false)}
+                className="rounded-xl px-4 py-2 text-xs font-semibold text-[#6B7280] hover:text-[#1C1F1D] hover:bg-[#F7F5F0] transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deleteConfirmationText.trim().toUpperCase() !== "DELETE" || deletingAccount}
+                onClick={handleConfirmDeleteAccount}
+                className="rounded-xl bg-red-600 hover:bg-red-700 px-4 py-2 text-xs font-semibold text-white shadow-2xs disabled:opacity-40 disabled:hover:bg-red-600 flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                {deletingAccount ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Deleting Account…</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Permanently Delete</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -839,28 +1055,106 @@ export default function AppHeader() {
               </button>
             </div>
 
-            {resetSuccess ? (
+            {resetStep === 3 || resetSuccess ? (
               <div className="text-center py-4">
                 <div className="w-12 h-12 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center mx-auto mb-3 text-emerald-600">
                   <CheckCircle2 className="w-6 h-6" />
                 </div>
-                <h4 className="text-sm font-bold text-[#1C1F1D] mb-1">Reset Link Dispatched</h4>
+                <h4 className="text-sm font-bold text-[#1C1F1D] mb-1">Password Changed Successfully</h4>
                 <p className="text-xs text-[#6B7280] leading-relaxed mb-6">
-                  We've sent password reset instructions to{" "}
-                  <strong className="text-[#1C1F1D]">{user?.email}</strong>. Please check your inbox or spam folder.
+                  Your password has been updated. You can now use your new password next time you sign in.
                 </p>
                 <button
                   type="button"
                   onClick={() => setResetModalOpen(false)}
                   className="px-5 py-2 text-xs font-semibold text-white bg-[#1C4B3C] hover:bg-[#163D31] rounded-xl transition-colors shadow-2xs"
                 >
-                  Got it
+                  Done
                 </button>
               </div>
+            ) : resetStep === 2 ? (
+              <form onSubmit={handleVerifyOtpAndChangePassword} className="space-y-3.5">
+                <div>
+                  <p className="text-xs text-[#374151] leading-relaxed mb-2">
+                    Enter the <strong>6-digit verification code</strong> sent to{" "}
+                    <span className="text-[#1C4B3C] font-semibold">{user?.email}</span>:
+                  </p>
+                  <input
+                    type="text"
+                    maxLength={6}
+                    placeholder="Enter 6-digit code (e.g. 123456)"
+                    value={resetOtp}
+                    onChange={(e) => setResetOtp(e.target.value.replace(/\D/g, ""))}
+                    className="w-full px-3.5 py-2 text-center tracking-widest text-lg font-mono rounded-xl border border-[#E7E2D6] focus:border-[#1C4B3C] focus:ring-1 focus:ring-[#1C4B3C] outline-none"
+                    autoFocus
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-[#374151] mb-1">
+                    New Password
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="At least 8 characters"
+                    value={resetNewPassword}
+                    onChange={(e) => setResetNewPassword(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-[#E7E2D6] focus:border-[#1C4B3C] focus:ring-1 focus:ring-[#1C4B3C] outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-[#374151] mb-1">
+                    Confirm New Password
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="Re-type new password"
+                    value={resetConfirmPassword}
+                    onChange={(e) => setResetConfirmPassword(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-[#E7E2D6] focus:border-[#1C4B3C] focus:ring-1 focus:ring-[#1C4B3C] outline-none"
+                  />
+                </div>
+
+                {resetError && (
+                  <div className="flex items-start gap-2 p-2.5 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>{resetError}</span>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between pt-2">
+                  <button
+                    type="button"
+                    disabled={resetSending}
+                    onClick={handleTriggerPasswordReset}
+                    className="text-xs text-[#1C4B3C] hover:underline font-medium disabled:opacity-50"
+                  >
+                    Resend Code
+                  </button>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setResetModalOpen(false)}
+                      className="px-3.5 py-1.5 text-xs font-medium text-[#6B7280] hover:text-[#1C1F1D]"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={resetSending}
+                      className="px-4 py-2 text-xs font-semibold text-white bg-[#1C4B3C] hover:bg-[#163D31] disabled:opacity-60 rounded-xl transition-colors shadow-2xs"
+                    >
+                      {resetSending ? "Verifying..." : "Update Password"}
+                    </button>
+                  </div>
+                </div>
+              </form>
             ) : (
               <div>
                 <p className="text-xs text-[#6B7280] leading-relaxed mb-4">
-                  Would you like to send a secure password reset link to your registered email address?
+                  Rootline verifies password changes using a 6-digit code (OTP) sent to your registered email address:
                 </p>
                 <div className="p-3 bg-[#FAF8F4] border border-[#E7E2D6] rounded-xl text-xs text-[#374151] mb-5 flex items-center gap-2">
                   <Mail className="w-4 h-4 text-[#1C4B3C] shrink-0" />
@@ -888,7 +1182,7 @@ export default function AppHeader() {
                     onClick={handleTriggerPasswordReset}
                     className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-[#1C4B3C] hover:bg-[#163D31] disabled:opacity-60 rounded-xl transition-colors shadow-2xs"
                   >
-                    {resetSending ? "Sending..." : "Send Reset Link"}
+                    {resetSending ? "Sending Code..." : "Send Verification Code (OTP)"}
                   </button>
                 </div>
               </div>

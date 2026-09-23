@@ -43,8 +43,27 @@ export function AuthProvider({ children }) {
     return updatedUser;
   };
 
+  const deleteAccount = async () => {
+    try {
+      await api.deleteAccount();
+    } finally {
+      try {
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("rootline_token");
+          for (let i = localStorage.length - 1; i >= 0; i--) {
+            const key = localStorage.key(i);
+            if (key && (key.startsWith("rootline") || key.includes(user?.id || ""))) {
+              localStorage.removeItem(key);
+            }
+          }
+        }
+      } catch (_) {}
+      setUser(null);
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, updateProfile }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, updateProfile, deleteAccount }}>
       {children}
     </AuthContext.Provider>
   );

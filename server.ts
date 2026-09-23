@@ -415,6 +415,25 @@ export async function createExpressApp() {
   app.patch("/auth/me", requireAuth, handleUpdateProfile);
   app.patch("/api/auth/me", requireAuth, handleUpdateProfile);
 
+  const handleDeleteMyAccount = async (req: AuthRequest, res: any) => {
+    try {
+      const user = req.user!;
+      await store.deleteUserAccount(user.id);
+      res.clearCookie(COOKIE_NAME, { path: "/" });
+      return res.json({
+        success: true,
+        message: "Your account and all associated family trees and data have been permanently deleted.",
+      });
+    } catch (err: any) {
+      logger.error("Failed to delete user account:", err);
+      return res.status(500).json({ detail: err.message || "Failed to delete account." });
+    }
+  };
+
+  app.delete("/auth/me", requireAuth, handleDeleteMyAccount);
+  app.delete("/api/auth/me", requireAuth, handleDeleteMyAccount);
+  app.delete("/api/users/me", requireAuth, handleDeleteMyAccount);
+
   function isEmailProviderConfigured(): boolean {
     if (process.env.RESEND_API_KEY?.trim()) return true;
     const user = process.env.SMTP_USERNAME?.trim();
@@ -538,29 +557,33 @@ export async function createExpressApp() {
     }
 
     const otpHtml = rawOtp
-      ? `<div style="margin: 24px 0; text-align: center;">
-          <p style="font-size: 14px; color: #4B5563; margin-bottom: 8px;">Your 6-Digit Verification Code:</p>
-          <div style="font-size: 32px; font-weight: 700; letter-spacing: 6px; color: #1C4B3C; background: #F3F4F6; padding: 14px 28px; display: inline-block; border-radius: 8px; font-family: monospace;">${rawOtp}</div>
-          <p style="font-size: 12px; color: #6B7280; margin-top: 8px;">This code will expire in 10 minutes.</p>
+      ? `<div style="margin: 28px 0; text-align: center;">
+          <p style="font-size: 14px; color: #4B5563; margin-bottom: 12px; font-weight: 500;">Your 6-Digit Password Reset Verification Code:</p>
+          <div style="font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #1C4B3C; background: #F4F6F4; padding: 18px 32px; display: inline-block; border-radius: 12px; font-family: monospace; border: 1px solid #D1DDD8;">${rawOtp}</div>
+          <p style="font-size: 13px; color: #6B7280; margin-top: 12px;">Enter this code on the verification screen in your browser to choose a new password.<br/><strong>This code will expire in 10 minutes.</strong></p>
         </div>`
       : "";
 
-    const otpText = rawOtp ? `Your 6-Digit Verification Code: ${rawOtp} (valid for 10 minutes)\n\n` : "";
+    const otpText = rawOtp ? `Your 6-Digit Password Reset Code: ${rawOtp}\n(Enter this code on the verification screen. Valid for 10 minutes)\n\n` : "";
 
     const fullHtml = `
-      <div style="font-family: sans-serif; max-width: 540px; margin: 0 auto; padding: 24px; border: 1px solid #E5E7EB; border-radius: 12px; background: #FFFFFF;">
-        <h2 style="color: #1C4B3C; margin-top: 0;">Reset Your Rootline Password</h2>
-        <p style="color: #374151; font-size: 15px; line-height: 1.6;">You requested a password reset for your Rootline account.</p>
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 32px; border: 1px solid #E5E7EB; border-radius: 16px; background: #FFFFFF;">
+        <h2 style="color: #1C4B3C; margin-top: 0; font-size: 22px;">Reset Your Rootline Password</h2>
+        <p style="color: #374151; font-size: 15px; line-height: 1.6;">We received a request to reset your Rootline password.</p>
         ${otpHtml}
-        <div style="margin: 24px 0; text-align: center;">
-          <a href="${resetUrl}" style="background-color: #1C4B3C; color: #FFFFFF; text-decoration: none; padding: 12px 28px; border-radius: 6px; font-size: 14px; font-weight: 600; display: inline-block;">Reset Password via Direct Link</a>
+        <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid #F3F4F6; text-align: center;">
+          <p style="color: #6B7280; font-size: 13px; line-height: 1.5; margin: 0 0 8px 0;">Alternatively, you can open the reset page directly:</p>
+          <a href="${resetUrl}" style="color: #1C4B3C; font-size: 13px; font-weight: 600; text-decoration: underline; word-break: break-all;">${resetUrl}</a>
         </div>
-        <p style="color: #6B7280; font-size: 12px; line-height: 1.5;">Or copy and paste this link into your browser:<br/><a href="${resetUrl}" style="color: #1C4B3C; word-break: break-all;">${resetUrl}</a></p>
-        <p style="color: #9CA3AF; font-size: 12px; margin-top: 24px; border-top: 1px solid #E5E7EB; padding-top: 16px;">If you did not request this password reset, please disregard this email.</p>
+        <p style="color: #9CA3AF; font-size: 12px; margin-top: 24px; border-top: 1px solid #E5E7EB; padding-top: 16px; text-align: center;">If you did not request a password reset, you can safely ignore this email.</p>
       </div>
     `;
 
-    const fullText = `You requested a password reset for your Rootline account.\n\n${otpText}Or reset directly using this link:\n${resetUrl}\n\nIf you did not request this, please disregard this email.`;
+    const fullText = `Reset Your Rootline Password\n\n${otpText}Alternatively, you can open the reset page directly:\n${resetUrl}\n\nIf you did not request this, please disregard this email.`;
+
+    const subject = rawOtp
+      ? `Your Rootline verification code: ${rawOtp}`
+      : "Your Rootline Password Reset Code";
 
     if (process.env.RESEND_API_KEY) {
       const from = getEmailSenderAddress("resend");
@@ -575,7 +598,7 @@ export async function createExpressApp() {
           from,
           to: [toEmail],
           reply_to: replyTo,
-          subject: "Your Rootline Password Reset Code",
+          subject,
           html: fullHtml,
           text: fullText,
         }),
@@ -591,7 +614,7 @@ export async function createExpressApp() {
     await sendSmtpEmail({
       from,
       to: toEmail,
-      subject: "Your Rootline Password Reset Code",
+      subject,
       text: fullText,
       html: fullHtml,
     });
@@ -1012,9 +1035,30 @@ export async function createExpressApp() {
   });
 
   function getOAuthRedirectUri(req: Request): string {
-    if (process.env.GOOGLE_REDIRECT_URI) return process.env.GOOGLE_REDIRECT_URI;
-    const proto = (req.headers["x-forwarded-proto"] as string) || (process.env.VERCEL ? "https" : req.protocol) || "https";
-    const host = (req.headers["x-forwarded-host"] as string) || req.get("host") || "localhost:3000";
+    if (process.env.GOOGLE_REDIRECT_URI) {
+      return process.env.GOOGLE_REDIRECT_URI.trim();
+    }
+
+    // Always enforce HTTPS in production and Vercel environments
+    let rawProto = (req.headers["x-forwarded-proto"] as string) || req.protocol || "https";
+    if (rawProto.includes(",")) {
+      rawProto = rawProto.split(",")[0].trim();
+    }
+    const proto = Boolean(process.env.VERCEL) || IS_PROD ? "https" : rawProto;
+
+    // Safely parse host header (handle multi-proxy comma-separated values and strip default ports)
+    let rawHost =
+      (req.headers["x-forwarded-host"] as string) ||
+      req.get("host") ||
+      (process.env.VERCEL_PROJECT_PRODUCTION_URL ? process.env.VERCEL_PROJECT_PRODUCTION_URL : null) ||
+      process.env.VERCEL_URL ||
+      "localhost:3000";
+
+    if (rawHost.includes(",")) {
+      rawHost = rawHost.split(",")[0].trim();
+    }
+    const host = rawHost.replace(/:(80|443)$/, "");
+
     return `${proto}://${host}/auth/google/callback`;
   }
 
@@ -1605,7 +1649,7 @@ export async function createExpressApp() {
       // Check if user already exists
       const existingUser = store.findUserByEmail(email.trim().toLowerCase());
       if (existingUser) {
-        const result = store.createOrUpdateTreeShare({
+        const result = await store.createOrUpdateTreeShare({
           ownerId: req.user!.id,
           familyId,
           email: email.trim().toLowerCase(),
@@ -1613,7 +1657,7 @@ export async function createExpressApp() {
         });
 
         // Also create/update an invitation record so history and notifications track "who sent whom"
-        const inviteResult = store.createFamilyInvitation({
+        const inviteResult = await store.createFamilyInvitation({
           ownerId: req.user!.id,
           familyId,
           inviteeEmail: email.trim().toLowerCase(),
@@ -1645,7 +1689,7 @@ export async function createExpressApp() {
       }
 
       // Recipient does not have an account yet: create invitation and send email!
-      const inviteResult = store.createFamilyInvitation({
+      const inviteResult = await store.createFamilyInvitation({
         ownerId: req.user!.id,
         familyId,
         inviteeEmail: email.trim().toLowerCase(),
@@ -1703,7 +1747,7 @@ export async function createExpressApp() {
         return res.status(404).json({ detail: "Family tree not found." });
       }
 
-      const inviteResult = store.createFamilyInvitation({
+      const inviteResult = await store.createFamilyInvitation({
         ownerId: req.user!.id,
         familyId,
         inviteeEmail: email.trim().toLowerCase(),
@@ -1758,12 +1802,18 @@ export async function createExpressApp() {
   app.get("/api/families/:id/invitations", requireAuth, handleGetInvitations);
   app.get("/families/:id/invitations", requireAuth, handleGetInvitations);
 
-  const handleCancelInvitation = (req: AuthRequest, res: any) => {
+  const handleCancelInvitation = async (req: AuthRequest, res: any) => {
     try {
       const rawInvitationId = req.params.invitationId;
       const invitationId = Array.isArray(rawInvitationId) ? rawInvitationId[0] : rawInvitationId;
+      const isDelete = req.query.action === "delete" || req.query.delete === "true" || req.query.permanent === "true";
 
-      store.cancelFamilyInvitation(req.user!.id, invitationId);
+      if (isDelete) {
+        await store.deleteFamilyInvitation(req.user!.id, invitationId);
+        return res.json({ message: "Invitation deleted successfully." });
+      }
+
+      await store.cancelFamilyInvitation(req.user!.id, invitationId);
       return res.json({ message: "Invitation cancelled successfully." });
     } catch (err: any) {
       const status = err.message.includes("owner") ? 403 : err.message.includes("not found") ? 404 : 400;
@@ -1807,14 +1857,14 @@ export async function createExpressApp() {
     }
   });
 
-  app.post(["/api/invitations/accept", "/invitations/accept"], requireAuth, (req: AuthRequest, res: any) => {
+  app.post(["/api/invitations/accept", "/invitations/accept"], requireAuth, async (req: AuthRequest, res: any) => {
     try {
       const { token } = isRecord(req.body) ? req.body : {};
       if (!token || typeof token !== "string") {
         return res.status(400).json({ detail: "Invitation token is required." });
       }
 
-      const result = store.acceptFamilyInvitation(token, req.user!);
+      const result = await store.acceptFamilyInvitation(token, req.user!);
       return res.json({
         message: `Welcome to ${result.family.name}! You are now a ${result.share.permission}.`,
         family: result.family,
@@ -1826,7 +1876,7 @@ export async function createExpressApp() {
     }
   });
 
-  app.post(["/api/invitations/decline", "/invitations/decline"], (req: Request, res: any) => {
+  app.post(["/api/invitations/decline", "/invitations/decline"], async (req: Request, res: any) => {
     try {
       const { token } = isRecord(req.body) ? req.body : {};
       if (!token || typeof token !== "string") {
@@ -1834,16 +1884,16 @@ export async function createExpressApp() {
       }
 
       const user = (req as any).user;
-      const result = store.declineFamilyInvitation(token, user?.id);
+      const result = await store.declineFamilyInvitation(token, user?.id);
       return res.json({ message: "Invitation declined successfully.", invitation: result.invitation });
     } catch (err: any) {
       return res.status(400).json({ detail: err.message || "Failed to decline invitation." });
     }
   });
 
-  app.get(["/api/invitations/my-pending", "/invitations/my-pending"], requireAuth, (req: AuthRequest, res: any) => {
+  app.get(["/api/invitations/my-pending", "/invitations/my-pending"], requireAuth, async (req: AuthRequest, res: any) => {
     try {
-      const invitations = store.getMyPendingInvitations(req.user!.email);
+      const invitations = await store.getMyPendingInvitations(req.user!.email, req.user!.id);
       return res.json({ invitations });
     } catch (err: any) {
       return res.status(500).json({ detail: err.message || "Failed to get pending invitations." });

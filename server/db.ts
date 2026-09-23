@@ -585,6 +585,7 @@ export async function dbDeleteFamily(familyId: string): Promise<void> {
   if (!pool || !isPostgresActive) return;
   try {
     await pool.query("DELETE FROM tree_shares WHERE family_id = $1", [familyId]);
+    await pool.query("DELETE FROM family_invitations WHERE family_id = $1", [familyId]);
     await pool.query("DELETE FROM family_members WHERE family_id = $1", [familyId]);
     await pool.query("DELETE FROM activity_logs WHERE family_id = $1", [familyId]);
     await pool.query("DELETE FROM chat_messages WHERE family_id = $1", [familyId]);
@@ -600,27 +601,111 @@ export async function dbDeleteFamily(familyId: string): Promise<void> {
   }
 }
 
-export async function dbSaveFamilyMember(member: FamilyMember): Promise<void> {
+export async function dbDeleteUserAccount(userId: string, userEmail: string): Promise<void> {
   if (!pool || !isPostgresActive) return;
+  const normalizedEmail = userEmail.toLowerCase().trim();
   try {
+    // 1. Delete all data belonging to families owned by this user
     await pool.query(
-      `INSERT INTO family_members (id, family_id, user_id, role, joined_at)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (family_id, user_id) DO UPDATE SET role = EXCLUDED.role`,
-      [member.id, member.family_id, member.user_id, member.role, member.joined_at]
+      `DELETE FROM activity_logs 
+       WHERE family_id IN (SELECT id FROM families WHERE owner_id = $1) 
+          OR actor_id = $1`,
+      [userId]
     );
+    await pool.query(
+      `DELETE FROM chat_messages 
+       WHERE family_id IN (SELECT id FROM families WHERE owner_id = $1) 
+          OR user_id = $1`,
+      [userId]
+    );
+    await pool.query(
+      `DELETE FROM family_invitations 
+       WHERE family_id IN (SELECT id FROM families WHERE owner_id = $1) 
+          OR inviter_id = $1 
+          OR LOWER(invitee_email) = $2 
+          OR accepted_by_user_id = $1`,
+      [userId, normalizedEmail]
+    );
+    await pool.query(
+      `DELETE FROM tree_shares 
+       WHERE family_id IN (SELECT id FROM families WHERE owner_id = $1) 
+          OR owner_id = $1 
+          OR user_id = $1`,
+      [userId]
+    );
+    await pool.query(
+      `DELETE FROM family_members 
+       WHERE family_id IN (SELECT id FROM families WHERE owner_id = $1) 
+          OR user_id = $1`,
+      [userId]
+    );
+    await pool.query(
+      `DELETE FROM family_children 
+       WHERE family_unit_id IN (
+         SELECT id FROM family_units 
+         WHERE owner_id IN (SELECT id FROM families WHERE owner_id = $1) 
+            OR owner_id = $1
+       )`,
+      [userId]
+    );
+    await pool.query(
+      `DELETE FROM family_units 
+       WHERE owner_id IN (SELECT id FROM families WHERE owner_id = $1) 
+          OR owner_id = $1`,
+      [userId]
+    );
+    await pool.query(
+      `DELETE FROM people 
+       WHERE owner_id IN (SELECT id FROM families WHERE owner_id = $1) 
+          OR owner_id = $1`,
+      [userId]
+    );
+    await pool.query(`DELETE FROM families WHERE owner_id = $1`, [userId]);
+
+    // 2. Delete user authentication and token records
+    await pool.query(`DELETE FROM password_reset_tokens WHERE user_id = $1`, [userId]);
+    await pool.query(`DELETE FROM password_reset_otps WHERE user_id = $1 OR LOWER(email) = $2`, [userId, normalizedEmail]);
+
+    // 3. Delete user account
+    await pool.query(`DELETE FROM users WHERE id = $1`, [userId]);
+    logger.info(`[DB] Successfully purged all tree data and user account for ${userId} (${normalizedEmail})`);
   } catch (err) {
-    logger.error("dbSaveFamilyMember error:", err);
+    logger.error("dbDeleteUserAccount error:", err);
+    throw err;
   }
 }
 
-export async function dbDeleteFamilyMember(familyId: string, userId: string): Promise<void> {
-  if (!pool || !isPostgresActive) return;
-  try {
-    await pool.query("DELETE FROM family_members WHERE family_id = $1 AND user_id = $2", [familyId, userId]);
-  } catch (err) {
-    logger.error("dbDeleteFamilyMember error:", err);
+export async function dbSaveFamilyMember(member: FamilyMember): Promise<void> {
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+  if (!databaseUrl) return;
+
+  if (!pool || !isPostgresActive) {
+    const connected = await initDatabase();
+    if (!connected || !pool) {
+      throw new Error("PostgreSQL database is configured but unavailable to save family member.");
+    }
   }
+
+  await executeQuery(
+    `INSERT INTO family_members (id, family_id, user_id, role, joined_at)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (family_id, user_id) DO UPDATE SET role = EXCLUDED.role`,
+    [member.id, member.family_id, member.user_id, member.role, member.joined_at]
+  );
+}
+
+export async function dbDeleteFamilyMember(familyId: string, userId: string): Promise<void> {
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+  if (!databaseUrl) return;
+
+  if (!pool || !isPostgresActive) {
+    const connected = await initDatabase();
+    if (!connected || !pool) {
+      throw new Error("PostgreSQL database is configured but unavailable to delete family member.");
+    }
+  }
+
+  await executeQuery("DELETE FROM family_members WHERE family_id = $1 AND user_id = $2", [familyId, userId]);
 }
 
 export async function dbSavePerson(person: Person): Promise<void> {
@@ -720,28 +805,38 @@ export async function dbDeleteFamilyChild(childId: string): Promise<void> {
 }
 
 export async function dbSaveTreeShare(share: TreeShare): Promise<void> {
-  if (!pool || !isPostgresActive) return;
-  try {
-    await pool.query(
-      `INSERT INTO tree_shares (id, family_id, owner_id, user_id, permission, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       ON CONFLICT (id) DO UPDATE SET
-         permission = EXCLUDED.permission,
-         updated_at = EXCLUDED.updated_at`,
-      [share.id, share.family_id, share.owner_id, share.user_id, share.permission, share.created_at, share.updated_at]
-    );
-  } catch (err) {
-    logger.error("dbSaveTreeShare error:", err);
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+  if (!databaseUrl) return;
+
+  if (!pool || !isPostgresActive) {
+    const connected = await initDatabase();
+    if (!connected || !pool) {
+      throw new Error("PostgreSQL database is configured but unavailable to persist tree share.");
+    }
   }
+
+  await executeQuery(
+    `INSERT INTO tree_shares (id, family_id, owner_id, user_id, permission, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (family_id, user_id) DO UPDATE SET
+       permission = EXCLUDED.permission,
+       updated_at = EXCLUDED.updated_at`,
+    [share.id, share.family_id, share.owner_id, share.user_id, share.permission, share.created_at, share.updated_at]
+  );
 }
 
 export async function dbDeleteTreeShare(shareId: string): Promise<void> {
-  if (!pool || !isPostgresActive) return;
-  try {
-    await pool.query(`DELETE FROM tree_shares WHERE id = $1`, [shareId]);
-  } catch (err) {
-    logger.error("dbDeleteTreeShare error:", err);
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+  if (!databaseUrl) return;
+
+  if (!pool || !isPostgresActive) {
+    const connected = await initDatabase();
+    if (!connected || !pool) {
+      throw new Error("PostgreSQL database is configured but unavailable to delete tree share.");
+    }
   }
+
+  await executeQuery(`DELETE FROM tree_shares WHERE id = $1`, [shareId]);
 }
 
 export async function dbSaveActivityLog(log: ActivityLog): Promise<void> {
@@ -796,47 +891,58 @@ export async function dbSaveChatMessage(msg: ChatMessage): Promise<void> {
 }
 
 export async function dbSaveInvitation(invitation: FamilyInvitation): Promise<void> {
-  if (!pool || !isPostgresActive) return;
-  try {
-    await pool.query(
-      `INSERT INTO family_invitations (id, family_id, family_name, inviter_id, inviter_name, inviter_email, invitee_email, permission, token, status, message, created_at, expires_at, accepted_at, accepted_by_user_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-       ON CONFLICT (id) DO UPDATE SET
-         status = EXCLUDED.status,
-         permission = EXCLUDED.permission,
-         expires_at = EXCLUDED.expires_at,
-         accepted_at = EXCLUDED.accepted_at,
-         accepted_by_user_id = EXCLUDED.accepted_by_user_id`,
-      [
-        invitation.id,
-        invitation.family_id,
-        invitation.family_name,
-        invitation.inviter_id,
-        invitation.inviter_name,
-        invitation.inviter_email,
-        invitation.invitee_email,
-        invitation.permission,
-        invitation.token,
-        invitation.status,
-        invitation.message || null,
-        invitation.created_at,
-        invitation.expires_at,
-        invitation.accepted_at || null,
-        invitation.accepted_by_user_id || null,
-      ]
-    );
-  } catch (err) {
-    logger.error("dbSaveInvitation error:", err);
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+  if (!databaseUrl) return;
+
+  if (!pool || !isPostgresActive) {
+    const connected = await initDatabase();
+    if (!connected || !pool) {
+      throw new Error("PostgreSQL database is configured but unavailable to persist invitation.");
+    }
   }
+
+  await executeQuery(
+    `INSERT INTO family_invitations (id, family_id, family_name, inviter_id, inviter_name, inviter_email, invitee_email, permission, token, status, message, created_at, expires_at, accepted_at, accepted_by_user_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+     ON CONFLICT (id) DO UPDATE SET
+       status = EXCLUDED.status,
+       permission = EXCLUDED.permission,
+       token = EXCLUDED.token,
+       expires_at = EXCLUDED.expires_at,
+       accepted_at = EXCLUDED.accepted_at,
+       accepted_by_user_id = EXCLUDED.accepted_by_user_id`,
+    [
+      invitation.id,
+      invitation.family_id,
+      invitation.family_name,
+      invitation.inviter_id,
+      invitation.inviter_name,
+      invitation.inviter_email,
+      invitation.invitee_email,
+      invitation.permission,
+      invitation.token,
+      invitation.status,
+      invitation.message || null,
+      invitation.created_at,
+      invitation.expires_at,
+      invitation.accepted_at || null,
+      invitation.accepted_by_user_id || null,
+    ]
+  );
 }
 
 export async function dbDeleteInvitation(invitationId: string): Promise<void> {
-  if (!pool || !isPostgresActive) return;
-  try {
-    await pool.query("DELETE FROM family_invitations WHERE id = $1", [invitationId]);
-  } catch (err) {
-    logger.error("dbDeleteInvitation error:", err);
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+  if (!databaseUrl) return;
+
+  if (!pool || !isPostgresActive) {
+    const connected = await initDatabase();
+    if (!connected || !pool) {
+      throw new Error("PostgreSQL database is configured but unavailable to delete invitation.");
+    }
   }
+
+  await executeQuery("DELETE FROM family_invitations WHERE id = $1", [invitationId]);
 }
 
 export async function dbUpdateInvitationStatus(
@@ -845,16 +951,69 @@ export async function dbUpdateInvitationStatus(
   acceptedAt?: string,
   acceptedUserId?: string
 ): Promise<void> {
-  if (!pool || !isPostgresActive) return;
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+  if (!databaseUrl) return;
+
+  if (!pool || !isPostgresActive) {
+    const connected = await initDatabase();
+    if (!connected || !pool) {
+      throw new Error("PostgreSQL database is configured but unavailable to update invitation status.");
+    }
+  }
+
+  await executeQuery(
+    `UPDATE family_invitations
+     SET status = $2, accepted_at = $3, accepted_by_user_id = $4
+     WHERE id = $1`,
+    [invitationId, status, acceptedAt || null, acceptedUserId || null]
+  );
+}
+
+export async function dbGetPendingInvitationsForEmail(
+  email: string,
+  userId?: string
+): Promise<FamilyInvitation[]> {
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+  if (!databaseUrl || !pool || !isPostgresActive) return [];
+
   try {
-    await pool.query(
-      `UPDATE family_invitations
-       SET status = $2, accepted_at = $3, accepted_by_user_id = $4
-       WHERE id = $1`,
-      [invitationId, status, acceptedAt || null, acceptedUserId || null]
-    );
+    const nowIso = new Date().toISOString();
+    let query: string;
+    let params: any[];
+
+    if (userId) {
+      query = `
+        SELECT fi.* FROM family_invitations fi
+        WHERE LOWER(fi.invitee_email) = LOWER($1)
+          AND fi.status = 'pending'
+          AND fi.expires_at > $2
+          AND NOT EXISTS (
+            SELECT 1 FROM tree_shares ts
+            WHERE ts.family_id = fi.family_id AND ts.user_id = $3
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM families f
+            WHERE f.id = fi.family_id AND f.owner_id = $3
+          )
+        ORDER BY fi.created_at DESC
+      `;
+      params = [email.toLowerCase().trim(), nowIso, userId];
+    } else {
+      query = `
+        SELECT fi.* FROM family_invitations fi
+        WHERE LOWER(fi.invitee_email) = LOWER($1)
+          AND fi.status = 'pending'
+          AND fi.expires_at > $2
+        ORDER BY fi.created_at DESC
+      `;
+      params = [email.toLowerCase().trim(), nowIso];
+    }
+
+    const res = await executeQuery<FamilyInvitation>(query, params);
+    return res.rows;
   } catch (err) {
-    logger.error("dbUpdateInvitationStatus error:", err);
+    logger.error("dbGetPendingInvitationsForEmail error:", err);
+    return [];
   }
 }
 

@@ -10,6 +10,7 @@ import {
   dbFindResetTokenByHash,
   dbSaveFamily,
   dbDeleteFamily,
+  dbDeleteUserAccount,
   dbSaveFamilyMember,
   dbDeleteFamilyMember,
   dbSavePerson,
@@ -25,6 +26,7 @@ import {
   dbSaveInvitation,
   dbDeleteInvitation,
   dbUpdateInvitationStatus,
+  dbGetPendingInvitationsForEmail,
 } from "./db.js";
 import { logger } from "./logger.js";
 
@@ -1739,6 +1741,115 @@ export class MemoryStore {
     return true;
   }
 
+  async deleteUserAccount(userId: string): Promise<boolean> {
+    const user = this.users.get(userId);
+    const userEmail = user?.email?.toLowerCase().trim() || "";
+
+    // 1. Identify all families owned by this user
+    const ownedFamilyIds = new Set<string>();
+    for (const f of this.families.values()) {
+      if (f.owner_id === userId) {
+        ownedFamilyIds.add(f.id);
+      }
+    }
+
+    // 2. Delete all owned families
+    for (const familyId of ownedFamilyIds) {
+      this.families.delete(familyId);
+    }
+
+    // 3. Delete people belonging to owned families or owned by this user
+    const peopleToDelete: string[] = [];
+    for (const [pid, p] of this.people.entries()) {
+      if (p.owner_id === userId || ownedFamilyIds.has(p.owner_id)) {
+        peopleToDelete.push(pid);
+      }
+    }
+    for (const pid of peopleToDelete) {
+      this.people.delete(pid);
+    }
+
+    // 4. Delete family units & children belonging to owned families or this user
+    const unitsToDelete: string[] = [];
+    for (const [uid, u] of this.familyUnits.entries()) {
+      if (u.owner_id === userId || ownedFamilyIds.has(u.owner_id)) {
+        unitsToDelete.push(uid);
+      }
+    }
+    for (const uid of unitsToDelete) {
+      this.familyUnits.delete(uid);
+      for (const [cid, c] of this.familyChildren.entries()) {
+        if (c.family_unit_id === uid) {
+          this.familyChildren.delete(cid);
+        }
+      }
+    }
+
+    // Also purge family children referencing deleted people
+    const peopleSet = new Set(peopleToDelete);
+    for (const [cid, c] of this.familyChildren.entries()) {
+      if (peopleSet.has(c.person_id)) {
+        this.familyChildren.delete(cid);
+      }
+    }
+
+    // 5. Delete family members & tree shares
+    for (const [key, m] of this.familyMembers.entries()) {
+      if (m.user_id === userId || ownedFamilyIds.has(m.family_id)) {
+        this.familyMembers.delete(key);
+      }
+    }
+
+    for (const [key, s] of this.treeShares.entries()) {
+      if (s.user_id === userId || s.owner_id === userId || ownedFamilyIds.has(s.family_id)) {
+        this.treeShares.delete(key);
+      }
+    }
+
+    // 6. Delete family invitations
+    for (const [key, inv] of this.familyInvitations.entries()) {
+      if (
+        inv.inviter_id === userId ||
+        inv.accepted_by_user_id === userId ||
+        ownedFamilyIds.has(inv.family_id) ||
+        (userEmail && inv.invitee_email.toLowerCase().trim() === userEmail)
+      ) {
+        this.familyInvitations.delete(key);
+      }
+    }
+
+    // 7. Delete activity logs and chat histories
+    this.activityLogs = this.activityLogs.filter(
+      (log) => log.actor_id !== userId && !ownedFamilyIds.has(log.family_id)
+    );
+    for (const key of Array.from(this.chatHistories.keys())) {
+      if (key.startsWith(`${userId}:`) || Array.from(ownedFamilyIds).some((fid) => key.endsWith(`:${fid}`))) {
+        this.chatHistories.delete(key);
+      }
+    }
+
+    // 8. Delete reset tokens & OTPs
+    for (const [tid, token] of this.resetTokens.entries()) {
+      if (token.user_id === userId) {
+        this.resetTokens.delete(tid);
+      }
+    }
+    for (const [oid, otp] of this.resetOtps.entries()) {
+      if (otp.user_id === userId || (userEmail && otp.email.toLowerCase().trim() === userEmail)) {
+        this.resetOtps.delete(oid);
+      }
+    }
+
+    // 9. Delete user record from memory
+    this.users.delete(userId);
+
+    // 10. Persist deletion in PostgreSQL
+    await dbDeleteUserAccount(userId, userEmail);
+
+    logger.info(`[Store] Purged account and all tree data for user ${userId} (${userEmail})`);
+    return true;
+  }
+
   removeSharedTreeForUser(userId: string, familyId: string): boolean {
     for (const [key, s] of this.treeShares.entries()) {
       if (s.family_id === familyId && s.user_id === userId) {
@@ -1750,12 +1861,12 @@ export class MemoryStore {
     return false;
   }
 
-  createOrUpdateTreeShare(params: {
+  async createOrUpdateTreeShare(params: {
     ownerId: string;
     familyId: string;
     email: string;
     permission: SharePermission;
-  }): { share: TreeShare; recipient: { id: string; name: string; email: string } } {
+  }): Promise<{ share: TreeShare; recipient: { id: string; name: string; email: string } }> {
     const family = this.families.get(params.familyId);
     if (!family) {
       throw new Error("Family tree not found");
@@ -1793,7 +1904,22 @@ export class MemoryStore {
     if (existing) {
       existing.permission = params.permission;
       existing.updated_at = now;
-      dbSaveTreeShare(existing).catch((e) => logger.error("dbSaveTreeShare error:", e));
+      await dbSaveTreeShare(existing);
+
+      // Mark any pending invitations for this user and family as accepted
+      for (const inv of this.familyInvitations.values()) {
+        if (
+          inv.family_id === params.familyId &&
+          inv.invitee_email.toLowerCase() === normalizedEmail &&
+          inv.status === "pending"
+        ) {
+          inv.status = "accepted";
+          inv.permission = params.permission;
+          inv.accepted_at = now;
+          inv.accepted_by_user_id = recipient.id;
+          await dbUpdateInvitationStatus(inv.id, "accepted", now, recipient.id);
+        }
+      }
 
       this.logActivity({
         family_id: params.familyId,
@@ -1823,7 +1949,22 @@ export class MemoryStore {
     };
 
     this.treeShares.set(newShare.id, newShare);
-    dbSaveTreeShare(newShare).catch((e) => logger.error("dbSaveTreeShare error:", e));
+    await dbSaveTreeShare(newShare);
+
+    // Also mark any pending invitations for this user on this family as accepted
+    for (const inv of this.familyInvitations.values()) {
+      if (
+        inv.family_id === params.familyId &&
+        inv.invitee_email.toLowerCase() === normalizedEmail &&
+        inv.status === "pending"
+      ) {
+        inv.status = "accepted";
+        inv.permission = params.permission;
+        inv.accepted_at = now;
+        inv.accepted_by_user_id = recipient.id;
+        await dbUpdateInvitationStatus(inv.id, "accepted", now, recipient.id);
+      }
+    }
 
     this.logActivity({
       family_id: params.familyId,
@@ -1981,13 +2122,13 @@ export class MemoryStore {
   }
 
   // --- Family Tree Email Invitations ---
-  createFamilyInvitation(params: {
+  async createFamilyInvitation(params: {
     ownerId: string;
     familyId: string;
     inviteeEmail: string;
     permission: SharePermission;
     message?: string | null;
-  }): { invitation: FamilyInvitation; isExistingUser: boolean; recipientUser: User | null } {
+  }): Promise<{ invitation: FamilyInvitation; isExistingUser: boolean; recipientUser: User | null }> {
     const family = this.families.get(params.familyId);
     if (!family) {
       throw new Error("Family tree not found");
@@ -2019,12 +2160,18 @@ export class MemoryStore {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
-    // Check if an existing pending invitation exists for this family and email
+    // Check if user is ALREADY an active collaborator on this tree
+    const isAlreadyCollaborator = recipientUser && Array.from(this.treeShares.values()).some(
+      (s) => s.family_id === params.familyId && s.user_id === recipientUser.id
+    );
+
+    // Look for ANY existing invitation for this family and email (pending or past)
     let invitation = Array.from(this.familyInvitations.values()).find(
-      (inv) => inv.family_id === params.familyId && inv.invitee_email.toLowerCase() === normalizedEmail && inv.status === "pending"
+      (inv) => inv.family_id === params.familyId && inv.invitee_email.toLowerCase() === normalizedEmail
     );
 
     if (invitation) {
+      // Re-use and update the existing single invitation record to prevent duplicates
       invitation.permission = params.permission;
       invitation.message = params.message !== undefined ? params.message : invitation.message;
       invitation.expires_at = expiresAt;
@@ -2032,6 +2179,11 @@ export class MemoryStore {
       invitation.inviter_name = owner.name;
       invitation.inviter_email = owner.email;
       invitation.family_name = family.name;
+      invitation.status = isAlreadyCollaborator ? "accepted" : "pending";
+      if (isAlreadyCollaborator) {
+        invitation.accepted_at = now.toISOString();
+        invitation.accepted_by_user_id = recipientUser!.id;
+      }
     } else {
       invitation = {
         id: crypto.randomUUID(),
@@ -2043,15 +2195,17 @@ export class MemoryStore {
         invitee_email: normalizedEmail,
         permission: params.permission,
         token: crypto.randomBytes(32).toString("hex"),
-        status: "pending",
+        status: isAlreadyCollaborator ? "accepted" : "pending",
         message: params.message || null,
         created_at: now.toISOString(),
         expires_at: expiresAt,
+        accepted_at: isAlreadyCollaborator ? now.toISOString() : null,
+        accepted_by_user_id: isAlreadyCollaborator ? recipientUser!.id : null,
       };
       this.familyInvitations.set(invitation.id, invitation);
     }
 
-    dbSaveInvitation(invitation).catch((e) => logger.error("dbSaveInvitation error:", e));
+    await dbSaveInvitation(invitation);
 
     this.logActivity({
       family_id: params.familyId,
@@ -2087,11 +2241,14 @@ export class MemoryStore {
     return this.familyInvitations.get(id) || null;
   }
 
-  acceptFamilyInvitation(token: string, acceptingUser: User): {
+  async acceptFamilyInvitation(
+    token: string,
+    acceptingUser: User
+  ): Promise<{
     family: Family;
     share: TreeShare;
     invitation: FamilyInvitation;
-  } {
+  }> {
     const invitation = this.getInvitationByToken(token);
     if (!invitation) {
       throw new Error("Invalid or expired invitation link.");
@@ -2103,7 +2260,7 @@ export class MemoryStore {
 
     if (invitation.status === "expired" || new Date(invitation.expires_at) < new Date()) {
       invitation.status = "expired";
-      dbUpdateInvitationStatus(invitation.id, "expired").catch((e) => logger.error("dbUpdateInvitationStatus error:", e));
+      await dbUpdateInvitationStatus(invitation.id, "expired");
       throw new Error("This invitation has expired. Please ask the tree owner to send a new invitation.");
     }
 
@@ -2142,7 +2299,7 @@ export class MemoryStore {
       };
       this.treeShares.set(share.id, share);
     }
-    dbSaveTreeShare(share).catch((e) => logger.error("dbSaveTreeShare error:", e));
+    await dbSaveTreeShare(share);
 
     // 2. Add as FamilyMember
     const memberId = `${family.id}-${acceptingUser.id}`;
@@ -2159,17 +2316,31 @@ export class MemoryStore {
       };
       this.familyMembers.set(memberId, member);
     }
-    dbSaveFamilyMember(member).catch((e) => logger.error("dbSaveFamilyMember error:", e));
+    await dbSaveFamilyMember(member);
 
     // 3. Update Invitation status
     invitation.status = "accepted";
     invitation.accepted_at = now;
     invitation.accepted_by_user_id = acceptingUser.id;
-    dbUpdateInvitationStatus(invitation.id, "accepted", now, acceptingUser.id).catch((e) =>
-      logger.error("dbUpdateInvitationStatus error:", e)
-    );
+    await dbUpdateInvitationStatus(invitation.id, "accepted", now, acceptingUser.id);
 
-    // 4. Activity log
+    // 4. Resolve and mark any duplicate invitations for this user & family
+    const normalizedUserEmail = acceptingUser.email.toLowerCase().trim();
+    for (const otherInv of this.familyInvitations.values()) {
+      if (
+        otherInv.id !== invitation.id &&
+        otherInv.family_id === family.id &&
+        otherInv.invitee_email.toLowerCase().trim() === normalizedUserEmail &&
+        otherInv.status === "pending"
+      ) {
+        otherInv.status = "accepted";
+        otherInv.accepted_at = now;
+        otherInv.accepted_by_user_id = acceptingUser.id;
+        await dbUpdateInvitationStatus(otherInv.id, "accepted", now, acceptingUser.id);
+      }
+    }
+
+    // 5. Activity log
     this.logActivity({
       family_id: family.id,
       actor_id: acceptingUser.id,
@@ -2184,7 +2355,10 @@ export class MemoryStore {
     return { family, share, invitation };
   }
 
-  declineFamilyInvitation(token: string, userId?: string): { success: boolean; invitation: FamilyInvitation } {
+  async declineFamilyInvitation(
+    token: string,
+    userId?: string
+  ): Promise<{ success: boolean; invitation: FamilyInvitation }> {
     const invitation = this.getInvitationByToken(token);
     if (!invitation) {
       throw new Error("Invalid invitation link.");
@@ -2194,9 +2368,21 @@ export class MemoryStore {
     }
 
     invitation.status = "declined";
-    dbUpdateInvitationStatus(invitation.id, "declined").catch((e) =>
-      logger.error("dbUpdateInvitationStatus error:", e)
-    );
+    await dbUpdateInvitationStatus(invitation.id, "declined");
+
+    // Also mark duplicate pending invitations for this email on this tree as declined
+    const normalizedEmail = invitation.invitee_email.toLowerCase().trim();
+    for (const otherInv of this.familyInvitations.values()) {
+      if (
+        otherInv.id !== invitation.id &&
+        otherInv.family_id === invitation.family_id &&
+        otherInv.invitee_email.toLowerCase().trim() === normalizedEmail &&
+        otherInv.status === "pending"
+      ) {
+        otherInv.status = "declined";
+        await dbUpdateInvitationStatus(otherInv.id, "declined");
+      }
+    }
 
     const user = userId ? this.users.get(userId) : null;
     this.logActivity({
@@ -2220,41 +2406,91 @@ export class MemoryStore {
     }
 
     const now = new Date();
-    const results: FamilyInvitation[] = [];
-    for (const inv of this.familyInvitations.values()) {
-      if (inv.family_id === familyId) {
-        if (inv.status === "pending" && new Date(inv.expires_at) < now) {
-          inv.status = "expired";
-          dbUpdateInvitationStatus(inv.id, "expired").catch((e) => logger.error("dbUpdateInvitationStatus error:", e));
-        }
-        results.push(inv);
+    const mapByEmail = new Map<string, FamilyInvitation>();
+
+    // Scan invitations for this family
+    const allForFamily = Array.from(this.familyInvitations.values()).filter(
+      (inv) => inv.family_id === familyId
+    );
+
+    // Sort newest first
+    allForFamily.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+    for (const inv of allForFamily) {
+      if (inv.status === "pending" && new Date(inv.expires_at) < now) {
+        inv.status = "expired";
+        dbUpdateInvitationStatus(inv.id, "expired").catch((e) => logger.error("dbUpdateInvitationStatus error:", e));
+      }
+
+      const emailKey = inv.invitee_email.toLowerCase().trim();
+      // Keep highest priority invitation per email: pending > accepted > declined/expired/cancelled
+      const existing = mapByEmail.get(emailKey);
+      if (!existing) {
+        mapByEmail.set(emailKey, inv);
+      } else if (existing.status !== "pending" && inv.status === "pending") {
+        mapByEmail.set(emailKey, inv);
       }
     }
-    return results.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+    return Array.from(mapByEmail.values());
   }
 
-  getMyPendingInvitations(userEmail: string): FamilyInvitation[] {
+  async getMyPendingInvitations(userEmail: string, userId?: string): Promise<FamilyInvitation[]> {
     if (!userEmail) return [];
     const normalized = userEmail.toLowerCase().trim();
     const now = new Date();
+
+    // Query database directly if PostgreSQL is active to ensure cross-lambda consistency
+    const dbInvites = await dbGetPendingInvitationsForEmail(normalized, userId);
+    if (dbInvites && dbInvites.length > 0) {
+      for (const inv of dbInvites) {
+        this.familyInvitations.set(inv.id, inv);
+      }
+      return dbInvites;
+    }
+
+    // Fallback in-memory query with strict membership verification
     const results: FamilyInvitation[] = [];
+    const seenFamilies = new Set<string>();
 
     for (const inv of this.familyInvitations.values()) {
-      if (inv.invitee_email.toLowerCase() === normalized) {
+      if (inv.invitee_email.toLowerCase().trim() === normalized) {
         if (inv.status === "pending" && new Date(inv.expires_at) < now) {
           inv.status = "expired";
-          dbUpdateInvitationStatus(inv.id, "expired").catch((e) => logger.error("dbUpdateInvitationStatus error:", e));
+          await dbUpdateInvitationStatus(inv.id, "expired");
           continue;
         }
+
         if (inv.status === "pending") {
-          results.push(inv);
+          // If user owns or is already in treeShares for this family, skip & auto-accept
+          if (userId) {
+            const family = this.families.get(inv.family_id);
+            if (family && family.owner_id === userId) {
+              continue;
+            }
+            const isCollaborator = Array.from(this.treeShares.values()).some(
+              (s) => s.family_id === inv.family_id && s.user_id === userId
+            );
+            if (isCollaborator) {
+              inv.status = "accepted";
+              inv.accepted_at = now.toISOString();
+              inv.accepted_by_user_id = userId;
+              await dbUpdateInvitationStatus(inv.id, "accepted", inv.accepted_at, userId);
+              continue;
+            }
+          }
+
+          if (!seenFamilies.has(inv.family_id)) {
+            seenFamilies.add(inv.family_id);
+            results.push(inv);
+          }
         }
       }
     }
     return results.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }
 
-  cancelFamilyInvitation(ownerId: string, invitationId: string): boolean {
+  async cancelFamilyInvitation(ownerId: string, invitationId: string): Promise<boolean> {
     const inv = this.familyInvitations.get(invitationId);
     if (!inv) {
       throw new Error("Invitation not found");
@@ -2265,9 +2501,7 @@ export class MemoryStore {
     }
 
     inv.status = "cancelled";
-    dbUpdateInvitationStatus(inv.id, "cancelled").catch((e) =>
-      logger.error("dbUpdateInvitationStatus error:", e)
-    );
+    await dbUpdateInvitationStatus(inv.id, "cancelled");
 
     const owner = this.users.get(ownerId);
     this.logActivity({
@@ -2281,6 +2515,21 @@ export class MemoryStore {
       description: `${owner?.name || "Owner"} cancelled the invitation sent to ${inv.invitee_email}`,
     });
 
+    return true;
+  }
+
+  async deleteFamilyInvitation(ownerId: string, invitationId: string): Promise<boolean> {
+    const inv = this.familyInvitations.get(invitationId);
+    if (!inv) {
+      throw new Error("Invitation not found");
+    }
+    const family = this.families.get(inv.family_id);
+    if (!family || family.owner_id !== ownerId) {
+      throw new Error("Only the tree owner can delete invitations");
+    }
+
+    this.familyInvitations.delete(inv.id);
+    await dbDeleteInvitation(inv.id);
     return true;
   }
 

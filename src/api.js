@@ -66,6 +66,12 @@ export const api = {
   },
   me: () => request("/auth/me"),
   updateProfile: (payload) => request("/auth/me", { method: "PATCH", body: payload }),
+  deleteAccount: async () => {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("rootline_token");
+    }
+    return request("/auth/me", { method: "DELETE" });
+  },
   forgotPassword: (email) =>
     request("/auth/forgot-password", { method: "POST", body: { email } }),
   verifyOtp: (email, otp) =>
@@ -130,6 +136,8 @@ export const api = {
     request(`/families/${treeId}/invitations`, { method: "POST", body: payload }),
   cancelInvitation: (treeId, invitationId) =>
     request(`/families/${treeId}/invitations/${invitationId}`, { method: "DELETE" }),
+  deleteInvitation: (treeId, invitationId) =>
+    request(`/families/${treeId}/invitations/${invitationId}?action=delete`, { method: "DELETE" }),
   verifyInvitation: (token) =>
     request(`/api/invitations/verify?token=${encodeURIComponent(token)}`),
   acceptInvitation: (token) =>

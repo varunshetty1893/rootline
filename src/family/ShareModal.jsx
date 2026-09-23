@@ -26,6 +26,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { api } from "../api.js";
+import { useAuth } from "../AuthContext.jsx";
 import { useFamily } from "./FamilyContext.jsx";
 
 const PERMISSION_LABELS = {
@@ -90,10 +91,23 @@ function InvitationStatusBadge({ status, isExpired }) {
 }
 
 export default function ShareModal({ treeId, treeName, onClose }) {
-  const { canManage, refreshTreeList } = useFamily();
+  const { user } = useAuth();
+  const { treeList, canManage: contextCanManage, refreshTreeList } = useFamily();
   const [sharesData, setSharesData] = useState(null); // { owner, shares }
   const [invitations, setInvitations] = useState([]);
   const [loadError, setLoadError] = useState("");
+
+  // Determine permissions accurately for this specific tree
+  const isOwnerOfThisTree =
+    (sharesData?.owner && user?.id && sharesData.owner.id === user.id) ||
+    treeList?.owned_trees?.some((t) => t.id === treeId);
+  const mySharedRole = treeList?.shared_trees?.find((t) => t.id === treeId)?.role;
+  const canManage = isOwnerOfThisTree || mySharedRole === "editor" || contextCanManage;
+
+  // Invitation action states
+  const [invitationActionId, setInvitationActionId] = useState(null);
+  const [invitationFeedback, setInvitationFeedback] = useState("");
+  const [invitationError, setInvitationError] = useState("");
 
   // Add-user form
   const [email, setEmail] = useState("");
@@ -173,12 +187,38 @@ export default function ShareModal({ treeId, treeName, onClose }) {
   };
 
   const handleCancelInvite = async (invitationId) => {
-    if (!window.confirm("Are you sure you want to cancel this invitation?")) return;
+    setInvitationActionId(invitationId);
+    setInvitationFeedback("");
+    setInvitationError("");
     try {
       await api.cancelInvitation(treeId, invitationId);
+      setInvitations((prev) =>
+        prev.map((inv) => (inv.id === invitationId ? { ...inv, status: "cancelled" } : inv))
+      );
+      setInvitationFeedback("Invitation cancelled successfully.");
+      setTimeout(() => setInvitationFeedback(""), 4000);
       await loadData();
     } catch (err) {
-      alert(err.message || "Failed to cancel invitation");
+      setInvitationError(err.message || "Failed to cancel invitation.");
+    } finally {
+      setInvitationActionId(null);
+    }
+  };
+
+  const handleDeleteInvite = async (invitationId) => {
+    setInvitationActionId(invitationId);
+    setInvitationFeedback("");
+    setInvitationError("");
+    try {
+      await api.deleteInvitation(treeId, invitationId);
+      setInvitations((prev) => prev.filter((inv) => inv.id !== invitationId));
+      setInvitationFeedback("Invitation removed.");
+      setTimeout(() => setInvitationFeedback(""), 4000);
+      await loadData();
+    } catch (err) {
+      setInvitationError(err.message || "Failed to remove invitation.");
+    } finally {
+      setInvitationActionId(null);
     }
   };
 
@@ -451,6 +491,20 @@ export default function ShareModal({ treeId, treeName, onClose }) {
                 </span>
               </div>
 
+              {invitationFeedback && (
+                <div className="mb-2 p-2 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-800 flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>{invitationFeedback}</span>
+                </div>
+              )}
+
+              {invitationError && (
+                <div className="mb-2 p-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-800 flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 text-red-600 shrink-0" />
+                  <span>{invitationError}</span>
+                </div>
+              )}
+
               <div className="border border-[#E7E2D6] rounded-xl overflow-hidden divide-y divide-[#E7E2D6] bg-white">
                 {invitations.map((inv) => (
                   <div key={inv.id} className="p-3 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:bg-[#FAF9F5]">
@@ -493,11 +547,32 @@ export default function ShareModal({ treeId, treeName, onClose }) {
                       {canManage && inv.status === "pending" && (
                         <button
                           type="button"
+                          disabled={invitationActionId === inv.id}
                           onClick={() => handleCancelInvite(inv.id)}
-                          className="px-2 py-1 text-red-600 hover:bg-red-50 rounded text-[11px] font-medium transition-colors"
-                          title="Cancel invitation"
+                          className="px-2.5 py-1 text-red-600 hover:bg-red-50 border border-red-200/60 rounded text-[11px] font-semibold transition-colors flex items-center gap-1 disabled:opacity-50"
+                          title="Cancel this pending invitation"
                         >
-                          Cancel
+                          {invitationActionId === inv.id ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : null}
+                          Cancel Invitation
+                        </button>
+                      )}
+
+                      {canManage && (inv.status === "cancelled" || inv.status === "declined" || inv.status === "expired") && (
+                        <button
+                          type="button"
+                          disabled={invitationActionId === inv.id}
+                          onClick={() => handleDeleteInvite(inv.id)}
+                          className="px-2 py-1 text-gray-500 hover:text-red-600 hover:bg-gray-100 rounded text-[11px] transition-colors flex items-center gap-1 disabled:opacity-50"
+                          title="Remove this invitation record"
+                        >
+                          {invitationActionId === inv.id ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-3 h-3" />
+                          )}
+                          Remove
                         </button>
                       )}
                     </div>

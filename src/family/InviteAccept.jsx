@@ -64,10 +64,13 @@ export default function InviteAccept() {
     try {
       const res = await api.acceptInvitation(token);
       setActionSuccess(res.message || "Invitation accepted!");
-      await refresh();
+      setInvitation((prev) => (prev ? { ...prev, status: "accepted" } : null));
+      if (typeof refresh === "function") {
+        await refresh();
+      }
       setTimeout(() => {
         navigate("/tree");
-      }, 1500);
+      }, 1200);
     } catch (err) {
       setActionError(err.message || "Failed to accept invitation.");
       setSubmitting(false);
@@ -76,13 +79,15 @@ export default function InviteAccept() {
 
   const handleDecline = async () => {
     if (!token) return;
-    if (!window.confirm("Are you sure you want to decline this invitation?")) return;
     setSubmitting(true);
     setActionError("");
     try {
       await api.declineInvitation(token);
       setActionSuccess("You have declined the invitation.");
       setInvitation((prev) => (prev ? { ...prev, status: "declined" } : null));
+      if (typeof refresh === "function") {
+        await refresh();
+      }
     } catch (err) {
       setActionError(err.message || "Failed to decline invitation.");
     } finally {

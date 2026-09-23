@@ -79,6 +79,7 @@ export default function SharedTrees() {
     try {
       const res = await api.acceptInvitation(inv.token);
       setInviteSuccessMsg(res.message || `Accepted invitation to ${inv.family_name}!`);
+      setPendingInvites((prev) => prev.filter((item) => item.id !== inv.id && item.token !== inv.token));
       await refreshTreeList();
       await loadPendingInvites();
       setTimeout(() => setInviteSuccessMsg(""), 5000);
@@ -90,13 +91,13 @@ export default function SharedTrees() {
   };
 
   const handleDeclineInvite = async (inv) => {
-    if (!window.confirm(`Decline invitation to "${inv.family_name}"?`)) return;
     setInviteActionId(inv.id);
     setInviteSuccessMsg("");
     setInviteErrorMsg("");
     try {
       await api.declineInvitation(inv.token);
       setInviteSuccessMsg(`Declined invitation to ${inv.family_name}.`);
+      setPendingInvites((prev) => prev.filter((item) => item.id !== inv.id && item.token !== inv.token));
       await loadPendingInvites();
       setTimeout(() => setInviteSuccessMsg(""), 5000);
     } catch (err) {

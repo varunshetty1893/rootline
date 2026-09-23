@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { GitBranch, Mail, Lock, Eye, EyeOff } from "lucide-react";
+import { Link, useNavigate, useLocation } from "react-router-dom";
+import { GitBranch, Mail, Lock, Eye, EyeOff, CheckCircle2 } from "lucide-react";
 import { api } from "./api.js";
 import { useAuth } from "./AuthContext.jsx";
 import { Field, GoogleIcon } from "./RootlineRegister.jsx";
@@ -18,7 +18,9 @@ const CENTER = { cx: 280, cy: 195 };
 
 export default function RootlineLogin() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { login } = useAuth();
+  const notice = location.state?.message;
 
   const [showPassword, setShowPassword] = useState(false);
   const [form, setForm] = useState({ email: "", password: "" });
@@ -60,6 +62,13 @@ export default function RootlineLogin() {
           <p className="text-sm text-[#6B7280] mb-5">
             Log in to continue building your family's digital record.
           </p>
+
+          {notice && (
+            <div className="mb-4 text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl px-3.5 py-3 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>{notice}</span>
+            </div>
+          )}
 
           {error && (
             <div className="mb-4 text-sm text-[#B42318] bg-[#FEF3F2] border border-[#FDA29B] rounded-lg px-3 py-2.5">
