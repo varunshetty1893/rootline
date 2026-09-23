@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { GitBranch, User, Mail, Lock, Eye, EyeOff, CheckCircle2 } from "lucide-react";
+import { GitBranch, User, Mail, Lock, Eye, EyeOff, CheckCircle2, Clock, AlertCircle } from "lucide-react";
 import { api } from "./api.js";
 import { useAuth } from "./AuthContext.jsx";
 
@@ -70,9 +70,25 @@ export default function RootlineRegister() {
           )}
 
           {error && (
-            <div className="mb-4 text-sm text-[#B42318] bg-[#FEF3F2] border border-[#FDA29B] rounded-lg px-3 py-2.5">
-              {error}
-            </div>
+            error.toLowerCase().includes("24 hour") || error.toLowerCase().includes("cooling-off") || error.toLowerCase().includes("recently deleted") ? (
+              <div className="mb-4 p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 space-y-2">
+                <div className="flex items-center gap-2 font-semibold text-amber-950 text-xs">
+                  <Clock className="w-4 h-4 text-amber-700 shrink-0" />
+                  <span>24-Hour Account Creation Cooldown</span>
+                </div>
+                <p className="text-xs leading-relaxed text-amber-900">
+                  {error}
+                </p>
+                <p className="text-[11px] text-amber-800 bg-amber-100/60 p-2 rounded-lg">
+                  💡 <strong>What to do:</strong> Please wait until the 24-hour cooling-off window ends. At that time, this email address will be completely available to create a fresh new account.
+                </p>
+              </div>
+            ) : (
+              <div className="mb-4 text-sm text-[#B42318] bg-[#FEF3F2] border border-[#FDA29B] rounded-lg px-3 py-2.5 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-[#B42318] shrink-0 mt-0.5" />
+                <span>{error}</span>
+              </div>
+            )
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">

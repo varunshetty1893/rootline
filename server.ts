@@ -23,7 +23,7 @@ import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import nodemailer from "nodemailer";
 import { store, User, type FamilyRole } from "./server/store.js";
-import { checkDbHealth, initDatabase } from "./server/db.js";
+import { checkDbHealth, initDatabase, isDatabaseConnected, dbSaveUser } from "./server/db.js";
 import { createRateLimiter } from "./server/rateLimiter.js";
 import { logger } from "./server/logger.js";
 import { GoogleGenAI } from "@google/genai";
@@ -122,7 +122,7 @@ interface AuthRequest extends Request {
   user?: User;
 }
 
-function authMiddleware(req: AuthRequest, res: Response, next: NextFunction) {
+async function authMiddleware(req: AuthRequest, res: Response, next: NextFunction) {
   const cookieToken = req.cookies?.[COOKIE_NAME];
   const authHeader = req.headers.authorization;
   const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
@@ -137,7 +137,15 @@ function authMiddleware(req: AuthRequest, res: Response, next: NextFunction) {
     return next();
   }
 
-  const user = store.findUserById(payload.sub);
+  let user = store.findUserById(payload.sub);
+  if (!user && isDatabaseConnected()) {
+    try {
+      user = await store.findUserByIdAsync(payload.sub);
+    } catch (err) {
+      logger.warn("authMiddleware DB fallback error:", err);
+    }
+  }
+
   if (!user || !user.is_active || user.password_version !== payload.pv) {
     return next();
   }
@@ -247,7 +255,7 @@ export async function createExpressApp() {
     message: "Too many contact messages sent. Please try again later.",
   });
 
-  const handleRegister = (req: any, res: any) => {
+  const handleRegister = async (req: any, res: any) => {
     try {
       const { name, email, password } = isRecord(req.body) ? req.body : {};
       if (!isText(name, 120, 1) || !isText(email, 254, 3) || !isText(password, 128, 1) || !EMAIL_RE.test(email.trim())) {
@@ -259,12 +267,36 @@ export async function createExpressApp() {
         return res.status(422).json({ detail: pwdCheck.reason });
       }
 
-      const existing = store.findUserByEmail(email);
+      const normalizedEmail = email.trim().toLowerCase();
+
+      // Enforce 24-hour account deletion cooling-off period
+      const cooldown = await store.isEmailInDeletionCooldownAsync(normalizedEmail);
+      if (cooldown.inCooldown) {
+        const remainingHours = Math.ceil((cooldown.remainingMs || 0) / (1000 * 60 * 60));
+        const unlockDate = new Date(cooldown.cooldown_until!).toLocaleString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+          timeZoneName: "short",
+        });
+        return res.status(403).json({
+          detail: `This account was recently deleted. For security and cooling-off purposes, you cannot re-create an account with this email for 24 hours. You can create your fresh new account after ${unlockDate} (approximately ${remainingHours} hour(s) remaining).`,
+          code: "ACCOUNT_DELETED_COOLDOWN",
+          cooldown_until: cooldown.cooldown_until,
+        });
+      }
+
+      let existing = store.findUserByEmail(normalizedEmail);
+      if (!existing && isDatabaseConnected()) {
+        existing = await store.findUserByEmailAsync(normalizedEmail);
+      }
       if (existing) {
         return res.status(400).json({ detail: "Unable to create an account with these details" });
       }
 
-      const user = store.createUser(name, email, password);
+      const user = await store.createUserAsync(name, normalizedEmail, password);
       const token = createSessionToken(user.id, user.password_version);
       setSessionCookie(res, token);
 
@@ -286,14 +318,38 @@ export async function createExpressApp() {
   app.post("/auth/register", authLimiter, handleRegister);
   app.post("/api/auth/register", authLimiter, handleRegister);
 
-  const handleLogin = (req: any, res: any) => {
+  const handleLogin = async (req: any, res: any) => {
     try {
       const { email, password } = isRecord(req.body) ? req.body : {};
       if (!isText(email, 254, 3) || !isText(password, 128, 1) || !EMAIL_RE.test(email.trim())) {
         return res.status(400).json({ detail: "Incorrect email or password" });
       }
 
-      const user = store.findUserByEmail(email);
+      const normalizedEmail = email.trim().toLowerCase();
+
+      // Check 24-hour deletion cooling-off period
+      const cooldown = await store.isEmailInDeletionCooldownAsync(normalizedEmail);
+      if (cooldown.inCooldown) {
+        const remainingHours = Math.ceil((cooldown.remainingMs || 0) / (1000 * 60 * 60));
+        const unlockDate = new Date(cooldown.cooldown_until!).toLocaleString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+          timeZoneName: "short",
+        });
+        return res.status(403).json({
+          detail: `This account was permanently deleted. You cannot sign in or recreate an account with this email until the 24-hour cooling-off period ends on ${unlockDate} (approximately ${remainingHours} hour(s) remaining). After 24 hours, you can create a fresh new account.`,
+          code: "ACCOUNT_DELETED_COOLDOWN",
+          cooldown_until: cooldown.cooldown_until,
+        });
+      }
+
+      let user = store.findUserByEmail(normalizedEmail);
+      if (!user && isDatabaseConnected()) {
+        user = await store.findUserByEmailAsync(normalizedEmail);
+      }
       if (!user || !user.hashed_password) {
         return res.status(401).json({ detail: "Incorrect email or password" });
       }
@@ -423,6 +479,8 @@ export async function createExpressApp() {
       return res.json({
         success: true,
         message: "Your account and all associated family trees and data have been permanently deleted.",
+        cooldown_hours: 24,
+        cooldown_notice: "For security and cooling-off purposes, this email cannot be re-registered for 24 hours. After 24 hours, you are welcome to create a fresh new account.",
       });
     } catch (err: any) {
       logger.error("Failed to delete user account:", err);
@@ -1229,12 +1287,40 @@ export async function createExpressApp() {
       });
     }
 
-    let user = store.findUserByEmail(profileEmail);
+    const normalizedEmail = profileEmail.toLowerCase().trim();
+
+    // Enforce 24-hour account deletion cooling-off period
+    const cooldown = await store.isEmailInDeletionCooldownAsync(normalizedEmail);
+    if (cooldown.inCooldown) {
+      res.clearCookie(COOKIE_NAME, { path: "/" });
+      const remainingHours = Math.ceil((cooldown.remainingMs || 0) / (1000 * 60 * 60));
+      const unlockDate = new Date(cooldown.cooldown_until!).toLocaleString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        timeZoneName: "short",
+      });
+      const errorMsg = `This account was recently deleted. You cannot sign in or recreate an account with this Google email until 24 hours have passed (${unlockDate}, ~${remainingHours}h remaining). After 24 hours, you can create a fresh new account.`;
+
+      const frontendUrl = process.env.FRONTEND_URL?.replace(/\/+$/, "");
+      const proto = (req.headers["x-forwarded-proto"] as string) || (process.env.VERCEL ? "https" : req.protocol) || "https";
+      const host = (req.headers["x-forwarded-host"] as string) || req.get("host") || "localhost:3000";
+      const targetBase = frontendUrl || `${proto}://${host}`;
+      return res.redirect(`${targetBase}/login?error=account_cooldown&message=${encodeURIComponent(errorMsg)}&cooldown_until=${encodeURIComponent(cooldown.cooldown_until || "")}`);
+    }
+
+    let user = store.findUserByEmail(normalizedEmail);
+    if (!user && isDatabaseConnected()) {
+      user = await store.findUserByEmailAsync(normalizedEmail);
+    }
     if (!user) {
-      user = store.createUser(profileName, profileEmail);
+      user = await store.createUserAsync(profileName, normalizedEmail);
     }
     if (!user.google_id) {
       user.google_id = profileGoogleId;
+      await dbSaveUser(user);
     }
 
     const token = createSessionToken(user.id, user.password_version);

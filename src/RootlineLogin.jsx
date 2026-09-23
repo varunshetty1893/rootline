@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { GitBranch, Mail, Lock, Eye, EyeOff, CheckCircle2 } from "lucide-react";
+import { GitBranch, Mail, Lock, Eye, EyeOff, CheckCircle2, Clock, AlertCircle } from "lucide-react";
 import { api } from "./api.js";
 import { useAuth } from "./AuthContext.jsx";
 import { Field, GoogleIcon } from "./RootlineRegister.jsx";
@@ -20,7 +20,12 @@ export default function RootlineLogin() {
   const navigate = useNavigate();
   const location = useLocation();
   const { login } = useAuth();
-  const notice = location.state?.message;
+
+  const searchParams = new URLSearchParams(location.search);
+  const queryMessage = searchParams.get("message");
+  const isCooldown = searchParams.get("error") === "account_cooldown" || location.state?.cooldown;
+  const notice = !isCooldown ? location.state?.message : null;
+  const cooldownNotice = isCooldown ? (queryMessage || location.state?.message) : null;
 
   const [showPassword, setShowPassword] = useState(false);
   const [form, setForm] = useState({ email: "", password: "" });
@@ -44,6 +49,8 @@ export default function RootlineLogin() {
     }
   };
 
+  const displayedCooldown = cooldownNotice || (error && (error.toLowerCase().includes("24-hour") || error.toLowerCase().includes("cooling-off") || error.toLowerCase().includes("permanently deleted") || error.toLowerCase().includes("recently deleted")) ? error : null);
+
   return (
     <div className="min-h-screen w-full flex bg-[#F7F5F0]">
       {/* Left — form */}
@@ -63,16 +70,33 @@ export default function RootlineLogin() {
             Log in to continue building your family's digital record.
           </p>
 
-          {notice && (
+          {displayedCooldown && (
+            <div className="mb-5 p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 space-y-2">
+              <div className="flex items-center gap-2 font-semibold text-amber-950 text-xs">
+                <Clock className="w-4 h-4 text-amber-700 shrink-0" />
+                <span>Account Deletion 24-Hour Cooldown</span>
+              </div>
+              <p className="text-xs leading-relaxed text-amber-900">
+                {displayedCooldown}
+              </p>
+              <div className="text-[11px] text-amber-800 bg-amber-100/60 p-2.5 rounded-lg flex items-center justify-between">
+                <span>Once 24 hours have elapsed, you can create a fresh new account.</span>
+                <Link to="/register" className="font-semibold text-amber-950 underline ml-2 shrink-0">Register</Link>
+              </div>
+            </div>
+          )}
+
+          {notice && !displayedCooldown && (
             <div className="mb-4 text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl px-3.5 py-3 flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
               <span>{notice}</span>
             </div>
           )}
 
-          {error && (
-            <div className="mb-4 text-sm text-[#B42318] bg-[#FEF3F2] border border-[#FDA29B] rounded-lg px-3 py-2.5">
-              {error}
+          {error && !displayedCooldown && (
+            <div className="mb-4 text-sm text-[#B42318] bg-[#FEF3F2] border border-[#FDA29B] rounded-lg px-3 py-2.5 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-[#B42318] shrink-0 mt-0.5" />
+              <span>{error}</span>
             </div>
           )}
 

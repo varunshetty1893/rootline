@@ -27,6 +27,13 @@ const isServerless =
   !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
   process.env.NODE_ENV === "production";
 
+export interface DeletedAccountRecord {
+  id: string;
+  email: string;
+  deleted_at: string;
+  cooldown_until: string;
+}
+
 let pool: pg.Pool | null = globalThis.__rootline_pg_pool__ || null;
 let isPostgresActive = false;
 
@@ -316,6 +323,13 @@ async function initSchema(client: pg.PoolClient) {
       timestamp TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS deleted_accounts (
+      id VARCHAR(64) PRIMARY KEY,
+      email VARCHAR(255) NOT NULL,
+      deleted_at TEXT NOT NULL,
+      cooldown_until TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_people_owner ON people(owner_id);
     CREATE INDEX IF NOT EXISTS idx_units_owner ON family_units(owner_id);
     CREATE INDEX IF NOT EXISTS idx_children_unit ON family_children(family_unit_id);
@@ -324,6 +338,7 @@ async function initSchema(client: pg.PoolClient) {
     CREATE INDEX IF NOT EXISTS idx_reset_otps_email ON password_reset_otps(email);
     CREATE INDEX IF NOT EXISTS idx_reset_otps_user ON password_reset_otps(user_id);
     CREATE INDEX IF NOT EXISTS idx_reset_tokens_hash ON password_reset_tokens(token_hash);
+    CREATE INDEX IF NOT EXISTS idx_deleted_accounts_email ON deleted_accounts(email);
   `;
 
   await client.query(schemaSql);
@@ -360,6 +375,7 @@ export async function loadInitialData() {
       activitiesRes,
       chatsRes,
       otpsRes,
+      deletedAccountsRes,
     ] = await Promise.all([
       pool.query<User>("SELECT * FROM users"),
       pool.query<PasswordResetToken>("SELECT * FROM password_reset_tokens"),
@@ -373,6 +389,7 @@ export async function loadInitialData() {
       pool.query<ActivityLog>("SELECT * FROM activity_logs ORDER BY created_at ASC"),
       pool.query<any>("SELECT * FROM chat_messages ORDER BY timestamp ASC"),
       pool.query<PasswordResetOtp>("SELECT * FROM password_reset_otps").catch(() => ({ rows: [] as PasswordResetOtp[] })),
+      pool.query<DeletedAccountRecord>("SELECT * FROM deleted_accounts WHERE cooldown_until > $1", [new Date().toISOString()]).catch(() => ({ rows: [] as DeletedAccountRecord[] })),
     ]);
 
     const toIso = (val: any) => {
@@ -434,6 +451,11 @@ export async function loadInitialData() {
         created_at: toIso(o.created_at),
         expires_at: toIso(o.expires_at),
       })),
+      deletedAccounts: (deletedAccountsRes?.rows || []).map((d: any) => ({
+        ...d,
+        deleted_at: toIso(d.deleted_at),
+        cooldown_until: toIso(d.cooldown_until),
+      })),
     };
   } catch (err) {
     logger.error("Error loading initial data from PostgreSQL:", err);
@@ -445,7 +467,7 @@ export async function loadInitialData() {
 export async function dbSaveUser(user: User): Promise<void> {
   if (!pool || !isPostgresActive) return;
   try {
-    await pool.query(
+    await executeQuery(
       `INSERT INTO users (id, name, email, hashed_password, google_id, is_active, created_at, password_version, photo_url, dob, phone, address, bio)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        ON CONFLICT (id) DO UPDATE SET
@@ -478,6 +500,68 @@ export async function dbSaveUser(user: User): Promise<void> {
     );
   } catch (err) {
     logger.error("dbSaveUser error:", err);
+  }
+}
+
+export async function dbFindUserById(id: string): Promise<User | null> {
+  if (!pool || !isPostgresActive) return null;
+  try {
+    const res = await executeQuery<User>(`SELECT * FROM users WHERE id = $1 LIMIT 1`, [id]);
+    return res.rows[0] || null;
+  } catch (err) {
+    logger.error("dbFindUserById error:", err);
+    return null;
+  }
+}
+
+export async function dbFindUserByEmail(email: string): Promise<User | null> {
+  if (!pool || !isPostgresActive) return null;
+  try {
+    const res = await executeQuery<User>(`SELECT * FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1`, [email.trim()]);
+    return res.rows[0] || null;
+  } catch (err) {
+    logger.error("dbFindUserByEmail error:", err);
+    return null;
+  }
+}
+
+export async function dbSaveDeletedAccount(record: DeletedAccountRecord): Promise<void> {
+  if (!pool || !isPostgresActive) return;
+  try {
+    await executeQuery(
+      `INSERT INTO deleted_accounts (id, email, deleted_at, cooldown_until)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (id) DO UPDATE SET
+         email = EXCLUDED.email,
+         deleted_at = EXCLUDED.deleted_at,
+         cooldown_until = EXCLUDED.cooldown_until`,
+      [record.id, record.email.toLowerCase().trim(), record.deleted_at, record.cooldown_until]
+    );
+  } catch (err) {
+    logger.error("dbSaveDeletedAccount error:", err);
+  }
+}
+
+export async function dbFindDeletedAccount(email: string): Promise<DeletedAccountRecord | null> {
+  if (!pool || !isPostgresActive) return null;
+  try {
+    const res = await executeQuery<DeletedAccountRecord>(
+      `SELECT * FROM deleted_accounts WHERE LOWER(email) = LOWER($1) AND cooldown_until > $2 ORDER BY deleted_at DESC LIMIT 1`,
+      [email.trim(), new Date().toISOString()]
+    );
+    return res.rows[0] || null;
+  } catch (err) {
+    logger.error("dbFindDeletedAccount error:", err);
+    return null;
+  }
+}
+
+export async function dbDeleteExpiredDeletedAccount(email: string): Promise<void> {
+  if (!pool || !isPostgresActive) return;
+  try {
+    await executeQuery(`DELETE FROM deleted_accounts WHERE LOWER(email) = LOWER($1)`, [email.trim()]);
+  } catch (err) {
+    logger.error("dbDeleteExpiredDeletedAccount error:", err);
   }
 }
 
@@ -570,7 +654,7 @@ export async function dbFindResetTokenByHash(tokenHash: string): Promise<Passwor
 export async function dbSaveFamily(family: Family): Promise<void> {
   if (!pool || !isPostgresActive) return;
   try {
-    await pool.query(
+    await executeQuery(
       `INSERT INTO families (id, owner_id, name, created_at)
        VALUES ($1, $2, $3, $4)
        ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name`,

@@ -27,6 +27,7 @@ import {
   Users,
   Loader2,
   FolderTree,
+  Clock,
 } from "lucide-react";
 import { useAuth } from "../AuthContext.jsx";
 import { useFamily } from "./FamilyContext.jsx";
@@ -104,9 +105,13 @@ export default function AppHeader() {
     try {
       await deleteAccount();
       setDeleteAccountModalOpen(false);
-      navigate("/register", {
+      navigate("/login", {
         replace: true,
-        state: { message: "Your Rootline account and all associated family trees have been permanently deleted." },
+        state: {
+          cooldown: true,
+          message:
+            "Your Rootline account and all associated data have been permanently deleted. For account protection, you cannot recreate or sign in with this email for 24 hours. After 24 hours, you can create a fresh new account.",
+        },
       });
     } catch (err) {
       setDeleteAccountError(err?.message || "Failed to delete account. Please try again.");
@@ -968,6 +973,13 @@ export default function AppHeader() {
                   <li>All active tree shares and pending invitations</li>
                   <li>Your user credentials and profile information</li>
                 </ul>
+              </div>
+
+              <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 flex items-start gap-2.5">
+                <Clock className="w-4 h-4 shrink-0 text-amber-700 mt-0.5" />
+                <div className="text-xs leading-relaxed">
+                  <span className="font-semibold text-amber-950">24-Hour Cooling-Off Rule:</span> Once you delete your account, you will <strong className="font-semibold text-amber-950">not be able to create a new account or log in with this email for 24 hours</strong>. After 24 hours have passed, you can register a fresh new account.
+                </div>
               </div>
 
               {deleteAccountError && (

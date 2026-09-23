@@ -4,6 +4,12 @@ import {
   isDatabaseConnected,
   loadInitialData,
   dbSaveUser,
+  dbFindUserById,
+  dbFindUserByEmail,
+  dbSaveDeletedAccount,
+  dbFindDeletedAccount,
+  dbDeleteExpiredDeletedAccount,
+  type DeletedAccountRecord,
   dbSaveResetToken,
   dbSaveResetOtp,
   dbFindResetOtpByEmail,
@@ -306,6 +312,7 @@ export class MemoryStore {
   familyInvitations: Map<string, FamilyInvitation> = new Map();
   activityLogs: ActivityLog[] = [];
   chatHistories: Map<string, ChatMessage[]> = new Map(); // key: `${userId}:${familyId}`
+  deletedAccounts: Map<string, DeletedAccountRecord> = new Map(); // key: lowercase email
   isDatabaseSynced = false;
 
   constructor() {
@@ -381,6 +388,16 @@ export class MemoryStore {
         this.resetOtps.set(o.id, o);
       }
     }
+
+    if ((data as any).deletedAccounts) {
+      this.deletedAccounts.clear();
+      const now = Date.now();
+      for (const d of (data as any).deletedAccounts) {
+        if (new Date(d.cooldown_until).getTime() > now) {
+          this.deletedAccounts.set(d.email.toLowerCase().trim(), d);
+        }
+      }
+    }
     this.isDatabaseSynced = true;
 
     // Only if database is completely brand new and empty AND not production, allow optional demo seed
@@ -390,6 +407,71 @@ export class MemoryStore {
 
     logger.info(`Initialized store from PostgreSQL (${this.users.size} users, ${this.people.size} people, ${this.families.size} families).`);
     return true;
+  }
+
+  // --- Deletion Cooldown & Protection ---
+  isEmailInDeletionCooldown(email: string): {
+    inCooldown: boolean;
+    record?: DeletedAccountRecord;
+    remainingMs?: number;
+    cooldown_until?: string;
+    deleted_at?: string;
+  } {
+    const normalized = email.toLowerCase().trim();
+    const record = this.deletedAccounts.get(normalized);
+    if (!record) return { inCooldown: false };
+
+    const now = Date.now();
+    const cooldownEnd = new Date(record.cooldown_until).getTime();
+    if (now >= cooldownEnd) {
+      this.deletedAccounts.delete(normalized);
+      dbDeleteExpiredDeletedAccount(normalized).catch(() => {});
+      return { inCooldown: false };
+    }
+
+    return {
+      inCooldown: true,
+      record,
+      remainingMs: cooldownEnd - now,
+      cooldown_until: record.cooldown_until,
+      deleted_at: record.deleted_at,
+    };
+  }
+
+  async isEmailInDeletionCooldownAsync(email: string): Promise<{
+    inCooldown: boolean;
+    record?: DeletedAccountRecord;
+    remainingMs?: number;
+    cooldown_until?: string;
+    deleted_at?: string;
+  }> {
+    const local = this.isEmailInDeletionCooldown(email);
+    if (local.inCooldown) return local;
+
+    if (isDatabaseConnected()) {
+      try {
+        const dbRec = await dbFindDeletedAccount(email);
+        if (dbRec) {
+          const now = Date.now();
+          const cooldownEnd = new Date(dbRec.cooldown_until).getTime();
+          if (now < cooldownEnd) {
+            this.deletedAccounts.set(dbRec.email.toLowerCase().trim(), dbRec);
+            return {
+              inCooldown: true,
+              record: dbRec,
+              remainingMs: cooldownEnd - now,
+              cooldown_until: dbRec.cooldown_until,
+              deleted_at: dbRec.deleted_at,
+            };
+          } else {
+            await dbDeleteExpiredDeletedAccount(email);
+          }
+        }
+      } catch (err) {
+        logger.warn("Error checking deleted account in DB:", err);
+      }
+    }
+    return { inCooldown: false };
   }
 
   // --- Users ---
@@ -407,11 +489,43 @@ export class MemoryStore {
     return this.users.get(id) || null;
   }
 
+  async findUserByIdAsync(id: string): Promise<User | null> {
+    const existing = this.users.get(id);
+    if (existing) return existing;
+    if (isDatabaseConnected()) {
+      const dbUser = await dbFindUserById(id);
+      if (dbUser) {
+        this.users.set(dbUser.id, dbUser);
+        return dbUser;
+      }
+    }
+    return null;
+  }
+
+  async findUserByEmailAsync(email: string): Promise<User | null> {
+    const existing = this.findUserByEmail(email);
+    if (existing) return existing;
+    if (isDatabaseConnected()) {
+      const dbUser = await dbFindUserByEmail(email);
+      if (dbUser) {
+        this.users.set(dbUser.id, dbUser);
+        return dbUser;
+      }
+    }
+    return null;
+  }
+
   createUser(name: string, email: string, password?: string): User {
+    const normalizedEmail = email.toLowerCase().trim();
+    const cooldown = this.isEmailInDeletionCooldown(normalizedEmail);
+    if (cooldown.inCooldown) {
+      throw new Error(`This account was recently deleted. You cannot re-create an account with this email address for 24 hours (until ${cooldown.cooldown_until}).`);
+    }
+
     const user: User = {
       id: crypto.randomUUID(),
       name,
-      email: email.toLowerCase().trim(),
+      email: normalizedEmail,
       hashed_password: password ? bcrypt.hashSync(password, BCRYPT_ROUNDS) : null,
       google_id: null,
       is_active: true,
@@ -421,6 +535,29 @@ export class MemoryStore {
     this.users.set(user.id, user);
     dbSaveUser(user).catch((e) => logger.error("dbSaveUser error:", e));
     this.getOrCreateFamilyForUser(user);
+    return user;
+  }
+
+  async createUserAsync(name: string, email: string, password?: string): Promise<User> {
+    const normalizedEmail = email.toLowerCase().trim();
+    const cooldown = await this.isEmailInDeletionCooldownAsync(normalizedEmail);
+    if (cooldown.inCooldown) {
+      throw new Error(`This account was recently deleted. You cannot re-create an account with this email address for 24 hours (until ${cooldown.cooldown_until}).`);
+    }
+
+    const user: User = {
+      id: crypto.randomUUID(),
+      name,
+      email: normalizedEmail,
+      hashed_password: password ? bcrypt.hashSync(password, BCRYPT_ROUNDS) : null,
+      google_id: null,
+      is_active: true,
+      created_at: new Date().toISOString(),
+      password_version: 1,
+    };
+    this.users.set(user.id, user);
+    await dbSaveUser(user);
+    await this.getOrCreateFamilyForUserAsync(user);
     return user;
   }
 
@@ -1523,6 +1660,46 @@ export class MemoryStore {
     return family;
   }
 
+  async getOrCreateFamilyForUserAsync(user: User): Promise<Family> {
+    let family = this.families.get(user.id);
+    if (!family) {
+      family = {
+        id: user.id,
+        owner_id: user.id,
+        name: `${user.name}'s Family`,
+        created_at: new Date().toISOString(),
+      };
+      this.families.set(family.id, family);
+      await dbSaveFamily(family);
+
+      // Ensure owner is registered as owner member
+      const memberId = `${family.id}-${user.id}`;
+      if (!this.familyMembers.has(memberId)) {
+        const member = {
+          id: memberId,
+          family_id: family.id,
+          user_id: user.id,
+          role: "owner" as FamilyRole,
+          joined_at: family.created_at,
+        };
+        this.familyMembers.set(memberId, member);
+        await dbSaveFamilyMember(member);
+      }
+
+      this.logActivity({
+        family_id: family.id,
+        actor_id: user.id,
+        actor_name: user.name,
+        action: "FAMILY_CREATED",
+        target_type: "family",
+        target_id: family.id,
+        target_name: family.name,
+        description: `${user.name} created ${family.name}`,
+      });
+    }
+    return family;
+  }
+
   getFamily(familyId: string): Family | null {
     return this.families.get(familyId) || null;
   }
@@ -1843,7 +2020,21 @@ export class MemoryStore {
     // 9. Delete user record from memory
     this.users.delete(userId);
 
-    // 10. Persist deletion in PostgreSQL
+    // 10. Record email in deleted accounts with 24-hour cooldown
+    if (userEmail) {
+      const now = new Date();
+      const cooldownUntil = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24-hour cooling-off period
+      const deletedRecord: DeletedAccountRecord = {
+        id: crypto.randomUUID(),
+        email: userEmail,
+        deleted_at: now.toISOString(),
+        cooldown_until: cooldownUntil.toISOString(),
+      };
+      this.deletedAccounts.set(userEmail, deletedRecord);
+      await dbSaveDeletedAccount(deletedRecord);
+    }
+
+    // 11. Persist deletion in PostgreSQL
     await dbDeleteUserAccount(userId, userEmail);
 
     logger.info(`[Store] Purged account and all tree data for user ${userId} (${userEmail})`);
