@@ -108,7 +108,13 @@ export const api = {
   // ── Trees ─────────────────────────────────────────────────────────────
   listTrees: () => request("/families/my-trees"),
   getTree: (treeId) => request(`/api/family/current?family_id=${encodeURIComponent(treeId)}`),
-  createTree: (name) => request("/families", { method: "POST", body: { name } }),
+  createTree: (name, initialPerson) => {
+    const body =
+      typeof name === "object" && name !== null
+        ? name
+        : { name, ...(initialPerson || {}) };
+    return request("/families", { method: "POST", body });
+  },
   updateTree: (treeId, payload) =>
     request(`/families/${treeId}`, { method: "PATCH", body: payload }),
   deleteTree: (treeId) => request(`/families/${treeId}`, { method: "DELETE" }),

@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
-import { User, Calendar, Camera } from "lucide-react";
+import { User, Calendar, Camera, Sparkles } from "lucide-react";
 import AppHeader from "./AppHeader.jsx";
 import { useFamily } from "./FamilyContext.jsx";
+import { useAuth } from "../AuthContext.jsx";
 
 const RELATION_OPTIONS = [
   { value: "father", label: "is their father" },
@@ -34,7 +35,8 @@ const inputWithIconClass = `${inputClass} pl-9`;
 export default function PersonForm() {
   const navigate = useNavigate();
   const { id } = useParams(); // present when editing
-  const { people, addPerson, updatePerson, getPerson } = useFamily();
+  const { user } = useAuth();
+  const { people, addPerson, updatePerson, getPerson, setRootPersonId } = useFamily();
   const fileInputRef = useRef(null);
 
   const editing = Boolean(id);
@@ -77,6 +79,22 @@ export default function PersonForm() {
     });
     if (existing.photo_url) setPhotoPreview(existing.photo_url);
   }, [editing, existing?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When adding the first person to an empty tree, pre-fill with the logged in user as the owner/tree starter
+  useEffect(() => {
+    if (!editing && people.length === 0 && user) {
+      setForm((prev) => ({
+        ...prev,
+        name: prev.name || user.name || "",
+        dob: prev.dob || user.dob || "",
+        phone: prev.phone || user.phone || "",
+        address: prev.address || user.address || "",
+        notes: prev.notes || user.bio || "Tree Starter (Owner)",
+        photo_url: prev.photo_url || user.photo_url || "",
+      }));
+      if (user.photo_url) setPhotoPreview(user.photo_url);
+    }
+  }, [editing, people.length, user]);
 
   const update = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
 
@@ -185,9 +203,12 @@ export default function PersonForm() {
                 partnerStatus,
                 newFamily: familyId === "new-family",
               };
-        await addPerson(form, relation);
+        const newPersonId = await addPerson(form, relation);
+        if (people.length === 0 && newPersonId) {
+          setRootPersonId(newPersonId);
+        }
       }
-      navigate("/manage-tree");
+      navigate("/tree");
     } catch (err) {
       setError(err.message || "Something went wrong. Please try again.");
     }
@@ -202,13 +223,24 @@ export default function PersonForm() {
           ← Back to Manage Tree
         </Link>
         <h1 className="text-2xl font-serif font-bold text-[#1C1F1D] mb-1">
-          {editing ? "Edit person" : "Add a family member"}
+          {editing ? "Edit person" : people.length === 0 ? "Add First Person (Tree Starter)" : "Add a family member"}
         </h1>
-        <p className="text-sm text-[#6B7280] mb-8">
+        <p className="text-sm text-[#6B7280] mb-6">
           {editing
             ? "Update their details below."
+            : people.length === 0
+            ? "Every family tree begins with a starter person (usually yourself or an ancestor). We have pre-filled this with your profile."
             : "Enter their details, then tell us how they connect to someone already in the tree."}
         </p>
+
+        {!editing && people.length === 0 && (
+          <div className="mb-6 p-4 bg-[#E7F1EB] border border-[#1C4B3C]/20 rounded-xl flex items-start gap-3">
+            <Sparkles className="w-5 h-5 text-[#1C4B3C] shrink-0 mt-0.5" />
+            <div className="text-xs text-[#1C4B3C] leading-relaxed">
+              <strong>Tree Starter Perspective:</strong> You are adding the root person for this family tree. Once added, you will immediately see them in the visual tree structure and can start branching out parents, partners, siblings, and children.
+            </div>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="bg-white border border-[#E7E2D6] rounded-xl p-7">
           {error && (

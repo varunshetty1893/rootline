@@ -50,23 +50,31 @@ export default function RootlineDashboard() {
 
   // Unified list of all trees available to this user
   const allTrees = useMemo(() => {
+    const ownedIds = new Set(ownedTrees.map((t) => t.id));
+    if (user?.id) ownedIds.add(user.id);
+
     const list = [
-      ...ownedTrees.map((t) => ({ ...t, role: "owner", isOwned: true })),
-      ...sharedTrees.map((t) => ({ ...t, isOwned: false })),
+      ...ownedTrees.map((t) => ({ ...t, role: "owner", isOwned: true, owner_id: user?.id || t.owner_id })),
+      ...sharedTrees
+        .filter((t) => t && t.owner_id !== user?.id && t.id !== user?.id && !ownedIds.has(t.id))
+        .map((t) => ({ ...t, isOwned: false })),
     ];
     if (activeTree && !list.some((t) => t.id === activeTree.id)) {
+      const isOwned =
+        activeTree.isOwned ??
+        (activeTree.owner_id === user?.id || activeTree.id === user?.id || myRole === "owner");
       list.push({
         id: activeTree.id,
-        name: activeTree.name || "Family Tree",
-        owner_id: activeTree.owner_id,
-        owner_name: activeTree.owner_name || "Tree Owner",
-        role: myRole || activeTree.role || "viewer",
-        isOwned: myRole === "owner",
+        name: activeTree.name || `${user?.name || "My"}'s Family Tree`,
+        owner_id: isOwned ? user?.id : activeTree.owner_id,
+        owner_name: isOwned ? (user?.name || "You") : (activeTree.owner_name || "Tree Owner"),
+        role: isOwned ? "owner" : (myRole || activeTree.role || "viewer"),
+        isOwned,
         people_count: activeTree.people_count ?? people?.length ?? 0,
       });
     }
     return list;
-  }, [ownedTrees, sharedTrees, activeTree, myRole, people?.length]);
+  }, [ownedTrees, sharedTrees, activeTree, myRole, user?.id, user?.name, people?.length]);
 
   // Calculate generational hierarchy safely
   const generationsCount = useMemo(() => {
@@ -253,6 +261,37 @@ export default function RootlineDashboard() {
             </div>
           )}
         </section>
+
+        {/* ── Empty Tree Starter Prompt Banner ── */}
+        {people.length === 0 && (
+          <section className="bg-white border-2 border-dashed border-[#1C4B3C]/30 rounded-3xl p-6 sm:p-8 text-center shadow-xs">
+            <div className="w-12 h-12 rounded-2xl bg-[#E7F1EB] text-[#1C4B3C] flex items-center justify-center mx-auto mb-3">
+              <UserPlus className="w-6 h-6" />
+            </div>
+            <h2 className="text-lg font-serif font-bold text-[#1C1F1D] mb-1">
+              Start Your Family Tree
+            </h2>
+            <p className="text-xs sm:text-sm text-[#6B7280] max-w-md mx-auto mb-5 leading-relaxed">
+              Nothing to see in this tree yet! Add yourself as the first person (Tree Starter) or create a new family branch to begin mapping your lineage.
+            </p>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+              <Link
+                to="/people/new"
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-[#1C4B3C] hover:bg-[#163C30] text-white text-xs sm:text-sm font-semibold rounded-xl px-4 py-2.5 shadow-sm transition-all"
+              >
+                <UserPlus className="w-4 h-4" />
+                <span>Add First Person ({user?.name || "You"})</span>
+              </Link>
+              <Link
+                to="/shared-trees"
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-white hover:bg-[#FAF8F4] border border-[#D9D3C3] text-[#1C1F1D] text-xs sm:text-sm font-semibold rounded-xl px-4 py-2.5 transition-all"
+              >
+                <Plus className="w-4 h-4 text-[#1C4B3C]" />
+                <span>Create New Tree</span>
+              </Link>
+            </div>
+          </section>
+        )}
 
         {/* ── 4 Key Statistics Cards ── */}
         <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">

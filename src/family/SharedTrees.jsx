@@ -138,9 +138,16 @@ export default function SharedTrees() {
 
   const sharedTrees = useMemo(() => {
     const list = [...(treeList?.shared_trees || [])];
+    const ownedIds = new Set((treeList?.owned_trees || []).map((t) => t.id));
+    if (user?.id) ownedIds.add(user.id);
+
     if (
       activeTree &&
-      (!activeTree.isOwned || myRole !== "owner") &&
+      activeTree.owner_id !== user?.id &&
+      activeTree.id !== user?.id &&
+      !ownedIds.has(activeTree.id) &&
+      !activeTree.isOwned &&
+      myRole !== "owner" &&
       !list.some((t) => t.id === activeTree.id)
     ) {
       list.push({
@@ -155,8 +162,16 @@ export default function SharedTrees() {
         created_at: activeTree.created_at || new Date().toISOString(),
       });
     }
-    return list;
-  }, [treeList?.shared_trees, activeTree, myRole, people?.length]);
+
+    // Strict filter: Exclude any tree owned by the current user
+    return list.filter(
+      (t) =>
+        t &&
+        t.owner_id !== user?.id &&
+        t.id !== user?.id &&
+        !ownedIds.has(t.id)
+    );
+  }, [treeList?.shared_trees, treeList?.owned_trees, activeTree, myRole, user?.id, people?.length]);
 
   const ownedTrees = useMemo(() => {
     const list = [...(treeList?.owned_trees || [])];
@@ -289,7 +304,10 @@ export default function SharedTrees() {
             <button
               type="button"
               onClick={() => {
-                setNewTreeName("");
+                setNewTreeName(`${user?.name || "My"}'s Family Tree`);
+                setFirstPersonName(user?.name || "");
+                setFirstPersonGender(user?.gender && user.gender !== "unspecified" ? user.gender : "unspecified");
+                setFirstPersonDob(user?.dob || "");
                 setCreateError("");
                 setCreateModalOpen(true);
               }}
@@ -455,8 +473,34 @@ export default function SharedTrees() {
                 <p className="text-xs sm:text-sm text-[#6B7280] leading-relaxed mb-6 max-w-md mx-auto">
                   When a family member or relative invites your email (
                   <strong className="text-[#1C1F1D]">{user?.email}</strong>) to collaborate on
-                  their tree, it will appear right here with full access.
+                  their tree, it will appear right here with full access. Your own family trees remain safe under your personal ownership.
                 </p>
+
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-6">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewTreeName(`${user?.name || "My"}'s Family Tree`);
+                      setFirstPersonName(user?.name || "");
+                      setFirstPersonGender(user?.gender && user.gender !== "unspecified" ? user.gender : "unspecified");
+                      setFirstPersonDob(user?.dob || "");
+                      setCreateError("");
+                      setCreateModalOpen(true);
+                    }}
+                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-[#1C4B3C] hover:bg-[#163C30] text-white text-xs font-semibold rounded-xl px-4 py-2.5 shadow-sm transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Create New Family Tree</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("owned")}
+                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-white hover:bg-[#FAF8F4] border border-[#E7E2D6] text-[#1C1F1D] text-xs font-semibold rounded-xl px-4 py-2.5 transition-colors"
+                  >
+                    <FolderTree className="w-4 h-4 text-[#1C4B3C]" />
+                    <span>View My Trees ({ownedTrees.length})</span>
+                  </button>
+                </div>
 
                 <div className="bg-[#FAF8F4] border border-[#E7E2D6] rounded-xl p-4 text-left text-xs space-y-2.5 max-w-md mx-auto">
                   <p className="font-semibold text-[#1C1F1D] flex items-center gap-1.5">

@@ -25,10 +25,12 @@ import {
   UserCheck,
   ChevronDown,
   ChevronUp,
+  AlertCircle,
 } from "lucide-react";
 import AppHeader from "./AppHeader.jsx";
 import RelationshipChat from "./RelationshipChat.jsx";
 import { useFamily } from "./FamilyContext.jsx";
+import { useAuth } from "../AuthContext.jsx";
 import { computeLayout, ancestorsOf, recommendedCollapsedFamilyKeys, parentGroupsFor } from "./treeLayout.js";
 import { findRelationship, pathToEdgeKeySet } from "./relationship.js";
 
@@ -465,7 +467,19 @@ function PersonCard({
 
 export default function TreeView() {
   const [searchParams] = useSearchParams();
-  const { people, rootPersonId, setRootPersonId, addPerson, linkPeople, deletePerson } = useFamily();
+  const { user } = useAuth();
+  const {
+    people,
+    rootPersonId,
+    setRootPersonId,
+    addPerson,
+    linkPeople,
+    deletePerson,
+    createTree,
+    activeTree,
+    myRole,
+    canEdit,
+  } = useFamily();
   const containerRef = useRef(null);
   const scrollRef = useRef(null);
   const cardRefs = useRef({});
@@ -502,6 +516,71 @@ export default function TreeView() {
   const [mobileSheetMinimized, setMobileSheetMinimized] = useState(false);
   const panState = useRef(null);
   const lastRootRef = useRef(null);
+
+  // Create tree & first person modal state
+  const [createTreeModalOpen, setCreateTreeModalOpen] = useState(false);
+  const [newTreeName, setNewTreeName] = useState("");
+  const [newFirstPersonName, setNewFirstPersonName] = useState("");
+  const [newFirstPersonGender, setNewFirstPersonGender] = useState("unspecified");
+  const [newFirstPersonDob, setNewFirstPersonDob] = useState("");
+  const [treeCreating, setTreeCreating] = useState(false);
+  const [treeCreateError, setTreeCreateError] = useState("");
+  const [quickOwnerAdding, setQuickOwnerAdding] = useState(false);
+
+  const openCreateTreeModal = useCallback(() => {
+    setNewTreeName(`${user?.name || "My"}'s Family Tree`);
+    setNewFirstPersonName(user?.name || "");
+    setNewFirstPersonGender(user?.gender && user.gender !== "unspecified" ? user.gender : "unspecified");
+    setNewFirstPersonDob(user?.dob || "");
+    setTreeCreateError("");
+    setCreateTreeModalOpen(true);
+  }, [user]);
+
+  const handleQuickAddOwner = async () => {
+    setQuickOwnerAdding(true);
+    try {
+      const createdPerson = await addPerson({
+        name: user?.name || "Tree Starter",
+        gender: user?.gender && user.gender !== "unspecified" ? user.gender : "unspecified",
+        dob: user?.dob || "",
+        notes: "Tree Starter (Owner)",
+      });
+      if (createdPerson?.id) {
+        setRootPersonId(createdPerson.id);
+        setSelectedId(createdPerson.id);
+      }
+    } catch (err) {
+      console.error("Failed to add owner as tree starter", err);
+    } finally {
+      setQuickOwnerAdding(false);
+    }
+  };
+
+  const handleCreateTreeSubmit = async (e) => {
+    e.preventDefault();
+    if (!newTreeName.trim()) {
+      setTreeCreateError("Please enter a tree name.");
+      return;
+    }
+    setTreeCreating(true);
+    setTreeCreateError("");
+    try {
+      const result = await createTree(newTreeName.trim(), {
+        name: newFirstPersonName.trim() || user?.name || "Tree Starter",
+        gender: newFirstPersonGender !== "unspecified" ? newFirstPersonGender : (user?.gender || "unspecified"),
+        dob: newFirstPersonDob || user?.dob || "",
+      });
+      setCreateTreeModalOpen(false);
+      if (result?.person?.id) {
+        setRootPersonId(result.person.id);
+        setSelectedId(result.person.id);
+      }
+    } catch (err) {
+      setTreeCreateError(err.message || "Failed to create tree.");
+    } finally {
+      setTreeCreating(false);
+    }
+  };
 
   const peopleById = useMemo(() => new Map(people.map((p) => [p.id, p])), [people]);
   const directAncestors = useMemo(() => {
@@ -1387,6 +1466,35 @@ export default function TreeView() {
                   <button type="button" onClick={handleDeleteSelected} className="flex items-center justify-center gap-1.5 w-full text-xs font-medium text-[#A65035] border border-[#E7C4B8] rounded-md py-2 hover:bg-[#FBEAE1]"><Trash2 className="w-3.5 h-3.5" /> Delete person</button>
                 </div>
               </div>
+            ) : people.length === 0 ? (
+              <div className="p-6 text-center">
+                <div className="w-12 h-12 rounded-full bg-[#E7F1EB] text-[#1C4B3C] mx-auto mb-3 flex items-center justify-center">
+                  <UserPlus className="w-6 h-6" />
+                </div>
+                <h3 className="text-sm font-bold text-[#1C1F1D] mb-1">Tree is Empty</h3>
+                <p className="text-xs text-[#5A6980] mb-4 leading-relaxed">
+                  Add the first person to establish the starting person ("You") for this tree.
+                </p>
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={handleQuickAddOwner}
+                    disabled={quickOwnerAdding}
+                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#1C4B3C] text-white text-xs font-semibold py-2.5 hover:bg-[#163C30] shadow-sm disabled:opacity-50"
+                  >
+                    {quickOwnerAdding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5" />}
+                    <span>Add {user?.name || "Me"} as Tree Starter</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={openCreateTreeModal}
+                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-white border border-[#DCE3E1] text-[#1C1F1D] text-xs font-semibold py-2.5 hover:bg-[#F7F5F0]"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-[#1C4B3C]" />
+                    <span>Create New Family Tree</span>
+                  </button>
+                </div>
+              </div>
             ) : (
               <div className="p-8 text-center">
                 <User className="w-8 h-8 text-[#C9BEA8] mx-auto mb-3" />
@@ -1779,10 +1887,56 @@ export default function TreeView() {
             </div>
           </div>
 
-          {scopedPeople.length === 0 ? (
+          {people.length === 0 ? (
+            <div
+              className="flex-1 flex items-center justify-center p-8 bg-white"
+              style={{ backgroundImage: "radial-gradient(#DCE3E1 0.7px, transparent 0.7px)", backgroundSize: "16px 16px" }}
+            >
+              <div className="max-w-md w-full border border-dashed border-[#1C4B3C]/30 bg-[#FAF8F4]/80 rounded-2xl p-8 text-center shadow-xs">
+                <div className="w-14 h-14 rounded-2xl bg-[#E7F1EB] text-[#1C4B3C] flex items-center justify-center mx-auto mb-4 border border-[#1C4B3C]/20 shadow-2xs">
+                  <GitBranch className="w-7 h-7" />
+                </div>
+                <h3 className="text-lg font-serif font-bold text-[#1C1F1D] mb-2">
+                  Nothing to see in this tree yet
+                </h3>
+                <p className="text-xs text-[#6B7280] leading-relaxed mb-6">
+                  Every family tree begins with a starter person (owner). You can add yourself as the root person right now or create a brand new family tree with yourself as the starter person.
+                </p>
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleQuickAddOwner}
+                    disabled={quickOwnerAdding}
+                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[#1C4B3C] hover:bg-[#163C30] text-white text-xs font-semibold shadow-sm transition-all disabled:opacity-50"
+                  >
+                    {quickOwnerAdding ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+                    <span>Set {user?.name || "Myself"} as Tree Starter</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={openCreateTreeModal}
+                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-[#D9D3C3] hover:bg-[#FAF8F4] text-[#1C1F1D] text-xs font-semibold shadow-2xs transition-all"
+                  >
+                    <Plus className="w-4 h-4 text-[#1C4B3C]" />
+                    <span>Create Family Tree</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : scopedPeople.length === 0 ? (
             <div className="m-8 border border-dashed border-[#C9BEA8] rounded-xl px-8 py-20 text-center">
-              <p className="text-sm text-[#6B7280] mb-1">Nothing to show yet.</p>
-              <p className="text-xs text-[#9CA3AF]">Add someone on the left and the tree will build itself.</p>
+              <p className="text-sm font-semibold text-[#1C1F1D] mb-1">No matching family members in this view.</p>
+              <p className="text-xs text-[#6B7280] mb-4">You have {people.length} family members in this tree.</p>
+              <button
+                type="button"
+                onClick={() => {
+                  setFocusedView(false);
+                  setQuery("");
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1C4B3C] text-white text-xs font-semibold shadow-2xs hover:bg-[#163C30]"
+              >
+                Show All Family Members
+              </button>
             </div>
           ) : (
             <div
@@ -2290,6 +2444,133 @@ export default function TreeView() {
                 <span>Yes, set as Me</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Create Family Tree Modal ── */}
+      {createTreeModalOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in"
+          onClick={() => setCreateTreeModalOpen(false)}
+        >
+          <div
+            className="bg-white border border-[#E7E2D6] rounded-2xl w-full max-w-md p-6 shadow-2xl relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-[#E7E2D6] mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-[#1C4B3C]/10 text-[#1C4B3C] flex items-center justify-center">
+                  <GitBranch className="w-4 h-4" />
+                </div>
+                <h3 className="text-base font-serif font-bold text-[#1C1F1D]">
+                  Create New Family Tree
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCreateTreeModalOpen(false)}
+                className="text-[#9CA3AF] hover:text-[#1C1F1D] p-1 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-[#6B7280] mb-4 leading-relaxed">
+              Create a distinct family lineage. The first person is automatically set as the owner and root person so they are visible right in the tree structure.
+            </p>
+
+            <form onSubmit={handleCreateTreeSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-[#374151] mb-1">
+                  Family Tree Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={newTreeName}
+                  onChange={(e) => setNewTreeName(e.target.value)}
+                  placeholder="e.g. Shetty Family Tree"
+                  maxLength={100}
+                  required
+                  autoFocus
+                  className="w-full text-xs rounded-xl border border-[#D9D3C3] px-3 py-2 bg-white text-[#1C1F1D] focus:outline-none focus:ring-2 focus:ring-[#1C4B3C]/30 focus:border-[#1C4B3C]"
+                />
+              </div>
+
+              <div className="p-3.5 bg-[#FAF8F4] border border-[#E7E2D6] rounded-xl space-y-3">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[#1C4B3C] block">
+                  First Person (Tree Starter / Owner)
+                </span>
+
+                <div>
+                  <label className="block text-xs font-medium text-[#374151] mb-1">
+                    Full Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={newFirstPersonName}
+                    onChange={(e) => setNewFirstPersonName(e.target.value)}
+                    placeholder="Enter starter person name"
+                    required
+                    className="w-full text-xs rounded-xl border border-[#D9D3C3] px-3 py-2 bg-white text-[#1C1F1D] focus:outline-none focus:ring-2 focus:ring-[#1C4B3C]/30 focus:border-[#1C4B3C]"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs font-medium text-[#374151] mb-1">
+                      Gender
+                    </label>
+                    <select
+                      value={newFirstPersonGender}
+                      onChange={(e) => setNewFirstPersonGender(e.target.value)}
+                      className="w-full text-xs rounded-xl border border-[#D9D3C3] px-2.5 py-2 bg-white text-[#1C1F1D] focus:outline-none focus:ring-2 focus:ring-[#1C4B3C]/30 focus:border-[#1C4B3C]"
+                    >
+                      <option value="unspecified">Unspecified</option>
+                      <option value="male">Male</option>
+                      <option value="female">Female</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-[#374151] mb-1">
+                      Birth Year / Date
+                    </label>
+                    <input
+                      type="date"
+                      value={newFirstPersonDob}
+                      onChange={(e) => setNewFirstPersonDob(e.target.value)}
+                      className="w-full text-xs rounded-xl border border-[#D9D3C3] px-3 py-2 bg-white text-[#1C1F1D] focus:outline-none focus:ring-2 focus:ring-[#1C4B3C]/30 focus:border-[#1C4B3C]"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {treeCreateError && (
+                <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{treeCreateError}</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E7E2D6]">
+                <button
+                  type="button"
+                  onClick={() => setCreateTreeModalOpen(false)}
+                  className="px-4 py-2 text-xs font-medium text-[#6B7280] hover:text-[#1C1F1D] rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={treeCreating || !newTreeName.trim() || !newFirstPersonName.trim()}
+                  className="px-4 py-2 text-xs font-semibold text-white bg-[#1C4B3C] hover:bg-[#163C30] rounded-xl shadow-2xs disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {treeCreating && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>{treeCreating ? "Creating Tree…" : "Create Tree & View"}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

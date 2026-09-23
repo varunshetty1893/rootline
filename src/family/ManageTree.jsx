@@ -104,24 +104,32 @@ export default function ManageTree({ defaultTab = "people" }) {
   const sharedTrees = treeList?.shared_trees || [];
 
   const allTrees = useMemo(() => {
+    const ownedIds = new Set(ownedTrees.map((t) => t.id));
+    if (user?.id) ownedIds.add(user.id);
+
     const list = [
-      ...ownedTrees.map((t) => ({ ...t, role: "owner", isOwned: true })),
-      ...sharedTrees.map((t) => ({ ...t, isOwned: false })),
+      ...ownedTrees.map((t) => ({ ...t, role: "owner", isOwned: true, owner_id: user?.id || t.owner_id })),
+      ...sharedTrees
+        .filter((t) => t && t.owner_id !== user?.id && t.id !== user?.id && !ownedIds.has(t.id))
+        .map((t) => ({ ...t, isOwned: false })),
     ];
     // Resilient fallback: if an active tree is loaded but not yet present in list, include it
     if (activeTreeId && !list.some((t) => t.id === activeTreeId)) {
+      const isOwned =
+        activeTree?.isOwned ??
+        (activeTree?.owner_id === user?.id || activeTreeId === user?.id || myRole === "owner");
       list.push({
         id: activeTreeId,
-        name: activeTree?.name || "Family Tree",
-        owner_id: activeTree?.owner_id,
-        owner_name: activeTree?.owner_name || "Tree Owner",
-        role: myRole || "viewer",
-        isOwned: myRole === "owner",
+        name: activeTree?.name || `${user?.name || "My"}'s Family Tree`,
+        owner_id: isOwned ? user?.id : activeTree?.owner_id,
+        owner_name: isOwned ? (user?.name || "You") : (activeTree?.owner_name || "Tree Owner"),
+        role: isOwned ? "owner" : (myRole || "viewer"),
+        isOwned,
         people_count: people?.length || 0,
       });
     }
     return list;
-  }, [ownedTrees, sharedTrees, activeTreeId, activeTree, myRole, people?.length]);
+  }, [ownedTrees, sharedTrees, activeTreeId, activeTree, myRole, user?.id, user?.name, people?.length]);
 
   const filteredTreeCards = useMemo(() => {
     if (treeCardFilter === "owned") return allTrees.filter((t) => t.isOwned);
@@ -368,7 +376,7 @@ export default function ManageTree({ defaultTab = "people" }) {
       if (result?.family?.id) {
         setActiveTreeId(result.family.id);
       }
-      setActiveTab("people");
+      navigate("/tree");
     } catch (err) {
       setCreateError(err.message || "Failed to create tree.");
     } finally {
@@ -648,9 +656,9 @@ export default function ManageTree({ defaultTab = "people" }) {
                 type="button"
                 id="add-new-tree-card"
                 onClick={() => {
-                  setNewTreeName("");
+                  setNewTreeName(`${user?.name || "My"}'s Family Tree`);
                   setFirstPersonName(user?.name || "");
-                  setFirstPersonGender(user?.gender || "unspecified");
+                  setFirstPersonGender(user?.gender && user.gender !== "unspecified" ? user.gender : "unspecified");
                   setFirstPersonDob(user?.dob || "");
                   setCreateError("");
                   setCreateModalOpen(true);
@@ -865,17 +873,34 @@ export default function ManageTree({ defaultTab = "people" }) {
                   <p className="text-xs text-[#6B7280] max-w-sm mx-auto mb-4">
                     {query || genderFilter !== "all"
                       ? "Try adjusting your search query or filters to find who you're looking for."
-                      : `Get started by adding the first relative to "${activeTree?.name}".`}
+                      : `Get started by adding yourself or an ancestor as the first person (Tree Starter) in "${activeTree?.name}".`}
                   </p>
-                  {canEdit && (
-                    <Link
-                      to="/people/new"
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold text-white bg-[#1C4B3C] hover:bg-[#163C30] transition-colors"
+                  <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5">
+                    {canEdit && (
+                      <Link
+                        to="/people/new"
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold text-white bg-[#1C4B3C] hover:bg-[#163C30] transition-colors shadow-2xs"
+                      >
+                        <UserPlus className="w-3.5 h-3.5" />
+                        <span>Add First Person ({user?.name || "You"})</span>
+                      </Link>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewTreeName(`${user?.name || "My"}'s Family Tree`);
+                        setFirstPersonName(user?.name || "");
+                        setFirstPersonGender(user?.gender && user.gender !== "unspecified" ? user.gender : "unspecified");
+                        setFirstPersonDob(user?.dob || "");
+                        setCreateError("");
+                        setCreateModalOpen(true);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold text-[#1C1F1D] bg-white border border-[#D9D3C3] hover:bg-[#FAF8F4] transition-colors"
                     >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Add Family Member</span>
-                    </Link>
-                  )}
+                      <Plus className="w-3.5 h-3.5 text-[#1C4B3C]" />
+                      <span>Create New Tree</span>
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="divide-y divide-[#E7E2D6]">

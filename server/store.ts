@@ -1800,7 +1800,10 @@ export class MemoryStore {
 
     const ownedList: Family[] = [];
     for (const fam of this.families.values()) {
-      if (fam && fam.owner_id === userId) {
+      if (fam && (fam.owner_id === userId || fam.id === userId)) {
+        if (fam.owner_id !== userId) {
+          fam.owner_id = userId;
+        }
         ownedList.push(fam);
       }
     }
@@ -1820,26 +1823,28 @@ export class MemoryStore {
     }
 
     const defaultOwnFamily = ownedList[0];
+    const ownedFamilyIds = new Set<string>();
+    for (const fam of ownedList) {
+      ownedFamilyIds.add(fam.id);
+    }
+    ownedFamilyIds.add(userId);
+
     const shared: { family: Family; role: SharePermission; owner: { id: string; name: string; email: string } }[] = [];
-    const normalizedUserEmail = user?.email.toLowerCase().trim() || "";
+    const normalizedUserEmail = user?.email ? user.email.toLowerCase().trim() : "";
 
     // 1. Look up via treeShares
     for (const s of this.treeShares.values()) {
+      // If user is the owner, or if this family is owned by user, SKIP — IT CAN NEVER BE SHARED!
+      if (s.owner_id === userId) continue;
+      if (ownedFamilyIds.has(s.family_id)) continue;
+
       const matchesUser =
         s.user_id === userId ||
         (normalizedUserEmail && s.user_id.toLowerCase().trim() === normalizedUserEmail);
       if (matchesUser) {
-        let fam = this.families.get(s.family_id);
-        if (!fam && s.family_id) {
-          fam = {
-            id: s.family_id,
-            owner_id: s.owner_id || "owner",
-            name: "Family Tree",
-            created_at: s.created_at || new Date().toISOString(),
-          };
-          this.families.set(fam.id, fam);
-        }
-        if (fam && fam.owner_id !== userId) {
+        const fam = this.families.get(s.family_id);
+        // Strictly avoid manufacturing dummy families with owner_id = "owner"
+        if (fam && fam.owner_id !== userId && fam.id !== userId && !ownedFamilyIds.has(fam.id)) {
           const ownerUser = this.users.get(s.owner_id) || this.users.get(fam.owner_id);
           if (!shared.some((sh) => sh.family?.id === fam.id)) {
             shared.push({
@@ -1859,18 +1864,10 @@ export class MemoryStore {
     // 2. Look up via familyMembers
     for (const m of this.familyMembers.values()) {
       if (m.user_id === userId && m.role !== "owner") {
+        if (ownedFamilyIds.has(m.family_id)) continue;
         if (!shared.some((sh) => sh.family?.id === m.family_id)) {
-          let fam = this.families.get(m.family_id);
-          if (!fam && m.family_id) {
-            fam = {
-              id: m.family_id,
-              owner_id: "owner",
-              name: "Family Tree",
-              created_at: m.joined_at || new Date().toISOString(),
-            };
-            this.families.set(fam.id, fam);
-          }
-          if (fam && fam.owner_id !== userId) {
+          const fam = this.families.get(m.family_id);
+          if (fam && fam.owner_id !== userId && fam.id !== userId && !ownedFamilyIds.has(fam.id)) {
             const ownerUser = this.users.get(fam.owner_id);
             shared.push({
               family: fam,
@@ -1893,18 +1890,12 @@ export class MemoryStore {
         (inv.accepted_by_user_id === userId ||
           (normalizedUserEmail && inv.invitee_email.toLowerCase().trim() === normalizedUserEmail))
       ) {
+        if (inv.inviter_id === userId) continue;
+        if (ownedFamilyIds.has(inv.family_id)) continue;
+
         if (!shared.some((sh) => sh.family?.id === inv.family_id)) {
-          let fam = this.families.get(inv.family_id);
-          if (!fam && inv.family_id) {
-            fam = {
-              id: inv.family_id,
-              owner_id: inv.inviter_id || "owner",
-              name: inv.family_name || "Family Tree",
-              created_at: inv.created_at || new Date().toISOString(),
-            };
-            this.families.set(fam.id, fam);
-          }
-          if (fam && fam.owner_id !== userId) {
+          const fam = this.families.get(inv.family_id);
+          if (fam && fam.owner_id !== userId && fam.id !== userId && !ownedFamilyIds.has(fam.id)) {
             const ownerUser = this.users.get(inv.inviter_id) || this.users.get(fam.owner_id);
             shared.push({
               family: fam,
@@ -1920,14 +1911,34 @@ export class MemoryStore {
       }
     }
 
+    // Final strict filter: Ensure no owned family can EVER leak into shared
+    const sanitizedShared = shared.filter(
+      (sh) =>
+        sh &&
+        sh.family &&
+        sh.family.owner_id !== userId &&
+        sh.family.id !== userId &&
+        !ownedFamilyIds.has(sh.family.id)
+    );
+
     return {
       owned: { family: defaultOwnFamily, role: "owner" },
       ownedList,
-      shared,
+      shared: sanitizedShared,
     };
   }
 
-  createFamily(user: User, name: string): Family {
+  createFamily(
+    user: User,
+    name: string,
+    initialPerson?: {
+      name?: string;
+      gender?: string | null;
+      date_of_birth?: string | null;
+      photo_url?: string | null;
+      bio?: string | null;
+    }
+  ): { family: Family; person: PersonOut } {
     const family: Family = {
       id: crypto.randomUUID(),
       owner_id: user.id,
@@ -1948,6 +1959,26 @@ export class MemoryStore {
     this.familyMembers.set(memberId, member);
     dbSaveFamilyMember(member).catch((e) => logger.error("dbSaveFamilyMember error:", e));
 
+    // Automatically create the first person as the owner in this newly created family tree
+    const personName = initialPerson?.name?.trim() || user.name || "Tree Starter";
+    const personGender = initialPerson?.gender && initialPerson.gender !== "unspecified" ? initialPerson.gender : null;
+    const personDob = initialPerson?.date_of_birth || user.dob || null;
+    const personPhoto = initialPerson?.photo_url || user.photo_url || null;
+    const personBio = initialPerson?.bio || "Tree Starter (Owner)";
+
+    const person = this.createPerson(
+      family.id,
+      {
+        name: personName,
+        gender: personGender,
+        date_of_birth: personDob,
+        photo_url: personPhoto,
+        bio: personBio,
+      },
+      undefined,
+      { id: user.id, name: user.name }
+    );
+
     this.logActivity({
       family_id: family.id,
       actor_id: user.id,
@@ -1956,10 +1987,10 @@ export class MemoryStore {
       target_type: "family",
       target_id: family.id,
       target_name: family.name,
-      description: `${user.name} created family tree "${family.name}"`,
+      description: `${user.name} created family tree "${family.name}" with first person "${personName}"`,
     });
 
-    return family;
+    return { family, person };
   }
 
   renameFamily(userId: string, familyId: string, name: string): Family {

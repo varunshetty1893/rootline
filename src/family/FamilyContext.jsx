@@ -46,7 +46,7 @@ function treeListStorageKey(userId) {
   return `rootline:treelist:${userId}`;
 }
 
-function normalizeTreeList(raw) {
+function normalizeTreeList(raw, currentUserId) {
   if (!raw || typeof raw !== "object") {
     return { owned_trees: [], shared_trees: [], owned: null, shared: [] };
   }
@@ -55,7 +55,7 @@ function normalizeTreeList(raw) {
   let shared_trees = [];
 
   if (Array.isArray(raw.owned_trees)) {
-    owned_trees = raw.owned_trees;
+    owned_trees = [...raw.owned_trees];
   } else if (raw.owned?.family) {
     owned_trees = [
       {
@@ -69,7 +69,7 @@ function normalizeTreeList(raw) {
   }
 
   if (Array.isArray(raw.shared_trees)) {
-    shared_trees = raw.shared_trees;
+    shared_trees = [...raw.shared_trees];
   } else if (Array.isArray(raw.shared)) {
     shared_trees = raw.shared.map((s) => ({
       id: s.family?.id || s.id,
@@ -79,6 +79,29 @@ function normalizeTreeList(raw) {
       role: s.role || "viewer",
       people_count: s.people_count ?? 0,
     }));
+  }
+
+  // CRITICAL SANITIZATION: If any tree in shared_trees belongs to the user, MOVE IT to owned_trees!
+  if (currentUserId) {
+    const ownedIds = new Set(owned_trees.map((t) => t.id));
+    ownedIds.add(currentUserId);
+
+    const actualShared = [];
+    for (const tree of shared_trees) {
+      if (tree.owner_id === currentUserId || tree.id === currentUserId || ownedIds.has(tree.id)) {
+        if (!owned_trees.some((t) => t.id === tree.id)) {
+          owned_trees.push({
+            ...tree,
+            role: "owner",
+            isOwned: true,
+            owner_id: currentUserId,
+          });
+        }
+      } else {
+        actualShared.push(tree);
+      }
+    }
+    shared_trees = actualShared;
   }
 
   return {
@@ -104,7 +127,7 @@ export function FamilyProvider({ children }) {
         if (cached) {
           const parsed = JSON.parse(cached);
           if (parsed && (parsed.owned_trees?.length > 0 || parsed.shared_trees?.length > 0)) {
-            return parsed;
+            return normalizeTreeList(parsed, user.id);
           }
         }
       } catch (_) {}
@@ -132,7 +155,7 @@ export function FamilyProvider({ children }) {
           if (cached) {
             const parsed = JSON.parse(cached);
             if (parsed && (parsed.owned_trees?.length > 0 || parsed.shared_trees?.length > 0)) {
-              setTreeList(parsed);
+              setTreeList(normalizeTreeList(parsed, user.id));
               setTreesLoading(false);
             }
           }
@@ -140,7 +163,7 @@ export function FamilyProvider({ children }) {
       }
 
       const data = await api.listTrees();
-      const normalized = normalizeTreeList(data);
+      const normalized = normalizeTreeList(data, user.id);
       setTreeList(normalized);
       if (typeof window !== "undefined") {
         try {
@@ -184,26 +207,32 @@ export function FamilyProvider({ children }) {
 
   // Derive role from tree list whenever activeTreeId or treeList changes
   useEffect(() => {
-    if (!activeTreeId) {
+    if (!activeTreeId || activeTreeId === user?.id) {
       setMyRole("owner");
       return;
     }
     const ownedTrees = treeList?.owned_trees || [];
     const sharedTrees = treeList?.shared_trees || [];
 
-    const owned = ownedTrees.find((t) => t.id === activeTreeId);
+    const owned = ownedTrees.find((t) => t.id === activeTreeId || t.owner_id === user?.id);
     if (owned) {
       setMyRole("owner");
       return;
     }
-    const shared = sharedTrees.find((t) => t.id === activeTreeId);
+    const shared = sharedTrees.find(
+      (t) => t.id === activeTreeId && t.owner_id !== user?.id && t.id !== user?.id
+    );
     if (shared) {
-      setMyRole(shared.role);
+      setMyRole(shared.role || "viewer");
       return;
     }
-    // Tree not found in list — default to viewer (safe)
-    setMyRole("viewer");
-  }, [activeTreeId, treeList]);
+    // If tree list is still loading, don't drop to viewer prematurely
+    if (treesLoading) {
+      return;
+    }
+    // Default safe fallback for user's created/active tree is owner
+    setMyRole("owner");
+  }, [activeTreeId, treeList, user?.id, treesLoading]);
 
   /** Convenience flags derived from the current role. */
   const canEdit = myRole === "owner" || myRole === "editor";
@@ -214,22 +243,40 @@ export function FamilyProvider({ children }) {
     const ownedTrees = treeList?.owned_trees || [];
     const sharedTrees = treeList?.shared_trees || [];
     if (!activeTreeId) {
-      return ownedTrees[0] || null;
+      return (
+        ownedTrees[0] || {
+          id: user?.id || "default",
+          name: `${user?.name || "My"}'s Family Tree`,
+          owner_id: user?.id,
+          role: "owner",
+          isOwned: true,
+          people_count: people?.length || 0,
+        }
+      );
     }
     const found =
       ownedTrees.find((t) => t.id === activeTreeId) ||
       sharedTrees.find((t) => t.id === activeTreeId);
-    if (found) return found;
+    if (found) {
+      const isOwned = found.isOwned ?? (found.owner_id === user?.id || found.id === user?.id || myRole === "owner");
+      return {
+        ...found,
+        isOwned,
+        role: isOwned ? "owner" : (found.role || myRole || "viewer"),
+      };
+    }
 
-    // Resilient fallback: activeTreeId is selected and people may be loaded
+    // Resilient fallback: activeTreeId is selected
+    const isOwned = myRole === "owner" || activeTreeId === user?.id;
     return {
       id: activeTreeId,
-      name: "Family Tree",
-      role: myRole || "viewer",
-      isOwned: myRole === "owner",
+      name: `${user?.name || "My"}'s Family Tree`,
+      owner_id: user?.id,
+      role: isOwned ? "owner" : (myRole || "viewer"),
+      isOwned,
       people_count: people?.length || 0,
     };
-  }, [activeTreeId, treeList, myRole, people?.length]);
+  }, [activeTreeId, treeList, myRole, user?.id, user?.name, people?.length]);
 
   // ── People for the active tree ─────────────────────────────────────────
   const refresh = useCallback(async () => {
@@ -426,29 +473,37 @@ export function FamilyProvider({ children }) {
 
   const createTree = useCallback(
     async (name, firstPersonData) => {
-      const newFamily = await api.createTree(name);
-      await refreshTreeList();
+      const treeName = typeof name === "string" ? name.trim() : (name?.name ? name.name.trim() : `${user?.name || "My"}'s Family`);
+      const starterName = firstPersonData?.name?.trim() || user?.name || "Tree Starter";
+      const starterGender =
+        firstPersonData?.gender && firstPersonData.gender !== "unspecified"
+          ? firstPersonData.gender
+          : (user?.gender && user.gender !== "unspecified" ? user.gender : undefined);
+      const starterDob = firstPersonData?.dob || firstPersonData?.date_of_birth || user?.dob || undefined;
+      const starterBio = firstPersonData?.bio || "Tree Starter (Owner)";
+
+      const newFamily = await api.createTree({
+        name: treeName,
+        first_person_name: starterName,
+        first_person_gender: starterGender,
+        first_person_dob: starterDob,
+        first_person_bio: starterBio,
+      });
+
+      // Immediately register as owned in active state
       setActiveTreeId(newFamily.id);
-      let createdPerson = null;
-      if (firstPersonData && firstPersonData.name && firstPersonData.name.trim()) {
-        createdPerson = await api.createPerson(
-          {
-            name: firstPersonData.name.trim(),
-            gender: firstPersonData.gender || "unspecified",
-            date_of_birth: firstPersonData.dob || firstPersonData.date_of_birth || undefined,
-            bio: firstPersonData.bio || undefined,
-            family_id: newFamily.id,
-          },
-          newFamily.id
-        );
-        if (createdPerson?.id) {
-          setRootPersonId(createdPerson.id);
-        }
+      setMyRole("owner");
+
+      const createdPerson = newFamily.first_person || null;
+      if (createdPerson?.id) {
+        setRootPersonId(createdPerson.id);
       }
+
+      await refreshTreeList();
       await refresh();
       return { family: newFamily, person: createdPerson };
     },
-    [refreshTreeList, setActiveTreeId, setRootPersonId, refresh]
+    [user, refreshTreeList, setActiveTreeId, setRootPersonId, refresh]
   );
 
   const renameTree = useCallback(
@@ -491,41 +546,55 @@ export function FamilyProvider({ children }) {
     const shared = [...(treeList?.shared_trees || [])];
 
     if (activeTree) {
-      const isOwned = activeTree.isOwned ?? (myRole === "owner");
+      const isOwned =
+        activeTree.isOwned ??
+        (activeTree.owner_id === user?.id || activeTree.id === user?.id || myRole === "owner");
       if (isOwned) {
         if (!owned.some((t) => t.id === activeTree.id)) {
           owned.push({
             id: activeTree.id,
-            name: activeTree.name || "My Family Tree",
+            name: activeTree.name || `${user?.name || "My"}'s Family Tree`,
             role: "owner",
             isOwned: true,
+            owner_id: user?.id,
             people_count: activeTree.people_count ?? people?.length ?? 0,
             created_at: activeTree.created_at || new Date().toISOString(),
           });
         }
-      } else {
-        if (!shared.some((t) => t.id === activeTree.id)) {
-          shared.push({
-            id: activeTree.id,
-            name: activeTree.name || "Family Tree",
-            owner_id: activeTree.owner_id,
-            owner_name: activeTree.owner_name || "Tree Owner",
-            owner_email: activeTree.owner_email || "",
-            role: myRole || activeTree.role || "viewer",
-            isOwned: false,
-            people_count: activeTree.people_count ?? people?.length ?? 0,
-            created_at: activeTree.created_at || new Date().toISOString(),
-          });
-        }
+      } else if (
+        activeTree.owner_id !== user?.id &&
+        activeTree.id !== user?.id &&
+        !shared.some((t) => t.id === activeTree.id)
+      ) {
+        shared.push({
+          id: activeTree.id,
+          name: activeTree.name || "Family Tree",
+          owner_id: activeTree.owner_id,
+          owner_name: activeTree.owner_name || "Tree Owner",
+          owner_email: activeTree.owner_email || "",
+          role: myRole || activeTree.role || "viewer",
+          isOwned: false,
+          people_count: activeTree.people_count ?? people?.length ?? 0,
+          created_at: activeTree.created_at || new Date().toISOString(),
+        });
       }
     }
+
+    const ownedIds = new Set(owned.map((t) => t.id));
+    if (user?.id) ownedIds.add(user.id);
 
     return {
       ...treeList,
       owned_trees: owned,
-      shared_trees: shared,
+      shared_trees: shared.filter(
+        (s) =>
+          s &&
+          s.owner_id !== user?.id &&
+          s.id !== user?.id &&
+          !ownedIds.has(s.id)
+      ),
     };
-  }, [treeList, activeTree, myRole, people?.length]);
+  }, [treeList, activeTree, myRole, user?.id, user?.name, people?.length]);
 
   return (
     <FamilyContext.Provider

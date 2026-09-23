@@ -1697,8 +1697,11 @@ export async function createExpressApp() {
         };
       });
 
+      const ownedIds = new Set<string>(ownedTrees.map((t) => t.id));
+      ownedIds.add(req.user!.id);
+
       const sharedTrees = (trees.shared || [])
-        .filter((s) => s && s.family)
+        .filter((s) => s && s.family && s.family.owner_id !== req.user!.id && s.family.id !== req.user!.id && !ownedIds.has(s.family.id))
         .map((s) => {
           const count = store.getPeopleCount(s.family.id);
           return {
@@ -2080,15 +2083,27 @@ export async function createExpressApp() {
   // Tree management endpoints (create new tree, rename tree, delete tree, leave tree)
   const handleCreateFamily = (req: AuthRequest, res: any) => {
     try {
-      const { name } = isRecord(req.body) ? req.body : {};
+      const body = isRecord(req.body) ? req.body : {};
+      const { name, first_person_name, first_person_gender, first_person_dob, first_person_bio } = body;
       if (!name || typeof name !== "string" || !name.trim()) {
         return res.status(400).json({ detail: "Tree name is required." });
       }
       if (name.trim().length > 100) {
         return res.status(400).json({ detail: "Tree name cannot exceed 100 characters." });
       }
-      const family = store.createFamily(req.user!, name.trim());
-      return res.status(201).json(family);
+
+      const initialPerson = {
+        name: (typeof first_person_name === "string" && first_person_name.trim()) ? first_person_name.trim() : (req.user!.name || "Tree Starter"),
+        gender: (typeof first_person_gender === "string" && first_person_gender !== "unspecified") ? first_person_gender : null,
+        date_of_birth: (typeof first_person_dob === "string" && first_person_dob.trim()) ? first_person_dob.trim() : (req.user!.dob || null),
+        bio: (typeof first_person_bio === "string" && first_person_bio.trim()) ? first_person_bio.trim() : "Tree Starter (Owner)",
+      };
+
+      const result = store.createFamily(req.user!, name.trim(), initialPerson);
+      return res.status(201).json({
+        ...result.family,
+        first_person: result.person,
+      });
     } catch (err: any) {
       return res.status(500).json({ detail: err.message || "Failed to create family tree." });
     }
