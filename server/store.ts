@@ -1780,17 +1780,47 @@ export class MemoryStore {
         : { id: userId, owner_id: userId, name: "My Family Tree", created_at: new Date().toISOString() });
 
     const shared: { family: Family; role: SharePermission; owner: { id: string; name: string; email: string } }[] = [];
+    const normalizedUserEmail = user?.email.toLowerCase().trim() || "";
 
     for (const s of this.treeShares.values()) {
-      if (s.user_id === userId) {
+      const matchesUser = s.user_id === userId || (normalizedUserEmail && s.user_id.toLowerCase().trim() === normalizedUserEmail);
+      if (matchesUser) {
         const fam = this.families.get(s.family_id);
-        const ownerUser = this.users.get(s.owner_id);
-        if (fam && ownerUser) {
+        const ownerUser = this.users.get(s.owner_id) || (fam ? this.users.get(fam.owner_id) : null);
+        if (fam) {
           shared.push({
             family: fam,
             role: s.permission,
-            owner: { id: ownerUser.id, name: ownerUser.name, email: ownerUser.email },
+            owner: {
+              id: ownerUser?.id || fam.owner_id,
+              name: ownerUser?.name || "Tree Owner",
+              email: ownerUser?.email || "",
+            },
           });
+        }
+      }
+    }
+
+    // Also include any trees where user has an accepted invitation but treeShare might not have matched
+    for (const inv of this.familyInvitations.values()) {
+      if (
+        inv.status === "accepted" &&
+        (inv.accepted_by_user_id === userId || (normalizedUserEmail && inv.invitee_email.toLowerCase().trim() === normalizedUserEmail))
+      ) {
+        if (!shared.some((sh) => sh.family.id === inv.family_id)) {
+          const fam = this.families.get(inv.family_id);
+          const ownerUser = this.users.get(inv.inviter_id) || (fam ? this.users.get(fam.owner_id) : null);
+          if (fam) {
+            shared.push({
+              family: fam,
+              role: inv.permission,
+              owner: {
+                id: ownerUser?.id || fam.owner_id,
+                name: ownerUser?.name || inv.inviter_name || "Tree Owner",
+                email: ownerUser?.email || inv.inviter_email || "",
+              },
+            });
+          }
         }
       }
     }
@@ -2180,7 +2210,9 @@ export class MemoryStore {
       id: string;
       user_id: string;
       name: string;
+      user_name: string;
       email: string;
+      user_email: string;
       permission: SharePermission;
       created_at: string;
       updated_at: string;
@@ -2200,7 +2232,9 @@ export class MemoryStore {
       id: string;
       user_id: string;
       name: string;
+      user_name: string;
       email: string;
+      user_email: string;
       permission: SharePermission;
       created_at: string;
       updated_at: string;
@@ -2208,18 +2242,28 @@ export class MemoryStore {
 
     for (const s of this.treeShares.values()) {
       if (s.family_id === familyId) {
-        const u = this.users.get(s.user_id);
-        if (u) {
-          shares.push({
-            id: s.id,
-            user_id: u.id,
-            name: u.name,
-            email: u.email,
-            permission: s.permission,
-            created_at: s.created_at,
-            updated_at: s.updated_at,
-          });
-        }
+        let u = this.users.get(s.user_id) || Array.from(this.users.values()).find(
+          (user) => user.id === s.user_id || user.email.toLowerCase() === s.user_id.toLowerCase()
+        );
+        // Also look up any accepted invitation for this user/email
+        const inv = Array.from(this.familyInvitations.values()).find(
+          (i) => i.family_id === familyId && (i.accepted_by_user_id === s.user_id || i.invitee_email.toLowerCase() === (u?.email || s.user_id).toLowerCase())
+        );
+
+        const name = u?.name || (inv ? inv.invitee_email.split("@")[0] : (s.user_id.includes("@") ? s.user_id.split("@")[0] : "Collaborator"));
+        const email = u?.email || inv?.invitee_email || (s.user_id.includes("@") ? s.user_id : "");
+
+        shares.push({
+          id: s.id,
+          user_id: u?.id || s.user_id,
+          name,
+          user_name: name,
+          email,
+          user_email: email,
+          permission: s.permission,
+          created_at: s.created_at,
+          updated_at: s.updated_at,
+        });
       }
     }
 

@@ -424,6 +424,21 @@ export default function ShareModal({ treeId, treeName, onClose }) {
                 )}
                 {sharesData.shares.map((share) => {
                   const rs = rowState[share.id] || {};
+                  const displayName =
+                    share.user_name ||
+                    share.name ||
+                    (share.user_email || share.email
+                      ? (share.user_email || share.email).split("@")[0]
+                      : "Collaborator");
+                  const displayEmail = share.user_email || share.email || "";
+                  const initial = (
+                    displayName && displayName !== "Collaborator"
+                      ? displayName[0]
+                      : displayEmail
+                      ? displayEmail[0]
+                      : "?"
+                  ).toUpperCase();
+
                   return (
                     <li
                       key={share.id}
@@ -431,14 +446,16 @@ export default function ShareModal({ treeId, treeName, onClose }) {
                     >
                       <div className="w-8 h-8 rounded-full bg-[#E7E2D6] flex items-center justify-center shrink-0">
                         <span className="text-xs font-semibold text-[#6B7280]">
-                          {share.user_name?.[0]?.toUpperCase() || "?"}
+                          {initial}
                         </span>
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-[#1C1F1D] truncate">
-                          {share.user_name}
+                          {displayName}
                         </p>
-                        <p className="text-xs text-[#6B7280] truncate">{share.user_email}</p>
+                        {displayEmail && (
+                          <p className="text-xs text-[#6B7280] truncate">{displayEmail}</p>
+                        )}
                         {rs.error && (
                           <p className="text-xs text-red-600 mt-0.5">{rs.error}</p>
                         )}

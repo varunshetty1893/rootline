@@ -355,12 +355,20 @@ export default function AppHeader() {
                     </div>
                   </div>
                   {activeTree && (
-                    <div className="mt-2 pt-2 border-t border-[#E7E2D6]/60 flex items-center justify-between text-[10px] text-[#6B7280]">
-                      <span className="truncate">{activeTree.name}</span>
-                      <span className="capitalize font-semibold text-[#1C4B3C] bg-[#1C4B3C]/10 px-1.5 py-0.5 rounded">
+                    <Link
+                      to="/tree"
+                      onClick={() => setProfileMenuOpen(false)}
+                      className="mt-2 pt-2 border-t border-[#E7E2D6]/60 flex items-center justify-between text-xs text-[#374151] hover:text-[#1C4B3C] hover:bg-[#F7F5F0]/70 p-1.5 rounded-lg group transition-colors"
+                      title="Open Active Family Tree"
+                    >
+                      <span className="truncate font-semibold flex items-center gap-1.5">
+                        <GitBranch className="w-3.5 h-3.5 text-[#1C4B3C] group-hover:scale-110 transition-transform" />
+                        <span className="truncate">{activeTree.name}</span>
+                      </span>
+                      <span className="capitalize text-[10px] font-semibold text-[#1C4B3C] bg-[#1C4B3C]/10 px-1.5 py-0.5 rounded group-hover:bg-[#1C4B3C] group-hover:text-white transition-colors">
                         {myRole}
                       </span>
-                    </div>
+                    </Link>
                   )}
                 </div>
 

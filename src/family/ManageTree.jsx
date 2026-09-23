@@ -1280,6 +1280,21 @@ export default function ManageTree({ defaultTab = "people" }) {
                   {/* Shared Users */}
                   {(sharesData?.shares || []).map((share) => {
                     const state = rowState[share.id] || {};
+                    const displayName =
+                      share.user_name ||
+                      share.name ||
+                      (share.user_email || share.email
+                        ? (share.user_email || share.email).split("@")[0]
+                        : "Collaborator");
+                    const displayEmail = share.user_email || share.email || "";
+                    const initial = (
+                      displayName && displayName !== "Collaborator"
+                        ? displayName[0]
+                        : displayEmail
+                        ? displayEmail[0]
+                        : "U"
+                    ).toUpperCase();
+
                     return (
                       <div
                         key={share.id}
@@ -1287,14 +1302,14 @@ export default function ManageTree({ defaultTab = "people" }) {
                       >
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 rounded-full bg-[#FAF8F4] border border-[#E7E2D6] text-[#1C4B3C] flex items-center justify-center text-xs font-bold">
-                            {(share.user_name || share.user_email || "U")[0].toUpperCase()}
+                            {initial}
                           </div>
                           <div>
                             <p className="text-xs font-semibold text-[#1C1F1D]">
-                              {share.user_name || share.user_email}
+                              {displayName}
                             </p>
-                            {share.user_name && (
-                              <p className="text-[11px] text-[#6B7280]">{share.user_email}</p>
+                            {displayEmail && (
+                              <p className="text-[11px] text-[#6B7280]">{displayEmail}</p>
                             )}
                           </div>
                         </div>

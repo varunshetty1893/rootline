@@ -387,20 +387,38 @@ export default function FamilyShareModal({ isOpen, onClose }) {
               </div>
             ) : (
               <ul className="divide-y divide-[#E7E2D6] border border-[#E7E2D6] rounded-xl overflow-hidden bg-white">
-                {sharesData?.shares?.map((share) => (
+                {sharesData?.shares?.map((share) => {
+                  const displayName =
+                    share.user_name ||
+                    share.name ||
+                    (share.user_email || share.email
+                      ? (share.user_email || share.email).split("@")[0]
+                      : "Collaborator");
+                  const displayEmail = share.user_email || share.email || "";
+                  const initial = (
+                    displayName && displayName !== "Collaborator"
+                      ? displayName[0]
+                      : displayEmail
+                      ? displayEmail[0]
+                      : "U"
+                  ).toUpperCase();
+
+                  return (
                   <li
                     key={share.id}
                     className="p-3 flex items-center justify-between gap-3 hover:bg-[#FAF9F5] transition-colors"
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
                       <div className="w-8 h-8 rounded-full bg-[#EBE7DF] flex items-center justify-center text-[#1C1F1D] text-xs font-bold shrink-0">
-                        {share.user_name ? share.user_name[0].toUpperCase() : <User className="w-4 h-4" />}
+                        {initial}
                       </div>
                       <div className="min-w-0">
                         <p className="text-xs font-semibold text-[#1C1F1D] truncate">
-                          {share.user_name}
+                          {displayName}
                         </p>
-                        <p className="text-[11px] text-[#6B7280] truncate">{share.user_email}</p>
+                        {displayEmail && (
+                          <p className="text-[11px] text-[#6B7280] truncate">{displayEmail}</p>
+                        )}
                       </div>
                     </div>
 
@@ -434,7 +452,8 @@ export default function FamilyShareModal({ isOpen, onClose }) {
                       )}
                     </div>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             )}
           </div>
