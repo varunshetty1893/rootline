@@ -460,10 +460,17 @@ export async function createExpressApp() {
 
     const resolvedHost = isGoogle ? "smtp.gmail.com" : (host || "smtp.gmail.com");
 
+    // Both port 465 (SMTPS) and port 443 (SSL/TLS relay) require immediate TLS on connect (secure: true).
+    // Port 587 and 25 use STARTTLS (secure: false).
+    const isSecure =
+      process.env.SMTP_SECURE !== undefined
+        ? process.env.SMTP_SECURE === "true"
+        : port === 465 || port === 443;
+
     return nodemailer.createTransport({
       host: resolvedHost,
       port,
-      secure: port === 465,
+      secure: isSecure,
       auth: { user, pass },
       tls: {
         rejectUnauthorized: false,
@@ -509,9 +516,9 @@ export async function createExpressApp() {
         primaryErr?.message?.includes("ENETUNREACH") ||
         primaryErr?.message?.includes("ETIMEDOUT");
 
-      // For Google/Gmail, if primary port (e.g. 465) fails due to network routing, automatically try 587 (or vice-versa)
+      // For Google/Gmail, if primary port fails due to network routing, automatically try fallback port
       if (isGoogle && isConnectionError) {
-        const fallbackPort = primaryPort === 465 ? 587 : 465;
+        const fallbackPort = primaryPort === 443 ? 465 : primaryPort === 465 ? 587 : 465;
         logger.warn(`[Email] Primary port ${primaryPort} connection failed (${primaryErr.message}). Retrying via fallback port ${fallbackPort} on IPv4...`);
         const fallbackTransporter = createEmailTransporter(fallbackPort);
         await fallbackTransporter.sendMail(mailOptions);
@@ -714,7 +721,19 @@ export async function createExpressApp() {
     const rawOtp = crypto.randomInt(100000, 1000000).toString();
     const otpRecord = store.createPasswordResetOtp(user.id, user.email, rawOtp, 10);
 
-    logger.info(`[Password Reset OTP] Generated 6-digit OTP ${rawOtp} for ${user.email}`);
+    // Persist required reset/OTP information to database before proceeding
+    try {
+      await store.persistPasswordResetOtp(otpRecord.id);
+    } catch (persistErr: any) {
+      logger.error("Failed to persist password reset OTP / token to PostgreSQL:", persistErr);
+      return res.status(500).json({
+        success: false,
+        detail: "Database persistence error while preparing password reset. Please try again shortly.",
+        code: "DB_PERSISTENCE_FAILED",
+      });
+    }
+
+    logger.info(`[Password Reset OTP] Generated and persisted 6-digit OTP for ${user.email}`);
 
     let emailSent = false;
     let emailError: string | null = null;
@@ -753,7 +772,7 @@ export async function createExpressApp() {
   app.post("/api/auth/forgot-password", passwordResetLimiter, handleForgotPassword);
 
   // Verify 6-digit Email OTP (Option 1)
-  const handleVerifyOtp = (req: Request, res: Response) => {
+  const handleVerifyOtp = async (req: Request, res: Response) => {
     const { email, otp } = isRecord(req.body) ? req.body : {};
     if (!isText(email, 254, 3) || !EMAIL_RE.test(email.trim())) {
       return res.status(400).json({ detail: "A valid email address is required." });
@@ -762,7 +781,7 @@ export async function createExpressApp() {
       return res.status(400).json({ detail: "Please enter the 6-digit verification code." });
     }
 
-    const verification = store.verifyPasswordResetOtp(email.trim(), otp.trim());
+    const verification = await store.verifyPasswordResetOtpAsync(email.trim(), otp.trim());
     if (!verification.success) {
       return res.status(400).json({ detail: verification.error || "Verification failed." });
     }
@@ -965,7 +984,7 @@ export async function createExpressApp() {
   app.post("/email/test", handleEmailTest);
 
   // Atomic Token Consumption (Fixes Issue 11)
-  app.post("/auth/reset-password", passwordResetLimiter, (req, res) => {
+  app.post("/auth/reset-password", passwordResetLimiter, async (req, res) => {
     const { token, new_password } = isRecord(req.body) ? req.body : {};
     if (!isText(token, 256, 32) || !isText(new_password, 128, 1)) {
       return res.status(400).json({ detail: "This reset link is invalid or has expired" });
@@ -977,7 +996,7 @@ export async function createExpressApp() {
     }
 
     // Atomic claim test-and-set prevents concurrent reuse of the same token
-    const resetRow = store.claimResetToken(token);
+    const resetRow = await store.claimResetTokenAsync(token);
     if (!resetRow) {
       return res.status(400).json({ detail: "This reset link is invalid, expired, or has already been used" });
     }

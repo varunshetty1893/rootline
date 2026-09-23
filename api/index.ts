@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import { createExpressApp } from "../server.js";
-import { initDatabase } from "../server/db.js";
+import { initDatabase, isDatabaseConnected } from "../server/db.js";
 import { store } from "../server/store.js";
 
 let appPromise: Promise<any> | null = null;
@@ -23,6 +23,18 @@ async function getApp() {
 }
 
 export default async function handler(req: Request, res: Response) {
+  // Re-attempt DB connection on subsequent requests if initial cold-boot connection timed out
+  if (process.env.DATABASE_URL?.trim() && !isDatabaseConnected()) {
+    try {
+      const dbConnected = await initDatabase();
+      if (dbConnected && !store.isDatabaseSynced) {
+        await store.initFromDatabase();
+      }
+    } catch {
+      // Continue to app handler; route-level handlers will surface specific DB errors if persistence is needed
+    }
+  }
+
   const app = await getApp();
   return app(req, res);
 }

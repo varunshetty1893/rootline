@@ -5,6 +5,9 @@ import {
   loadInitialData,
   dbSaveUser,
   dbSaveResetToken,
+  dbSaveResetOtp,
+  dbFindResetOtpByEmail,
+  dbFindResetTokenByHash,
   dbSaveFamily,
   dbDeleteFamily,
   dbSaveFamilyMember,
@@ -301,6 +304,7 @@ export class MemoryStore {
   familyInvitations: Map<string, FamilyInvitation> = new Map();
   activityLogs: ActivityLog[] = [];
   chatHistories: Map<string, ChatMessage[]> = new Map(); // key: `${userId}:${familyId}`
+  isDatabaseSynced = false;
 
   constructor() {
     // Seed demo accounts in in-memory mode or development (unless SEED_DEMO_DATA is explicitly false)
@@ -368,6 +372,14 @@ export class MemoryStore {
       list.push(msg);
       this.chatHistories.set(key, list);
     }
+
+    if ((data as any).resetOtps) {
+      this.resetOtps.clear();
+      for (const o of (data as any).resetOtps) {
+        this.resetOtps.set(o.id, o);
+      }
+    }
+    this.isDatabaseSynced = true;
 
     // Only if database is completely brand new and empty AND not production, allow optional demo seed
     if (this.users.size === 0 && process.env.NODE_ENV !== "production" && process.env.SEED_DEMO_DATA === "true") {
@@ -495,6 +507,34 @@ export class MemoryStore {
     return null;
   }
 
+  async claimResetTokenAsync(rawToken: string): Promise<PasswordResetToken | null> {
+    const claimed = this.claimResetToken(rawToken);
+    if (claimed) {
+      try {
+        await dbSaveResetToken(claimed);
+      } catch (err) {
+        logger.error("Error persisting claimed reset token to DB:", err);
+      }
+      return claimed;
+    }
+
+    if (isDatabaseConnected()) {
+      try {
+        const submittedDigest = crypto.createHash("sha256").update(rawToken).digest("hex");
+        const dbToken = await dbFindResetTokenByHash(submittedDigest);
+        if (dbToken && !dbToken.used && dbToken.expires_at > new Date().toISOString()) {
+          dbToken.used = true;
+          this.resetTokens.set(dbToken.id, dbToken);
+          await dbSaveResetToken(dbToken);
+          return dbToken;
+        }
+      } catch (err) {
+        logger.error("Error claiming reset token from DB:", err);
+      }
+    }
+    return null;
+  }
+
   // --- Browser Email OTP Generation & Verification (Option 1) ---
   createPasswordResetOtp(userId: string, email: string, rawOtp: string, expireMinutes = 10): PasswordResetOtp {
     const normalizedEmail = email.toLowerCase().trim();
@@ -529,6 +569,45 @@ export class MemoryStore {
     return row;
   }
 
+  async persistPasswordResetOtp(otpId: string): Promise<void> {
+    const otp = this.resetOtps.get(otpId);
+    if (!otp) {
+      throw new Error("Password reset OTP record not found in memory store.");
+    }
+
+    const tokenHash = crypto.createHash("sha256").update(otp.reset_token).digest("hex");
+    let tokenRow: PasswordResetToken | undefined;
+    for (const t of this.resetTokens.values()) {
+      if (t.token_hash === tokenHash) {
+        tokenRow = t;
+        break;
+      }
+    }
+
+    const saves: Promise<void>[] = [];
+    saves.push(dbSaveResetOtp(otp));
+    if (tokenRow) {
+      saves.push(dbSaveResetToken(tokenRow));
+    }
+    // Also persist any invalidated tokens or OTPs for this user
+    for (const t of this.resetTokens.values()) {
+      if (t.user_id === otp.user_id && t.used && t.id !== tokenRow?.id) {
+        saves.push(dbSaveResetToken(t));
+      }
+    }
+    for (const o of this.resetOtps.values()) {
+      if (
+        (o.user_id === otp.user_id || o.email === otp.email) &&
+        o.id !== otp.id &&
+        o.expires_at <= new Date().toISOString()
+      ) {
+        saves.push(dbSaveResetOtp(o));
+      }
+    }
+
+    await Promise.all(saves);
+  }
+
   verifyPasswordResetOtp(email: string, rawOtp: string): { success: boolean; reset_token?: string; error?: string } {
     const normalizedEmail = email.toLowerCase().trim();
     const cleanOtp = String(rawOtp || "").trim();
@@ -552,6 +631,7 @@ export class MemoryStore {
 
     if (matchingOtp.attempts >= matchingOtp.max_attempts) {
       matchingOtp.expires_at = new Date(0).toISOString();
+      dbSaveResetOtp(matchingOtp).catch((e) => logger.error("dbSaveResetOtp error:", e));
       return {
         success: false,
         error: "Too many incorrect attempts. For security reasons, please request a new verification code.",
@@ -563,6 +643,7 @@ export class MemoryStore {
 
     if (!isMatch) {
       matchingOtp.attempts += 1;
+      dbSaveResetOtp(matchingOtp).catch((e) => logger.error("dbSaveResetOtp error:", e));
       const remaining = matchingOtp.max_attempts - matchingOtp.attempts;
       return {
         success: false,
@@ -571,10 +652,29 @@ export class MemoryStore {
     }
 
     matchingOtp.verified = true;
+    dbSaveResetOtp(matchingOtp).catch((e) => logger.error("dbSaveResetOtp error:", e));
     return {
       success: true,
       reset_token: matchingOtp.reset_token,
     };
+  }
+
+  async verifyPasswordResetOtpAsync(
+    email: string,
+    rawOtp: string
+  ): Promise<{ success: boolean; reset_token?: string; error?: string }> {
+    const normalizedEmail = email.toLowerCase().trim();
+    if (isDatabaseConnected()) {
+      try {
+        const dbOtp = await dbFindResetOtpByEmail(normalizedEmail);
+        if (dbOtp && !this.resetOtps.has(dbOtp.id)) {
+          this.resetOtps.set(dbOtp.id, dbOtp);
+        }
+      } catch (err) {
+        logger.warn("Error looking up reset OTP in PostgreSQL:", err);
+      }
+    }
+    return this.verifyPasswordResetOtp(normalizedEmail, rawOtp);
   }
 
   // --- Cycle Detection (Fixes Issue 10) ---

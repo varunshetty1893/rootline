@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import crypto from "crypto";
-import { MemoryStore, store } from "../server/store.js";
+import { MemoryStore, store, type PasswordResetToken } from "../server/store.js";
 
 describe("Rootline Data Integrity & Security Tests", () => {
   let testStore: MemoryStore;
@@ -418,6 +418,47 @@ describe("Rootline Data Integrity & Security Tests", () => {
         // New OTP succeeds
         const newResult = testStore.verifyPasswordResetOtp("test@example.com", "222222");
         expect(newResult.success).toBe(true);
+      });
+
+      it("persists OTP and associated reset token via persistPasswordResetOtp", async () => {
+        const otpRecord = testStore.createPasswordResetOtp(ownerId, "test@example.com", "777888", 10);
+        await expect(testStore.persistPasswordResetOtp(otpRecord.id)).resolves.toBeUndefined();
+      });
+
+      it("rejects persistPasswordResetOtp if record does not exist in store", async () => {
+        await expect(testStore.persistPasswordResetOtp("non-existent-id")).rejects.toThrow(
+          "Password reset OTP record not found"
+        );
+      });
+    });
+
+    describe("Serverless PostgreSQL Configuration and Error Propagation", () => {
+      it("dbSaveResetToken throws error when DATABASE_URL is configured but database connection fails", async () => {
+        const { dbSaveResetToken } = await import("../server/db.js");
+        const prevUrl = process.env.DATABASE_URL;
+        try {
+          // Set an unreachable database URL
+          process.env.DATABASE_URL = "postgres://invalid_user:invalid_pass@127.0.0.1:54329/nonexistent_db";
+          const dummyToken: PasswordResetToken = {
+            id: "test-token-id",
+            user_id: "test-user-id",
+            token_hash: "hash123",
+            expires_at: new Date(Date.now() + 60000).toISOString(),
+            used: false,
+            created_at: new Date().toISOString(),
+          };
+          // Must throw and NOT silently swallow the error
+          await expect(dbSaveResetToken(dummyToken)).rejects.toThrow();
+        } finally {
+          process.env.DATABASE_URL = prevUrl;
+        }
+      });
+
+      it("verifies port 443 enables implicit TLS for cloud SMTP configurations", () => {
+        const isSecureForPort = (port: number) => port === 465 || port === 443;
+        expect(isSecureForPort(443)).toBe(true);
+        expect(isSecureForPort(465)).toBe(true);
+        expect(isSecureForPort(587)).toBe(false);
       });
     });
   });

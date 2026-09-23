@@ -3,6 +3,7 @@ import { logger } from "./logger.js";
 import type {
   User,
   PasswordResetToken,
+  PasswordResetOtp,
   Person,
   FamilyUnit,
   FamilyChild,
@@ -16,7 +17,17 @@ import type {
 
 const { Pool } = pg;
 
-let pool: pg.Pool | null = null;
+declare global {
+  // eslint-disable-next-line no-var
+  var __rootline_pg_pool__: pg.Pool | undefined;
+}
+
+const isServerless =
+  !!process.env.VERCEL ||
+  !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
+  process.env.NODE_ENV === "production";
+
+let pool: pg.Pool | null = globalThis.__rootline_pg_pool__ || null;
 let isPostgresActive = false;
 
 export function isDatabaseConnected(): boolean {
@@ -25,6 +36,83 @@ export function isDatabaseConnected(): boolean {
 
 export function getDatabasePool(): pg.Pool | null {
   return pool;
+}
+
+function getSslConfig(databaseUrl: string) {
+  const isLocalhost =
+    databaseUrl.includes("localhost") ||
+    databaseUrl.includes("127.0.0.1") ||
+    databaseUrl.includes(".local");
+  if (isLocalhost) {
+    return false;
+  }
+  return { rejectUnauthorized: false };
+}
+
+export function createPgPool(databaseUrl: string): pg.Pool {
+  if (globalThis.__rootline_pg_pool__) {
+    return globalThis.__rootline_pg_pool__;
+  }
+
+  // Serverless environments (like Vercel) scale horizontally by spinning up multiple instances.
+  // Using max: 2 prevents exhausting PostgreSQL max_connections while allowing concurrent ops.
+  const maxConnections = process.env.DB_POOL_MAX
+    ? parseInt(process.env.DB_POOL_MAX, 10)
+    : isServerless
+      ? 2
+      : 10;
+
+  // 10s connection timeout gives adequate headroom for serverless databases (e.g. Neon waking from pause)
+  // without stalling requests indefinitely.
+  const connectionTimeout = process.env.DB_CONNECTION_TIMEOUT_MS
+    ? parseInt(process.env.DB_CONNECTION_TIMEOUT_MS, 10)
+    : 10000;
+
+  const newPool = new Pool({
+    connectionString: databaseUrl,
+    ssl: getSslConfig(databaseUrl),
+    max: maxConnections,
+    idleTimeoutMillis: isServerless ? 10000 : 30000,
+    connectionTimeoutMillis: connectionTimeout,
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10000,
+  });
+
+  newPool.on("error", (err: any) => {
+    logger.warn("Unexpected error on idle PostgreSQL client:", err?.message || err);
+  });
+
+  globalThis.__rootline_pg_pool__ = newPool;
+  return newPool;
+}
+
+export async function executeQuery<R extends pg.QueryResultRow = any>(
+  text: string,
+  params?: any[]
+): Promise<pg.QueryResult<R>> {
+  if (!pool) {
+    throw new Error("PostgreSQL pool is not initialized.");
+  }
+
+  try {
+    return await pool.query<R>(text, params);
+  } catch (err: any) {
+    const isConnErr =
+      err?.code === "ECONNRESET" ||
+      err?.code === "57P01" ||
+      err?.code === "57P02" ||
+      err?.code === "57P03" ||
+      err?.code === "08006" ||
+      err?.code === "08001" ||
+      err?.message?.includes("Connection terminated") ||
+      err?.message?.includes("timeout");
+
+    if (isConnErr) {
+      logger.warn(`PostgreSQL transient error (${err.message}). Retrying query once with fresh connection...`);
+      return await pool.query<R>(text, params);
+    }
+    throw err;
+  }
 }
 
 export async function checkDbHealth(): Promise<{ type: "postgres" | "memory"; connected: boolean; error?: string }> {
@@ -45,25 +133,19 @@ export async function checkDbHealth(): Promise<{ type: "postgres" | "memory"; co
 }
 
 export async function initDatabase(): Promise<boolean> {
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+  if (!databaseUrl) {
+    logger.info("DATABASE_URL not set. Running with In-Memory Store.");
+    isPostgresActive = false;
+    return false;
+  }
+
   if (pool && isPostgresActive) {
     return true;
   }
 
-  const databaseUrl = process.env.DATABASE_URL?.trim();
-  if (!databaseUrl) {
-    logger.info("DATABASE_URL not set. Running with In-Memory Store.");
-    return false;
-  }
-
   try {
-    const isLocalhost = databaseUrl.includes("localhost") || databaseUrl.includes("127.0.0.1");
-    pool = new Pool({
-      connectionString: databaseUrl,
-      ssl: isLocalhost ? false : { rejectUnauthorized: false },
-      max: 10,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 5000,
-    });
+    pool = createPgPool(databaseUrl);
 
     const client = await pool.connect();
     try {
@@ -78,10 +160,6 @@ export async function initDatabase(): Promise<boolean> {
   } catch (err: any) {
     logger.error("Failed to connect to PostgreSQL database, falling back to In-Memory Store:", err);
     isPostgresActive = false;
-    if (pool) {
-      pool.end().catch(() => {});
-      pool = null;
-    }
     return false;
   }
 }
@@ -110,6 +188,19 @@ async function initSchema(client: pg.PoolClient) {
       token_hash TEXT NOT NULL,
       expires_at TEXT NOT NULL,
       used BOOLEAN DEFAULT FALSE,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS password_reset_otps (
+      id VARCHAR(64) PRIMARY KEY,
+      user_id VARCHAR(64) NOT NULL,
+      email TEXT NOT NULL,
+      otp_hash TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      attempts INTEGER DEFAULT 0,
+      max_attempts INTEGER DEFAULT 5,
+      verified BOOLEAN DEFAULT FALSE,
+      reset_token VARCHAR(128) NOT NULL,
       created_at TEXT NOT NULL
     );
 
@@ -230,6 +321,9 @@ async function initSchema(client: pg.PoolClient) {
     CREATE INDEX IF NOT EXISTS idx_children_unit ON family_children(family_unit_id);
     CREATE INDEX IF NOT EXISTS idx_activity_family ON activity_logs(family_id);
     CREATE INDEX IF NOT EXISTS idx_chat_family_user ON chat_messages(family_id, user_id);
+    CREATE INDEX IF NOT EXISTS idx_reset_otps_email ON password_reset_otps(email);
+    CREATE INDEX IF NOT EXISTS idx_reset_otps_user ON password_reset_otps(user_id);
+    CREATE INDEX IF NOT EXISTS idx_reset_tokens_hash ON password_reset_tokens(token_hash);
   `;
 
   await client.query(schemaSql);
@@ -265,6 +359,7 @@ export async function loadInitialData() {
       invitationsRes,
       activitiesRes,
       chatsRes,
+      otpsRes,
     ] = await Promise.all([
       pool.query<User>("SELECT * FROM users"),
       pool.query<PasswordResetToken>("SELECT * FROM password_reset_tokens"),
@@ -277,6 +372,7 @@ export async function loadInitialData() {
       pool.query<FamilyInvitation>("SELECT * FROM family_invitations"),
       pool.query<ActivityLog>("SELECT * FROM activity_logs ORDER BY created_at ASC"),
       pool.query<any>("SELECT * FROM chat_messages ORDER BY timestamp ASC"),
+      pool.query<PasswordResetOtp>("SELECT * FROM password_reset_otps").catch(() => ({ rows: [] as PasswordResetOtp[] })),
     ]);
 
     const toIso = (val: any) => {
@@ -333,6 +429,11 @@ export async function loadInitialData() {
         ...m,
         timestamp: toIso(m.timestamp),
       })),
+      resetOtps: (otpsRes?.rows || []).map((o: any) => ({
+        ...o,
+        created_at: toIso(o.created_at),
+        expires_at: toIso(o.expires_at),
+      })),
     };
   } catch (err) {
     logger.error("Error loading initial data from PostgreSQL:", err);
@@ -381,16 +482,88 @@ export async function dbSaveUser(user: User): Promise<void> {
 }
 
 export async function dbSaveResetToken(token: PasswordResetToken): Promise<void> {
-  if (!pool || !isPostgresActive) return;
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+  if (!databaseUrl) {
+    return; // In-memory development mode, persistence skipped
+  }
+
+  if (!pool || !isPostgresActive) {
+    const connected = await initDatabase();
+    if (!connected || !pool) {
+      throw new Error("PostgreSQL database is configured but unavailable to persist reset token.");
+    }
+  }
+
+  // Do NOT catch and swallow error here: let the caller know that persistence failed
+  await executeQuery(
+    `INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at, used, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (id) DO UPDATE SET used = EXCLUDED.used`,
+    [token.id, token.user_id, token.token_hash, token.expires_at, token.used, token.created_at]
+  );
+}
+
+export async function dbSaveResetOtp(otp: PasswordResetOtp): Promise<void> {
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+  if (!databaseUrl) {
+    return; // In-memory development mode, persistence skipped
+  }
+
+  if (!pool || !isPostgresActive) {
+    const connected = await initDatabase();
+    if (!connected || !pool) {
+      throw new Error("PostgreSQL database is configured but unavailable to persist reset OTP.");
+    }
+  }
+
+  // Do NOT catch and swallow error here: let the caller know that persistence failed
+  await executeQuery(
+    `INSERT INTO password_reset_otps (id, user_id, email, otp_hash, expires_at, attempts, max_attempts, verified, reset_token, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+     ON CONFLICT (id) DO UPDATE SET
+       expires_at = EXCLUDED.expires_at,
+       attempts = EXCLUDED.attempts,
+       verified = EXCLUDED.verified`,
+    [
+      otp.id,
+      otp.user_id,
+      otp.email,
+      otp.otp_hash,
+      otp.expires_at,
+      otp.attempts,
+      otp.max_attempts,
+      otp.verified,
+      otp.reset_token,
+      otp.created_at,
+    ]
+  );
+}
+
+export async function dbFindResetOtpByEmail(email: string): Promise<PasswordResetOtp | null> {
+  if (!pool || !isPostgresActive) return null;
   try {
-    await pool.query(
-      `INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at, used, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       ON CONFLICT (id) DO UPDATE SET used = EXCLUDED.used`,
-      [token.id, token.user_id, token.token_hash, token.expires_at, token.used, token.created_at]
+    const res = await executeQuery<PasswordResetOtp>(
+      `SELECT * FROM password_reset_otps WHERE email = $1 AND expires_at > $2 AND verified = FALSE ORDER BY created_at DESC LIMIT 1`,
+      [email.toLowerCase().trim(), new Date().toISOString()]
     );
+    return res.rows[0] || null;
   } catch (err) {
-    logger.error("dbSaveResetToken error:", err);
+    logger.error("dbFindResetOtpByEmail error:", err);
+    return null;
+  }
+}
+
+export async function dbFindResetTokenByHash(tokenHash: string): Promise<PasswordResetToken | null> {
+  if (!pool || !isPostgresActive) return null;
+  try {
+    const res = await executeQuery<PasswordResetToken>(
+      `SELECT * FROM password_reset_tokens WHERE token_hash = $1 AND used = FALSE AND expires_at > $2 LIMIT 1`,
+      [tokenHash, new Date().toISOString()]
+    );
+    return res.rows[0] || null;
+  } catch (err) {
+    logger.error("dbFindResetTokenByHash error:", err);
+    return null;
   }
 }
 
