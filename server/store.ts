@@ -1017,6 +1017,14 @@ export class MemoryStore {
     return ownerPeople.map((person) => this.serializePerson(person, options));
   }
 
+  getPeopleCount(ownerId: string): number {
+    let count = 0;
+    for (const p of this.people.values()) {
+      if (p.owner_id === ownerId) count++;
+    }
+    return count;
+  }
+
   getPerson(id: string, ownerId: string): Person | null {
     const p = this.people.get(id);
     if (!p || p.owner_id !== ownerId) return null;
@@ -1735,9 +1743,31 @@ export class MemoryStore {
       return { family, role: "owner" };
     }
 
+    const user = this.users.get(userId);
+    const email = user?.email.toLowerCase().trim() || "";
+
     for (const s of this.treeShares.values()) {
-      if (s.family_id === familyId && s.user_id === userId) {
+      if (
+        s.family_id === familyId &&
+        (s.user_id === userId || (email && s.user_id.toLowerCase().trim() === email))
+      ) {
         return { family, role: s.permission };
+      }
+    }
+
+    const memberId = `${familyId}-${userId}`;
+    const member = this.familyMembers.get(memberId);
+    if (member) {
+      return { family, role: member.role };
+    }
+
+    for (const inv of this.familyInvitations.values()) {
+      if (
+        inv.family_id === familyId &&
+        inv.status === "accepted" &&
+        (inv.accepted_by_user_id === userId || (email && inv.invitee_email.toLowerCase().trim() === email))
+      ) {
+        return { family, role: (inv.permission as FamilyRole) || "viewer" };
       }
     }
 
@@ -1758,62 +1788,100 @@ export class MemoryStore {
     return access?.role === "owner" || access?.role === "editor";
   }
 
-  getUserTrees(userId: string): {
+  getUserTrees(userId: string, userObj?: User): {
     owned: { family: Family; role: "owner" };
     ownedList: Family[];
     shared: { family: Family; role: SharePermission; owner: { id: string; name: string; email: string } }[];
   } {
-    const user = this.users.get(userId);
+    const user = userObj || this.users.get(userId) || Array.from(this.users.values()).find((u) => u.id === userId);
+    if (user && !this.users.has(user.id)) {
+      this.users.set(user.id, user);
+    }
+
     const ownedList: Family[] = [];
     for (const fam of this.families.values()) {
-      if (fam.owner_id === userId) {
+      if (fam && fam.owner_id === userId) {
         ownedList.push(fam);
       }
     }
-    if (ownedList.length === 0 && user) {
-      ownedList.push(this.getOrCreateFamilyForUser(user));
+    if (ownedList.length === 0) {
+      if (user) {
+        ownedList.push(this.getOrCreateFamilyForUser(user));
+      } else {
+        const fallbackFamily: Family = this.families.get(userId) || {
+          id: userId,
+          owner_id: userId,
+          name: "My Family Tree",
+          created_at: new Date().toISOString(),
+        };
+        this.families.set(fallbackFamily.id, fallbackFamily);
+        ownedList.push(fallbackFamily);
+      }
     }
-    const defaultOwnFamily =
-      ownedList[0] ||
-      (user
-        ? this.getOrCreateFamilyForUser(user)
-        : { id: userId, owner_id: userId, name: "My Family Tree", created_at: new Date().toISOString() });
 
+    const defaultOwnFamily = ownedList[0];
     const shared: { family: Family; role: SharePermission; owner: { id: string; name: string; email: string } }[] = [];
     const normalizedUserEmail = user?.email.toLowerCase().trim() || "";
 
+    // 1. Look up via treeShares
     for (const s of this.treeShares.values()) {
-      const matchesUser = s.user_id === userId || (normalizedUserEmail && s.user_id.toLowerCase().trim() === normalizedUserEmail);
+      const matchesUser =
+        s.user_id === userId ||
+        (normalizedUserEmail && s.user_id.toLowerCase().trim() === normalizedUserEmail);
       if (matchesUser) {
         const fam = this.families.get(s.family_id);
-        const ownerUser = this.users.get(s.owner_id) || (fam ? this.users.get(fam.owner_id) : null);
-        if (fam) {
-          shared.push({
-            family: fam,
-            role: s.permission,
-            owner: {
-              id: ownerUser?.id || fam.owner_id,
-              name: ownerUser?.name || "Tree Owner",
-              email: ownerUser?.email || "",
-            },
-          });
+        if (fam && fam.owner_id !== userId) {
+          const ownerUser = this.users.get(s.owner_id) || this.users.get(fam.owner_id);
+          if (!shared.some((sh) => sh.family?.id === fam.id)) {
+            shared.push({
+              family: fam,
+              role: s.permission,
+              owner: {
+                id: ownerUser?.id || fam.owner_id,
+                name: ownerUser?.name || "Tree Owner",
+                email: ownerUser?.email || "",
+              },
+            });
+          }
         }
       }
     }
 
-    // Also include any trees where user has an accepted invitation but treeShare might not have matched
+    // 2. Look up via familyMembers
+    for (const m of this.familyMembers.values()) {
+      if (m.user_id === userId && m.role !== "owner") {
+        if (!shared.some((sh) => sh.family?.id === m.family_id)) {
+          const fam = this.families.get(m.family_id);
+          if (fam && fam.owner_id !== userId) {
+            const ownerUser = this.users.get(fam.owner_id);
+            shared.push({
+              family: fam,
+              role: (m.role as SharePermission) || "viewer",
+              owner: {
+                id: ownerUser?.id || fam.owner_id,
+                name: ownerUser?.name || "Tree Owner",
+                email: ownerUser?.email || "",
+              },
+            });
+          }
+        }
+      }
+    }
+
+    // 3. Look up via accepted familyInvitations
     for (const inv of this.familyInvitations.values()) {
       if (
         inv.status === "accepted" &&
-        (inv.accepted_by_user_id === userId || (normalizedUserEmail && inv.invitee_email.toLowerCase().trim() === normalizedUserEmail))
+        (inv.accepted_by_user_id === userId ||
+          (normalizedUserEmail && inv.invitee_email.toLowerCase().trim() === normalizedUserEmail))
       ) {
-        if (!shared.some((sh) => sh.family.id === inv.family_id)) {
+        if (!shared.some((sh) => sh.family?.id === inv.family_id)) {
           const fam = this.families.get(inv.family_id);
-          const ownerUser = this.users.get(inv.inviter_id) || (fam ? this.users.get(fam.owner_id) : null);
-          if (fam) {
+          if (fam && fam.owner_id !== userId) {
+            const ownerUser = this.users.get(inv.inviter_id) || this.users.get(fam.owner_id);
             shared.push({
               family: fam,
-              role: inv.permission,
+              role: inv.permission || "viewer",
               owner: {
                 id: ownerUser?.id || fam.owner_id,
                 name: ownerUser?.name || inv.inviter_name || "Tree Owner",

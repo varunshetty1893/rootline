@@ -41,6 +41,11 @@ function activeTreeStorageKey(userId) {
   return `rootline:active-tree:${userId}`;
 }
 
+/** Key used to cache tree list for instant rendering and offline resilience. */
+function treeListStorageKey(userId) {
+  return `rootline:treelist:${userId}`;
+}
+
 function normalizeTreeList(raw) {
   if (!raw || typeof raw !== "object") {
     return { owned_trees: [], shared_trees: [], owned: null, shared: [] };
@@ -92,7 +97,21 @@ export function FamilyProvider({ children }) {
 
   // ── Tree state ──────────────────────────────────────────────────────────
   /** { owned_trees: TreeOut[], shared_trees: TreeOut[] } */
-  const [treeList, setTreeList] = useState({ owned_trees: [], shared_trees: [] });
+  const [treeList, setTreeList] = useState(() => {
+    if (typeof window !== "undefined" && user?.id) {
+      try {
+        const cached = localStorage.getItem(treeListStorageKey(user.id));
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed && (parsed.owned_trees?.length > 0 || parsed.shared_trees?.length > 0)) {
+            return parsed;
+          }
+        }
+      } catch (_) {}
+    }
+    return { owned_trees: [], shared_trees: [] };
+  });
+  const [treesLoading, setTreesLoading] = useState(true);
   /** UUID string of the currently viewed tree, or null = default (own) tree */
   const [activeTreeId, setActiveTreeIdState] = useState(null);
   /** "owner" | "editor" | "viewer" for the active tree */
@@ -102,15 +121,37 @@ export function FamilyProvider({ children }) {
   const refreshTreeList = useCallback(async () => {
     if (!user) {
       setTreeList({ owned_trees: [], shared_trees: [] });
+      setTreesLoading(false);
       return;
     }
     try {
+      // Hydrate from localStorage cache immediately if state is empty
+      if (typeof window !== "undefined") {
+        try {
+          const cached = localStorage.getItem(treeListStorageKey(user.id));
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (parsed && (parsed.owned_trees?.length > 0 || parsed.shared_trees?.length > 0)) {
+              setTreeList(parsed);
+              setTreesLoading(false);
+            }
+          }
+        } catch (_) {}
+      }
+
       const data = await api.listTrees();
       const normalized = normalizeTreeList(data);
       setTreeList(normalized);
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem(treeListStorageKey(user.id), JSON.stringify(normalized));
+        } catch (_) {}
+      }
       return normalized;
     } catch (_) {
       // Non-fatal — keep whatever we had
+    } finally {
+      setTreesLoading(false);
     }
   }, [user]);
 
@@ -175,12 +216,20 @@ export function FamilyProvider({ children }) {
     if (!activeTreeId) {
       return ownedTrees[0] || null;
     }
-    return (
+    const found =
       ownedTrees.find((t) => t.id === activeTreeId) ||
-      sharedTrees.find((t) => t.id === activeTreeId) ||
-      null
-    );
-  }, [activeTreeId, treeList]);
+      sharedTrees.find((t) => t.id === activeTreeId);
+    if (found) return found;
+
+    // Resilient fallback: activeTreeId is selected and people may be loaded
+    return {
+      id: activeTreeId,
+      name: "Family Tree",
+      role: myRole || "viewer",
+      isOwned: myRole === "owner",
+      people_count: people?.length || 0,
+    };
+  }, [activeTreeId, treeList, myRole, people?.length]);
 
   // ── People for the active tree ─────────────────────────────────────────
   const refresh = useCallback(async () => {
@@ -459,6 +508,7 @@ export function FamilyProvider({ children }) {
         canEdit,
         canManage,
         treeList,
+        treesLoading,
         refreshTreeList,
         refresh,
         createTree,

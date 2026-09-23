@@ -62,6 +62,7 @@ export default function ManageTree({ defaultTab = "people" }) {
     activeTreeId,
     setActiveTreeId,
     treeList = { owned_trees: [], shared_trees: [] },
+    treesLoading = false,
     refreshTreeList,
     createTree,
     renameTree,
@@ -77,6 +78,11 @@ export default function ManageTree({ defaultTab = "people" }) {
     rootPersonId,
     setRootPersonId,
   } = useFamily();
+
+  // Sync tree list on mount
+  useEffect(() => {
+    refreshTreeList();
+  }, [refreshTreeList]);
 
   // Current tab: "people" | "settings" | "sharing" | "all-trees"
   const tabParam = searchParams.get("tab");
@@ -97,10 +103,25 @@ export default function ManageTree({ defaultTab = "people" }) {
   const ownedTrees = treeList?.owned_trees || [];
   const sharedTrees = treeList?.shared_trees || [];
 
-  const allTrees = useMemo(() => [
-    ...ownedTrees.map((t) => ({ ...t, role: "owner", isOwned: true })),
-    ...sharedTrees.map((t) => ({ ...t, isOwned: false })),
-  ], [ownedTrees, sharedTrees]);
+  const allTrees = useMemo(() => {
+    const list = [
+      ...ownedTrees.map((t) => ({ ...t, role: "owner", isOwned: true })),
+      ...sharedTrees.map((t) => ({ ...t, isOwned: false })),
+    ];
+    // Resilient fallback: if an active tree is loaded but not yet present in list, include it
+    if (activeTreeId && !list.some((t) => t.id === activeTreeId)) {
+      list.push({
+        id: activeTreeId,
+        name: activeTree?.name || "Family Tree",
+        owner_id: activeTree?.owner_id,
+        owner_name: activeTree?.owner_name || "Tree Owner",
+        role: myRole || "viewer",
+        isOwned: myRole === "owner",
+        people_count: people?.length || 0,
+      });
+    }
+    return list;
+  }, [ownedTrees, sharedTrees, activeTreeId, activeTree, myRole, people?.length]);
 
   const filteredTreeCards = useMemo(() => {
     if (treeCardFilter === "owned") return allTrees.filter((t) => t.isOwned);
@@ -507,6 +528,14 @@ export default function ManageTree({ defaultTab = "people" }) {
 
             {/* Tree Cards Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pt-3">
+              {treesLoading && allTrees.length === 0 ? (
+                <div className="col-span-full py-8 flex flex-col items-center justify-center text-center text-[#6B7280]">
+                  <Loader2 className="w-6 h-6 animate-spin text-[#1C4B3C] mb-2" />
+                  <p className="text-xs sm:text-sm font-semibold text-[#1C1F1D]">Loading your family trees...</p>
+                  <p className="text-xs text-[#6B7280] mt-0.5">Fetching owned and collaborative trees</p>
+                </div>
+              ) : null}
+
               {filteredTreeCards.map((t) => {
                 const isCurrent =
                   activeTreeId === t.id || (!activeTreeId && t.id === ownedTrees[0]?.id);

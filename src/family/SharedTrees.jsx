@@ -70,7 +70,8 @@ export default function SharedTrees() {
 
   useEffect(() => {
     loadPendingInvites();
-  }, [loadPendingInvites]);
+    refreshTreeList();
+  }, [loadPendingInvites, refreshTreeList]);
 
   const handleAcceptInvite = async (inv) => {
     setInviteActionId(inv.id);

@@ -1665,33 +1665,38 @@ export async function createExpressApp() {
 
   const handleGetMyTrees = (req: AuthRequest, res: any) => {
     try {
-      const trees = store.getUserTrees(req.user!.id);
-      const ownedList = trees.ownedList || [trees.owned.family];
-      const ownedTrees = ownedList.map((fam) => {
-        const people = store.getPeopleForOwner(fam.id);
+      if (req.user && !store.users.has(req.user.id)) {
+        store.users.set(req.user.id, req.user);
+      }
+      const trees = store.getUserTrees(req.user!.id, req.user);
+      const ownedList = trees.ownedList || (trees.owned?.family ? [trees.owned.family] : []);
+      const ownedTrees = ownedList.filter(Boolean).map((fam) => {
+        const count = store.getPeopleCount(fam.id);
         return {
           id: fam.id,
           name: fam.name,
           owner_id: fam.owner_id,
           role: "owner" as const,
           created_at: fam.created_at,
-          people_count: people.length,
+          people_count: count,
         };
       });
 
-      const sharedTrees = (trees.shared || []).map((s) => {
-        const people = store.getPeopleForOwner(s.family.id);
-        return {
-          id: s.family.id,
-          name: s.family.name,
-          owner_id: s.family.owner_id,
-          owner_name: s.owner?.name || "Owner",
-          owner_email: s.owner?.email || "",
-          role: s.role,
-          created_at: s.family.created_at,
-          people_count: people.length,
-        };
-      });
+      const sharedTrees = (trees.shared || [])
+        .filter((s) => s && s.family)
+        .map((s) => {
+          const count = store.getPeopleCount(s.family.id);
+          return {
+            id: s.family.id,
+            name: s.family.name,
+            owner_id: s.family.owner_id,
+            owner_name: s.owner?.name || "Owner",
+            owner_email: s.owner?.email || "",
+            role: s.role,
+            created_at: s.family.created_at,
+            people_count: count,
+          };
+        });
 
       return res.json({
         owned: trees.owned,
@@ -1700,6 +1705,7 @@ export async function createExpressApp() {
         shared_trees: sharedTrees,
       });
     } catch (err: any) {
+      logger.error("handleGetMyTrees error:", err);
       return res.status(500).json({ detail: err.message || "Failed to get user trees" });
     }
   };
