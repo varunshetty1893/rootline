@@ -1744,12 +1744,12 @@ export class MemoryStore {
     }
 
     const user = this.users.get(userId);
-    const email = user?.email.toLowerCase().trim() || "";
+    const email = user?.email && typeof user.email === "string" ? user.email.toLowerCase().trim() : "";
 
     for (const s of this.treeShares.values()) {
       if (
         s.family_id === familyId &&
-        (s.user_id === userId || (email && s.user_id.toLowerCase().trim() === email))
+        (s.user_id === userId || (email && s.user_id && typeof s.user_id === "string" && s.user_id.toLowerCase().trim() === email))
       ) {
         return { family, role: s.permission };
       }
@@ -1765,7 +1765,7 @@ export class MemoryStore {
       if (
         inv.family_id === familyId &&
         inv.status === "accepted" &&
-        (inv.accepted_by_user_id === userId || (email && inv.invitee_email.toLowerCase().trim() === email))
+        (inv.accepted_by_user_id === userId || (email && inv.invitee_email && typeof inv.invitee_email === "string" && inv.invitee_email.toLowerCase().trim() === email))
       ) {
         return { family, role: (inv.permission as FamilyRole) || "viewer" };
       }
@@ -1830,7 +1830,7 @@ export class MemoryStore {
     ownedFamilyIds.add(userId);
 
     const shared: { family: Family; role: SharePermission; owner: { id: string; name: string; email: string } }[] = [];
-    const normalizedUserEmail = user?.email ? user.email.toLowerCase().trim() : "";
+    const normalizedUserEmail = user?.email && typeof user.email === "string" ? user.email.toLowerCase().trim() : "";
 
     // 1. Look up via treeShares
     for (const s of this.treeShares.values()) {
@@ -1840,7 +1840,7 @@ export class MemoryStore {
 
       const matchesUser =
         s.user_id === userId ||
-        (normalizedUserEmail && s.user_id.toLowerCase().trim() === normalizedUserEmail);
+        (normalizedUserEmail && s.user_id && typeof s.user_id === "string" && s.user_id.toLowerCase().trim() === normalizedUserEmail);
       if (matchesUser) {
         const fam = this.families.get(s.family_id);
         // Strictly avoid manufacturing dummy families with owner_id = "owner"
@@ -1888,7 +1888,7 @@ export class MemoryStore {
       if (
         inv.status === "accepted" &&
         (inv.accepted_by_user_id === userId ||
-          (normalizedUserEmail && inv.invitee_email.toLowerCase().trim() === normalizedUserEmail))
+          (normalizedUserEmail && inv.invitee_email && typeof inv.invitee_email === "string" && inv.invitee_email.toLowerCase().trim() === normalizedUserEmail))
       ) {
         if (inv.inviter_id === userId) continue;
         if (ownedFamilyIds.has(inv.family_id)) continue;
@@ -2145,7 +2145,7 @@ export class MemoryStore {
         inv.inviter_id === userId ||
         inv.accepted_by_user_id === userId ||
         ownedFamilyIds.has(inv.family_id) ||
-        (userEmail && inv.invitee_email.toLowerCase().trim() === userEmail)
+        (userEmail && inv.invitee_email && typeof inv.invitee_email === "string" && inv.invitee_email.toLowerCase().trim() === userEmail)
       ) {
         this.familyInvitations.delete(key);
       }
@@ -2168,7 +2168,7 @@ export class MemoryStore {
       }
     }
     for (const [oid, otp] of this.resetOtps.entries()) {
-      if (otp.user_id === userId || (userEmail && otp.email.toLowerCase().trim() === userEmail)) {
+      if (otp.user_id === userId || (userEmail && otp.email && typeof otp.email === "string" && otp.email.toLowerCase().trim() === userEmail)) {
         this.resetOtps.delete(oid);
       }
     }
@@ -2257,6 +2257,8 @@ export class MemoryStore {
       for (const inv of this.familyInvitations.values()) {
         if (
           inv.family_id === params.familyId &&
+          inv.invitee_email &&
+          typeof inv.invitee_email === "string" &&
           inv.invitee_email.toLowerCase() === normalizedEmail &&
           inv.status === "pending"
         ) {
@@ -2302,6 +2304,8 @@ export class MemoryStore {
     for (const inv of this.familyInvitations.values()) {
       if (
         inv.family_id === params.familyId &&
+        inv.invitee_email &&
+        typeof inv.invitee_email === "string" &&
         inv.invitee_email.toLowerCase() === normalizedEmail &&
         inv.status === "pending"
       ) {
@@ -2369,11 +2373,11 @@ export class MemoryStore {
     for (const s of this.treeShares.values()) {
       if (s.family_id === familyId) {
         let u = this.users.get(s.user_id) || Array.from(this.users.values()).find(
-          (user) => user.id === s.user_id || user.email.toLowerCase() === s.user_id.toLowerCase()
+          (user) => user.id === s.user_id || (user.email && s.user_id && typeof user.email === "string" && typeof s.user_id === "string" && user.email.toLowerCase() === s.user_id.toLowerCase())
         );
         // Also look up any accepted invitation for this user/email
         const inv = Array.from(this.familyInvitations.values()).find(
-          (i) => i.family_id === familyId && (i.accepted_by_user_id === s.user_id || i.invitee_email.toLowerCase() === (u?.email || s.user_id).toLowerCase())
+          (i) => i.family_id === familyId && (i.accepted_by_user_id === s.user_id || (i.invitee_email && (u?.email || s.user_id) && typeof i.invitee_email === "string" && i.invitee_email.toLowerCase() === String(u?.email || s.user_id).toLowerCase()))
         );
 
         const name = u?.name || (inv ? inv.invitee_email.split("@")[0] : (s.user_id.includes("@") ? s.user_id.split("@")[0] : "Collaborator"));
@@ -2513,7 +2517,7 @@ export class MemoryStore {
       throw new Error("Owner user not found");
     }
 
-    if (owner.email.toLowerCase() === normalizedEmail) {
+    if (owner.email && typeof owner.email === "string" && owner.email.toLowerCase() === normalizedEmail) {
       throw new Error("You cannot invite yourself to your own family tree.");
     }
 
@@ -2686,11 +2690,13 @@ export class MemoryStore {
     await dbUpdateInvitationStatus(invitation.id, "accepted", now, acceptingUser.id);
 
     // 4. Resolve and mark any duplicate invitations for this user & family
-    const normalizedUserEmail = acceptingUser.email.toLowerCase().trim();
+    const normalizedUserEmail = acceptingUser.email && typeof acceptingUser.email === "string" ? acceptingUser.email.toLowerCase().trim() : "";
     for (const otherInv of this.familyInvitations.values()) {
       if (
         otherInv.id !== invitation.id &&
         otherInv.family_id === family.id &&
+        otherInv.invitee_email &&
+        typeof otherInv.invitee_email === "string" &&
         otherInv.invitee_email.toLowerCase().trim() === normalizedUserEmail &&
         otherInv.status === "pending"
       ) {
@@ -2732,11 +2738,13 @@ export class MemoryStore {
     await dbUpdateInvitationStatus(invitation.id, "declined");
 
     // Also mark duplicate pending invitations for this email on this tree as declined
-    const normalizedEmail = invitation.invitee_email.toLowerCase().trim();
+    const normalizedEmail = invitation.invitee_email && typeof invitation.invitee_email === "string" ? invitation.invitee_email.toLowerCase().trim() : "";
     for (const otherInv of this.familyInvitations.values()) {
       if (
         otherInv.id !== invitation.id &&
         otherInv.family_id === invitation.family_id &&
+        otherInv.invitee_email &&
+        typeof otherInv.invitee_email === "string" &&
         otherInv.invitee_email.toLowerCase().trim() === normalizedEmail &&
         otherInv.status === "pending"
       ) {
@@ -2783,7 +2791,8 @@ export class MemoryStore {
         dbUpdateInvitationStatus(inv.id, "expired").catch((e) => logger.error("dbUpdateInvitationStatus error:", e));
       }
 
-      const emailKey = inv.invitee_email.toLowerCase().trim();
+      const emailKey = inv.invitee_email && typeof inv.invitee_email === "string" ? inv.invitee_email.toLowerCase().trim() : "";
+      if (!emailKey) continue;
       // Keep highest priority invitation per email: pending > accepted > declined/expired/cancelled
       const existing = mapByEmail.get(emailKey);
       if (!existing) {
@@ -2815,7 +2824,7 @@ export class MemoryStore {
     const seenFamilies = new Set<string>();
 
     for (const inv of this.familyInvitations.values()) {
-      if (inv.invitee_email.toLowerCase().trim() === normalized) {
+      if (inv.invitee_email && typeof inv.invitee_email === "string" && inv.invitee_email.toLowerCase().trim() === normalized) {
         if (inv.status === "pending" && new Date(inv.expires_at) < now) {
           inv.status = "expired";
           await dbUpdateInvitationStatus(inv.id, "expired");

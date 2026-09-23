@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   Loader2,
   User,
+  UserPlus,
   Calendar,
   Layers,
   ArrowRight,

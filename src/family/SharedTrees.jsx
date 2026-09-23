@@ -25,6 +25,7 @@ import {
   X,
   Clock,
   Check,
+  FolderTree,
 } from "lucide-react";
 import AppHeader from "./AppHeader.jsx";
 import { useAuth } from "../AuthContext.jsx";

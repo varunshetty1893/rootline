@@ -339,16 +339,16 @@ export function FamilyProvider({ children }) {
     if (rootPersonId && people.some((p) => p.id === rootPersonId)) return rootPersonId;
 
     if (user && people.length > 0) {
-      const cleanUserName = (user.name || "").trim().toLowerCase();
+      const cleanUserName = (user?.name || "").trim().toLowerCase();
       if (cleanUserName) {
         // Exact match first
-        const exact = people.find((p) => (p.name || "").trim().toLowerCase() === cleanUserName);
+        const exact = people.find((p) => (p?.name || "").trim().toLowerCase() === cleanUserName);
         if (exact) return exact.id;
 
         // Substring / first name match (e.g. user "Varun Shetty" matching person "Varun")
         const userParts = cleanUserName.split(/\s+/).filter(Boolean);
         const matchPart = people.find((p) => {
-          const pName = (p.name || "").trim().toLowerCase();
+          const pName = (p?.name || "").trim().toLowerCase();
           const pParts = pName.split(/\s+/).filter(Boolean);
           return (
             (userParts[0] && pParts[0] === userParts[0]) ||
@@ -361,7 +361,7 @@ export function FamilyProvider({ children }) {
 
       // Check if notes/bio mention "You" or "Self"
       const selfPerson = people.find((p) => {
-        const notes = (p.notes || "").toLowerCase();
+        const notes = (p?.notes || p?.bio || "").toLowerCase();
         return notes.includes("you") || notes.includes("self");
       });
       if (selfPerson) return selfPerson.id;
