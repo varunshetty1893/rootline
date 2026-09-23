@@ -716,14 +716,16 @@ export async function createExpressApp() {
 
     logger.info(`[Password Reset OTP] Generated 6-digit OTP ${rawOtp} for ${user.email}`);
 
-    // If server email provider (SMTP or Resend) is configured, also deliver email asynchronously in background
+    let emailSent = false;
+    let emailError: string | null = null;
     if (isEmailConfigured) {
-      sendPasswordResetEmail(user.email, otpRecord.reset_token, req, rawOtp).catch((err: any) => {
-        logger.error("Failed to send password reset email via server transport:", err?.message || err);
-        if (err?.code === "ETIMEDOUT" || err?.code === "ECONNREFUSED") {
-          logger.warn("SMTP connection timed out. On Render Free tier, outbound SMTP ports 25, 465, and 587 are blocked. Set RESEND_API_KEY or use Browser-Direct EmailJS OTP.");
-        }
-      });
+      try {
+        await sendPasswordResetEmail(user.email, otpRecord.reset_token, req, rawOtp);
+        emailSent = true;
+      } catch (err: any) {
+        emailError = err?.message || String(err);
+        logger.error("Failed to send password reset email via server transport:", emailError);
+      }
     }
 
     const emailjsConfig = {
@@ -742,7 +744,8 @@ export async function createExpressApp() {
       emailjs_config: emailjsConfig,
       reset_url: `/reset-password?token=${otpRecord.reset_token}`,
       token: otpRecord.reset_token,
-      email_sent: isEmailConfigured,
+      email_sent: emailSent,
+      email_error: emailError,
     });
   };
 
@@ -995,6 +998,26 @@ export async function createExpressApp() {
     const host = (req.headers["x-forwarded-host"] as string) || req.get("host") || "localhost:3000";
     return `${proto}://${host}/auth/google/callback`;
   }
+
+  // Google OAuth Debug Information (to verify active redirect URI on cloud deployments)
+  const handleGoogleDebug = (req: Request, res: Response) => {
+    const redirectUri = getOAuthRedirectUri(req);
+    return res.json({
+      google_client_id_configured: !!process.env.GOOGLE_CLIENT_ID,
+      google_client_id_preview: process.env.GOOGLE_CLIENT_ID ? `${process.env.GOOGLE_CLIENT_ID.slice(0, 16)}...` : null,
+      google_redirect_uri_env_override: process.env.GOOGLE_REDIRECT_URI || null,
+      active_redirect_uri_sent_to_google: redirectUri,
+      must_match_google_cloud_console_uri: redirectUri,
+      headers: {
+        x_forwarded_host: req.headers["x-forwarded-host"] || null,
+        x_forwarded_proto: req.headers["x-forwarded-proto"] || null,
+        host: req.get("host") || null,
+      },
+    });
+  };
+
+  app.get("/auth/google/debug", handleGoogleDebug);
+  app.get("/api/auth/google/debug", handleGoogleDebug);
 
   // Google OAuth with Browser-Bound Cookie State & HMAC Signature (Fixes Issue 1 & Stateless Multi-Process OAuth)
   app.get("/auth/google/login", (req, res) => {
