@@ -170,7 +170,7 @@ export interface TreeShare {
   updated_at: string;
 }
 
-export type InvitationStatus = "pending" | "accepted" | "declined" | "cancelled" | "expired";
+export type InvitationStatus = "pending" | "accepted" | "declined" | "cancelled" | "expired" | "left";
 
 export interface FamilyInvitation {
   id: string;
@@ -2341,8 +2341,8 @@ export class MemoryStore {
         (inv.accepted_by_user_id === userId ||
           (normalizedUserEmail && inv.invitee_email?.toLowerCase().trim() === normalizedUserEmail))
       ) {
-        inv.status = "cancelled";
-        await dbUpdateInvitationStatus(inv.id, "cancelled").catch((e) => logger.error("dbUpdateInvitationStatus error:", e));
+        inv.status = "left";
+        await dbUpdateInvitationStatus(inv.id, "left").catch((e) => logger.error("dbUpdateInvitationStatus error:", e));
         found = true;
       }
     }

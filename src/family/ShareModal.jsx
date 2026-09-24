@@ -8,6 +8,7 @@
  * – Viewers/Editors see a read-only list.
  */
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   X,
   UserPlus,
@@ -79,10 +80,24 @@ function InvitationStatusBadge({ status, isExpired }) {
       </span>
     );
   }
+  if (status === "left") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold rounded-full px-2 py-0.5 bg-slate-100 text-slate-700 border border-slate-300">
+        <LogOut className="w-2.5 h-2.5" /> Left Tree
+      </span>
+    );
+  }
   if (status === "declined") {
     return (
       <span className="inline-flex items-center gap-1 text-[10px] font-semibold rounded-full px-2 py-0.5 bg-gray-50 text-gray-600 border border-gray-200">
         Declined
+      </span>
+    );
+  }
+  if (status === "cancelled") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold rounded-full px-2 py-0.5 bg-red-50 text-red-700 border border-red-200">
+        Cancelled
       </span>
     );
   }
@@ -95,6 +110,7 @@ function InvitationStatusBadge({ status, isExpired }) {
 
 export default function ShareModal({ treeId, treeName, onClose }) {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const { treeList, refreshTreeList, leaveSharedTree, activeTreeId, setActiveTreeId } = useFamily();
   const [sharesData, setSharesData] = useState(null); // { owner, shares }
   const [invitations, setInvitations] = useState([]);
@@ -353,12 +369,26 @@ export default function ShareModal({ treeId, treeName, onClose }) {
                 : `Created by ${sharesData?.owner?.name || "Tree Owner"}. You have ${myEffectiveRole} access.`}
             </p>
           </div>
-          <button
-            onClick={onClose}
-            className="text-[#9CA3AF] hover:text-[#1C1F1D] transition-colors p-1"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                navigate(`/shared-trees?tab=collaborators&treeId=${encodeURIComponent(treeId)}`);
+              }}
+              className="text-xs text-[#1C4B3C] hover:text-[#163C30] hover:bg-[#1C4B3C]/10 px-2.5 py-1.5 rounded-lg border border-[#1C4B3C]/20 transition-colors flex items-center gap-1 font-medium"
+              title="Open full-page tree sharing and collaboration dashboard"
+            >
+              <span>Full Page</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={onClose}
+              className="text-[#9CA3AF] hover:text-[#1C1F1D] transition-colors p-1"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         <div className="px-6 py-5 space-y-6 overflow-y-auto flex-1">
@@ -761,7 +791,7 @@ export default function ShareModal({ treeId, treeName, onClose }) {
                         </button>
                       )}
 
-                      {canManage && (inv.status === "cancelled" || inv.status === "declined" || inv.status === "expired") && (
+                      {canManage && (inv.status === "cancelled" || inv.status === "declined" || inv.status === "expired" || inv.status === "left") && (
                         <button
                           type="button"
                           disabled={invitationActionId === inv.id}
@@ -786,7 +816,18 @@ export default function ShareModal({ treeId, treeName, onClose }) {
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-[#E7E2D6] bg-[#FAF9F5] flex justify-end">
+        <div className="px-6 py-4 border-t border-[#E7E2D6] bg-[#FAF9F5] flex items-center justify-between">
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              navigate(`/shared-trees?tab=collaborators&treeId=${encodeURIComponent(treeId)}`);
+            }}
+            className="text-xs font-semibold text-[#1C4B3C] hover:underline flex items-center gap-1"
+          >
+            <span>Open Dedicated Tracking Page</span>
+            <ExternalLink className="w-3.5 h-3.5" />
+          </button>
           <button
             onClick={onClose}
             className="text-sm font-semibold text-[#374151] hover:text-[#1C1F1D] px-4 py-2 border border-[#E7E2D6] rounded-xl bg-white hover:bg-[#F7F5F0] transition-colors"
