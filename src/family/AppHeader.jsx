@@ -89,6 +89,8 @@ export default function AppHeader() {
   const [resetSuccess, setResetSuccess] = useState(false);
   const [resetError, setResetError] = useState("");
 
+  const [treeSwitcherOpen, setTreeSwitcherOpen] = useState(false);
+  const treeSwitcherRef = useRef(null);
   const profileMenuRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -127,6 +129,9 @@ export default function AppHeader() {
     function handleClickOutside(e) {
       if (profileMenuRef.current && !profileMenuRef.current.contains(e.target)) {
         setProfileMenuOpen(false);
+      }
+      if (treeSwitcherRef.current && !treeSwitcherRef.current.contains(e.target)) {
+        setTreeSwitcherOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -252,7 +257,7 @@ export default function AppHeader() {
       if (!t || !t.id) return false;
       if (t.role === "viewer" || t.role === "editor" || t.isOwned === false) return false;
       if (t.owner_id && user?.id && t.owner_id !== user.id) return false;
-      return Boolean(user?.id && (t.owner_id === user.id || (t.id === user.id && (!t.owner_id || t.owner_id === user.id))));
+      return true;
     });
   }, [treeList?.owned_trees, user?.id]);
 
@@ -322,8 +327,127 @@ export default function AppHeader() {
           </NavLink>
         </nav>
 
-        {/* Right — Profile Dropdown */}
+        {/* Right — Active Tree Switcher & Profile Dropdown */}
         <div className="flex items-center gap-2 sm:gap-3">
+          {/* Active Tree Switcher */}
+          {user && (
+            <div className="relative" ref={treeSwitcherRef}>
+              <button
+                type="button"
+                onClick={() => setTreeSwitcherOpen((v) => !v)}
+                className="flex items-center gap-1.5 sm:gap-2 py-1.5 px-2.5 sm:px-3 rounded-full bg-white border border-[#E7E2D6] hover:border-[#1C4B3C]/40 text-xs text-[#1C1F1D] font-medium transition-all shadow-2xs group"
+                aria-label="Switch active family tree"
+                title="Current Active Tree"
+              >
+                <div className="w-2 h-2 rounded-full bg-[#1C4B3C] shrink-0" />
+                <span className="max-w-[85px] xs:max-w-[110px] sm:max-w-[150px] truncate font-semibold text-[#1C1F1D]">
+                  {activeTree?.name || "Family Tree"}
+                </span>
+                <span className="text-[9px] uppercase font-bold text-[#1C4B3C] bg-[#1C4B3C]/10 px-1.5 py-0.5 rounded-full hidden sm:inline shrink-0">
+                  {myRole}
+                </span>
+                <ChevronDown className="w-3 h-3 text-[#9CA3AF] group-hover:text-[#1C1F1D] transition-colors shrink-0" />
+              </button>
+
+              {treeSwitcherOpen && (
+                <div className="absolute right-0 top-full mt-2 w-72 sm:w-80 bg-white border border-[#E7E2D6] rounded-2xl shadow-xl z-50 overflow-hidden divide-y divide-[#E7E2D6] py-1 animate-in fade-in zoom-in-95 duration-100">
+                  <div className="px-3.5 py-2 bg-[#FAF8F4] flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-[#4B5563] uppercase tracking-wider">
+                      Switch Family Tree
+                    </span>
+                    <Link
+                      to="/shared-trees"
+                      onClick={() => setTreeSwitcherOpen(false)}
+                      className="text-[11px] font-semibold text-[#1C4B3C] hover:underline"
+                    >
+                      Manage All
+                    </Link>
+                  </div>
+
+                  {/* Owned Trees */}
+                  <div className="py-1 max-h-44 overflow-y-auto">
+                    <p className="px-3.5 py-1 text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider">
+                      My Personal Trees
+                    </p>
+                    {ownedTrees.map((tree) => {
+                      const isCur = (activeTreeId || activeTree?.id) === tree.id;
+                      return (
+                        <button
+                          key={tree.id}
+                          type="button"
+                          onClick={() => {
+                            setActiveTreeId(tree.id);
+                            setTreeSwitcherOpen(false);
+                          }}
+                          className={`w-full text-left px-3.5 py-2 text-xs flex items-center justify-between transition-colors ${
+                            isCur ? "bg-[#1C4B3C]/5 font-semibold text-[#1C4B3C]" : "hover:bg-[#F7F5F0] text-[#1C1F1D]"
+                          }`}
+                        >
+                          <div className="truncate pr-2">
+                            <span className="truncate block font-medium">{tree.name}</span>
+                            <span className="text-[10px] text-[#6B7280]">{tree.people_count || 0} relatives</span>
+                          </div>
+                          {isCur && <CheckCircle2 className="w-4 h-4 text-[#1C4B3C] shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Shared Trees */}
+                  <div className="py-1 max-h-48 overflow-y-auto">
+                    <p className="px-3.5 py-1 text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider flex items-center justify-between">
+                      <span>Shared With Me</span>
+                      <span className="text-[10px] font-bold text-[#1C4B3C] bg-[#1C4B3C]/10 px-1.5 py-0.2 rounded-full">
+                        {sharedTrees.length}
+                      </span>
+                    </p>
+                    {sharedTrees.length === 0 ? (
+                      <p className="px-3.5 py-2 text-xs text-[#9CA3AF] italic">
+                        No shared trees yet.
+                      </p>
+                    ) : (
+                      sharedTrees.map((tree) => {
+                        const isCur = (activeTreeId || activeTree?.id) === tree.id;
+                        return (
+                          <button
+                            key={tree.id}
+                            type="button"
+                            onClick={() => {
+                              setActiveTreeId(tree.id);
+                              setTreeSwitcherOpen(false);
+                            }}
+                            className={`w-full text-left px-3.5 py-2 text-xs flex items-center justify-between transition-colors ${
+                              isCur ? "bg-[#1C4B3C]/5 font-semibold text-[#1C4B3C]" : "hover:bg-[#F7F5F0] text-[#1C1F1D]"
+                            }`}
+                          >
+                            <div className="truncate pr-2">
+                              <span className="truncate block font-medium">{tree.name}</span>
+                              <span className="text-[10px] text-[#6B7280] block">
+                                By {tree.owner_name || "Owner"} · {tree.role || "viewer"} · {tree.people_count || 0} relatives
+                              </span>
+                            </div>
+                            {isCur && <CheckCircle2 className="w-4 h-4 text-[#1C4B3C] shrink-0" />}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  <div className="p-2 bg-[#FAF8F4]">
+                    <Link
+                      to="/shared-trees"
+                      onClick={() => setTreeSwitcherOpen(false)}
+                      className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-xl text-xs font-semibold text-white bg-[#1C4B3C] hover:bg-[#163C30] transition-colors"
+                    >
+                      <Share2 className="w-3.5 h-3.5" />
+                      <span>Shared Trees Dashboard</span>
+                    </Link>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ── Profile Avatar Dropdown Menu ── */}
           <div className="relative" ref={profileMenuRef}>
             <button

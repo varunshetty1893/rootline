@@ -330,8 +330,8 @@ describe("Frontend UI Test Suite (Issue 16)", () => {
         </MemoryRouter>
       );
 
-      expect(screen.getByText(/shared with me/i)).toBeDefined();
-      expect(screen.getByText(/my family trees/i)).toBeDefined();
+      expect(screen.getAllByText(/shared with me/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/my family trees/i).length).toBeGreaterThan(0);
     });
   });
 });

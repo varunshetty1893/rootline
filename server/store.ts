@@ -1,5 +1,7 @@
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
+import fs from "fs";
+import path from "path";
 import {
   isDatabaseConnected,
   loadInitialData,
@@ -301,6 +303,9 @@ export function normalizeToIsoString(dateVal: any): string {
   }
 }
 
+const DATA_DIR = path.join(process.cwd(), ".data");
+const STORE_BACKUP_FILE = path.join(DATA_DIR, "store-backup.json");
+
 export class MemoryStore {
   users: Map<string, User> = new Map();
   resetTokens: Map<string, PasswordResetToken> = new Map();
@@ -317,18 +322,95 @@ export class MemoryStore {
   chatHistories: Map<string, ChatMessage[]> = new Map(); // key: `${userId}:${familyId}`
   deletedAccounts: Map<string, DeletedAccountRecord> = new Map(); // key: lowercase email
   isDatabaseSynced = false;
+  private diskSaveTimer: NodeJS.Timeout | null = null;
 
   constructor() {
-    // Seed demo accounts in in-memory mode or development (unless SEED_DEMO_DATA is explicitly false)
     const isProduction = process.env.NODE_ENV === "production";
     const explicitSeed = process.env.SEED_DEMO_DATA === "true";
     const hasDatabase = Boolean(process.env.DATABASE_URL?.trim());
-    if (!hasDatabase && process.env.SEED_DEMO_DATA !== "false") {
-      this.seedDemoData();
-    } else if (!isProduction && process.env.SEED_DEMO_DATA !== "false") {
-      this.seedDemoData();
-    } else if (isProduction && explicitSeed) {
-      this.seedDemoData();
+
+    // 1. Try to load persisted state from disk
+    const loaded = !hasDatabase ? this.loadFromDisk() : false;
+
+    if (!loaded) {
+      if (!hasDatabase && process.env.SEED_DEMO_DATA !== "false") {
+        this.seedDemoData();
+      } else if (!isProduction && process.env.SEED_DEMO_DATA !== "false") {
+        this.seedDemoData();
+      } else if (isProduction && explicitSeed) {
+        this.seedDemoData();
+      }
+    }
+
+    // 2. Always ensure Pachhu's demo account, tree, and share are available
+    this.ensurePachhuDemoData();
+
+    // 3. Persist initial or restored state
+    if (!hasDatabase) {
+      this.saveToDisk();
+    }
+  }
+
+  scheduleDiskSave() {
+    if (isDatabaseConnected()) return;
+    if (this.diskSaveTimer) clearTimeout(this.diskSaveTimer);
+    this.diskSaveTimer = setTimeout(() => {
+      this.saveToDisk();
+    }, 200);
+  }
+
+  saveToDisk() {
+    try {
+      if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+      }
+      const serialized = {
+        users: Array.from(this.users.entries()),
+        resetTokens: Array.from(this.resetTokens.entries()),
+        resetOtps: Array.from(this.resetOtps.entries()),
+        people: Array.from(this.people.entries()),
+        familyUnits: Array.from(this.familyUnits.entries()),
+        familyChildren: Array.from(this.familyChildren.entries()),
+        families: Array.from(this.families.entries()),
+        familyMembers: Array.from(this.familyMembers.entries()),
+        treeShares: Array.from(this.treeShares.entries()),
+        familyInvitations: Array.from(this.familyInvitations.entries()),
+        activityLogs: this.activityLogs,
+        chatHistories: Array.from(this.chatHistories.entries()),
+        deletedAccounts: Array.from(this.deletedAccounts.entries()),
+        saved_at: new Date().toISOString(),
+      };
+      fs.writeFileSync(STORE_BACKUP_FILE, JSON.stringify(serialized, null, 2), "utf-8");
+    } catch (err) {
+      logger.error("Failed to save store state to disk backup:", err);
+    }
+  }
+
+  loadFromDisk(): boolean {
+    try {
+      if (!fs.existsSync(STORE_BACKUP_FILE)) return false;
+      const raw = fs.readFileSync(STORE_BACKUP_FILE, "utf-8");
+      if (!raw || !raw.trim()) return false;
+      const parsed = JSON.parse(raw);
+      if (!parsed || !Array.isArray(parsed.users)) return false;
+
+      this.users = new Map(parsed.users);
+      this.resetTokens = new Map(parsed.resetTokens || []);
+      this.resetOtps = new Map(parsed.resetOtps || []);
+      this.people = new Map(parsed.people || []);
+      this.familyUnits = new Map(parsed.familyUnits || []);
+      this.familyChildren = new Map(parsed.familyChildren || []);
+      this.families = new Map(parsed.families || []);
+      this.familyMembers = new Map(parsed.familyMembers || []);
+      this.treeShares = new Map(parsed.treeShares || []);
+      this.familyInvitations = new Map(parsed.familyInvitations || []);
+      this.activityLogs = Array.isArray(parsed.activityLogs) ? parsed.activityLogs : [];
+      this.chatHistories = new Map(parsed.chatHistories || []);
+      this.deletedAccounts = new Map(parsed.deletedAccounts || []);
+      return true;
+    } catch (err) {
+      logger.error("Failed to load store state from disk backup:", err);
+      return false;
     }
   }
 
@@ -1754,9 +1836,13 @@ export class MemoryStore {
     }
 
     for (const s of this.treeShares.values()) {
+      const shareUser = this.users.get(s.user_id);
+      const shareUserEmail = shareUser?.email ? shareUser.email.toLowerCase().trim() : "";
       if (
         s.family_id === familyId &&
-        (s.user_id === userId || (email && s.user_id && typeof s.user_id === "string" && s.user_id.toLowerCase().trim() === email))
+        (s.user_id === userId ||
+          (email && s.user_id && typeof s.user_id === "string" && s.user_id.toLowerCase().trim() === email) ||
+          (email && shareUserEmail && shareUserEmail === email))
       ) {
         return { family, role: s.permission };
       }
@@ -1807,13 +1893,38 @@ export class MemoryStore {
 
     const normalizedUserEmail = user?.email && typeof user.email === "string" ? user.email.toLowerCase().trim() : "";
 
+    // Sync any shares or invitations that match user's email to this user's ID
+    if (user && normalizedUserEmail) {
+      for (const s of this.treeShares.values()) {
+        if (s.user_id && typeof s.user_id === "string" && s.user_id.toLowerCase().trim() === normalizedUserEmail) {
+          s.user_id = user.id;
+          this.scheduleDiskSave();
+        }
+      }
+      for (const inv of this.familyInvitations.values()) {
+        if (
+          inv.status === "accepted" &&
+          inv.invitee_email &&
+          inv.invitee_email.toLowerCase().trim() === normalizedUserEmail &&
+          !inv.accepted_by_user_id
+        ) {
+          inv.accepted_by_user_id = user.id;
+          this.scheduleDiskSave();
+        }
+      }
+    }
+
     // Identify all families where user is known to be a non-owner collaborator (shared)
     const nonOwnerFamilyIds = new Set<string>();
     for (const s of this.treeShares.values()) {
-      if (
-        (s.user_id === userId || (normalizedUserEmail && s.user_id && typeof s.user_id === "string" && s.user_id.toLowerCase().trim() === normalizedUserEmail)) &&
-        s.owner_id !== userId
-      ) {
+      const targetUser = this.users.get(s.user_id);
+      const targetUserEmail = targetUser?.email ? targetUser.email.toLowerCase().trim() : "";
+      const matchesShare =
+        s.user_id === userId ||
+        (normalizedUserEmail && s.user_id && typeof s.user_id === "string" && s.user_id.toLowerCase().trim() === normalizedUserEmail) ||
+        (normalizedUserEmail && targetUserEmail && targetUserEmail === normalizedUserEmail);
+
+      if (matchesShare && s.owner_id !== userId) {
         nonOwnerFamilyIds.add(s.family_id);
       }
     }
@@ -1823,12 +1934,12 @@ export class MemoryStore {
       }
     }
     for (const inv of this.familyInvitations.values()) {
-      if (
+      const matchesInv =
         inv.status === "accepted" &&
         (inv.accepted_by_user_id === userId ||
-          (normalizedUserEmail && inv.invitee_email && typeof inv.invitee_email === "string" && inv.invitee_email.toLowerCase().trim() === normalizedUserEmail)) &&
-        inv.inviter_id !== userId
-      ) {
+          (normalizedUserEmail && inv.invitee_email && typeof inv.invitee_email === "string" && inv.invitee_email.toLowerCase().trim() === normalizedUserEmail));
+
+      if (matchesInv && inv.inviter_id !== userId) {
         nonOwnerFamilyIds.add(inv.family_id);
       }
     }
@@ -1876,9 +1987,13 @@ export class MemoryStore {
       if (s.owner_id === userId) continue;
       if (ownedFamilyIds.has(s.family_id)) continue;
 
+      const targetUser = this.users.get(s.user_id);
+      const targetUserEmail = targetUser?.email ? targetUser.email.toLowerCase().trim() : "";
       const matchesUser =
         s.user_id === userId ||
-        (normalizedUserEmail && s.user_id && typeof s.user_id === "string" && s.user_id.toLowerCase().trim() === normalizedUserEmail);
+        (normalizedUserEmail && s.user_id && typeof s.user_id === "string" && s.user_id.toLowerCase().trim() === normalizedUserEmail) ||
+        (normalizedUserEmail && targetUserEmail && targetUserEmail === normalizedUserEmail);
+
       if (matchesUser) {
         const fam = this.families.get(s.family_id);
         // Strictly avoid manufacturing dummy families with owner_id = "owner"
@@ -1930,6 +2045,24 @@ export class MemoryStore {
       ) {
         if (inv.inviter_id === userId) continue;
         if (ownedFamilyIds.has(inv.family_id)) continue;
+
+        // Auto-heal missing treeShare record
+        const shareExists = Array.from(this.treeShares.values()).some(
+          (s) => s.family_id === inv.family_id && (s.user_id === userId || (normalizedUserEmail && s.user_id === normalizedUserEmail))
+        );
+        if (!shareExists) {
+          const newShare: TreeShare = {
+            id: crypto.randomUUID(),
+            family_id: inv.family_id,
+            owner_id: inv.inviter_id,
+            user_id: userId,
+            permission: inv.permission || "viewer",
+            created_at: inv.created_at || new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+          this.treeShares.set(newShare.id, newShare);
+          this.scheduleDiskSave();
+        }
 
         if (!shared.some((sh) => sh.family?.id === inv.family_id)) {
           const fam = this.families.get(inv.family_id);
@@ -3710,6 +3843,147 @@ export class MemoryStore {
     link("babu_sr", "shubha");
     child("varun", "babu_sr", "Varun", { gender: "male", bio: "You" });
     child("varsha", "babu_sr", "Varsha", { gender: "female", bio: "Your sister" });
+  }
+
+  ensurePachhuDemoData() {
+    let pachhuUser = Array.from(this.users.values()).find(
+      (u) =>
+        (u.email && u.email.toLowerCase().includes("pachhu")) ||
+        (u.name && u.name.toLowerCase().includes("pachhu"))
+    );
+
+    const now = new Date().toISOString();
+    if (!pachhuUser) {
+      const hashedPassword = bcrypt.hashSync("pachhu123", BCRYPT_ROUNDS);
+      pachhuUser = {
+        id: "pachhu-user-id",
+        name: "Pachhu Shetty",
+        email: "pachhu@rootline.app",
+        hashed_password: hashedPassword,
+        is_active: true,
+        created_at: now,
+        password_version: 1,
+      };
+      this.users.set(pachhuUser.id, pachhuUser);
+    }
+
+    let pachhuFamily = Array.from(this.families.values()).find(
+      (f) => f.owner_id === pachhuUser!.id || (f.name && f.name.toLowerCase().includes("pachhu"))
+    );
+    if (!pachhuFamily) {
+      pachhuFamily = {
+        id: "pachhu-family-id",
+        owner_id: pachhuUser.id,
+        name: "Pachhu's Family Tree",
+        created_at: now,
+      };
+      this.families.set(pachhuFamily.id, pachhuFamily);
+    }
+
+    const pachhuPeople = Array.from(this.people.values()).filter((p) => p.owner_id === pachhuFamily!.id);
+    if (pachhuPeople.length === 0) {
+      const reg: Record<string, string> = {};
+      const createP = (
+        key: string,
+        name: string,
+        relationType?: string,
+        relatedKey?: string,
+        fields?: Partial<Person>
+      ) => {
+        const out = this.createPerson(
+          pachhuFamily!.id,
+          {
+            name,
+            gender: fields?.gender,
+            date_of_birth: fields?.date_of_birth,
+            bio: fields?.bio,
+            ...fields,
+          },
+          relationType && relatedKey
+            ? { relation_type: relationType, related_to_id: reg[relatedKey] }
+            : undefined
+        );
+        reg[key] = out.id;
+        return out.id;
+      };
+
+      const root = (key: string, name: string, fields?: Partial<Person>) =>
+        createP(key, name, undefined, undefined, fields);
+      const spouse = (key: string, ofKey: string, name: string, fields?: Partial<Person>) =>
+        createP(key, name, "spouse", ofKey, fields);
+      const child = (key: string, ofKey: string, name: string, fields?: Partial<Person>) =>
+        createP(key, name, "child", ofKey, fields);
+      const link = (firstKey: string, secondKey: string) =>
+        this.linkPeople(pachhuFamily!.id, reg[firstKey], reg[secondKey]);
+
+      root("sheena", "Sheena Shetty", { gender: "male", bio: "Paternal Grandfather" });
+      spouse("jalaja", "sheena", "Jalaja Shetty", { gender: "female", bio: "Paternal Grandmother" });
+      child("ramanna", "sheena", "Ramanna Shetty", { gender: "male", bio: "Father" });
+      child("shridhar", "sheena", "Shridhar Shetty", { gender: "male", bio: "Uncle" });
+
+      root("devaki", "Devaki Shetty", { gender: "female", bio: "Mother (married to Ramanna)" });
+      link("ramanna", "devaki");
+
+      child("pachhu", "ramanna", "Pachhu Shetty", { gender: "female", bio: "Tree Owner" });
+      child("prashanth", "ramanna", "Prashanth Shetty", { gender: "male", bio: "Brother" });
+      child("priya", "ramanna", "Priya Shetty", { gender: "female", bio: "Sister" });
+
+      spouse("kavitha", "prashanth", "Kavitha Shetty", { gender: "female", bio: "Sister-in-law" });
+      child("aarav", "prashanth", "Aarav Shetty", { gender: "male", bio: "Nephew" });
+    }
+
+    // Share with user email
+    const targetEmail = "shettymu25@gmail.com";
+    const existingShare = Array.from(this.treeShares.values()).find(
+      (s) =>
+        s.family_id === pachhuFamily!.id &&
+        (s.user_id?.toLowerCase() === targetEmail ||
+          this.users.get(s.user_id)?.email?.toLowerCase() === targetEmail)
+    );
+
+    const registeredUser = this.findUserByEmail(targetEmail);
+    if (!existingShare) {
+      const newShare: TreeShare = {
+        id: "share-pachhu-shettymu25",
+        family_id: pachhuFamily.id,
+        owner_id: pachhuUser.id,
+        user_id: registeredUser ? registeredUser.id : targetEmail,
+        permission: "editor",
+        created_at: now,
+        updated_at: now,
+      };
+      this.treeShares.set(newShare.id, newShare);
+    } else if (registeredUser && existingShare.user_id !== registeredUser.id) {
+      existingShare.user_id = registeredUser.id;
+    }
+
+    const existingInv = Array.from(this.familyInvitations.values()).find(
+      (inv) => inv.family_id === pachhuFamily!.id && inv.invitee_email?.toLowerCase() === targetEmail
+    );
+    if (!existingInv) {
+      const newInv: FamilyInvitation = {
+        id: "inv-pachhu-shettymu25",
+        family_id: pachhuFamily.id,
+        family_name: pachhuFamily.name,
+        inviter_id: pachhuUser.id,
+        inviter_name: pachhuUser.name,
+        inviter_email: pachhuUser.email,
+        invitee_email: targetEmail,
+        permission: "editor",
+        status: "accepted",
+        token: "pachhu-invite-token-shettymu25",
+        accepted_by_user_id: registeredUser ? registeredUser.id : undefined,
+        accepted_at: now,
+        created_at: now,
+        expires_at: new Date(Date.now() + 365 * 86400000).toISOString(),
+      };
+      this.familyInvitations.set(newInv.id, newInv);
+    } else {
+      existingInv.status = "accepted";
+      if (registeredUser && !existingInv.accepted_by_user_id) {
+        existingInv.accepted_by_user_id = registeredUser.id;
+      }
+    }
   }
 }
 

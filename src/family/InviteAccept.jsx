@@ -25,7 +25,7 @@ export default function InviteAccept() {
   const token = searchParams.get("token");
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { refresh } = useFamily();
+  const { refresh, setActiveTreeId, refreshTreeList } = useFamily();
 
   const [invitation, setInvitation] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -65,12 +65,20 @@ export default function InviteAccept() {
       const res = await api.acceptInvitation(token);
       setActionSuccess(res.message || "Invitation accepted!");
       setInvitation((prev) => (prev ? { ...prev, status: "accepted" } : null));
+
+      const targetTreeId = res.family?.id || invitation?.family_id;
+      if (targetTreeId && typeof setActiveTreeId === "function") {
+        setActiveTreeId(targetTreeId);
+      }
+      if (typeof refreshTreeList === "function") {
+        await refreshTreeList();
+      }
       if (typeof refresh === "function") {
         await refresh();
       }
       setTimeout(() => {
         navigate("/tree");
-      }, 1200);
+      }, 1000);
     } catch (err) {
       setActionError(err.message || "Failed to accept invitation.");
       setSubmitting(false);
@@ -299,13 +307,19 @@ export default function InviteAccept() {
 
               {invitation.status === "accepted" && (
                 <div className="pt-2 text-center">
-                  <Link
-                    to="/tree"
-                    className="inline-flex items-center justify-center gap-2 w-full py-3 px-4 rounded-xl text-sm font-semibold text-white bg-[#1C4B3C] hover:bg-[#163C30] transition-colors shadow-sm"
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (invitation.family_id && typeof setActiveTreeId === "function") {
+                        setActiveTreeId(invitation.family_id);
+                      }
+                      navigate("/tree");
+                    }}
+                    className="inline-flex items-center justify-center gap-2 w-full py-3 px-4 rounded-xl text-sm font-semibold text-white bg-[#1C4B3C] hover:bg-[#163C30] transition-colors shadow-sm cursor-pointer"
                   >
                     Open Family Tree
                     <ArrowRight className="w-4 h-4" />
-                  </Link>
+                  </button>
                 </div>
               )}
             </div>

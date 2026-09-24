@@ -130,12 +130,27 @@ export default function SharedTrees() {
   };
 
   const ownedTrees = useMemo(() => {
-    return treeList?.owned_trees || [];
-  }, [treeList?.owned_trees]);
+    return (treeList?.owned_trees || []).filter((t) => {
+      if (!t || !t.id) return false;
+      if (t.role === "viewer" || t.role === "editor" || t.isOwned === false) return false;
+      if (t.owner_id && user?.id && t.owner_id !== user.id) return false;
+      return true;
+    });
+  }, [treeList?.owned_trees, user?.id]);
 
   const sharedTrees = useMemo(() => {
-    return treeList?.shared_trees || [];
-  }, [treeList?.shared_trees]);
+    const fromShared = treeList?.shared_trees || [];
+    const misplaced = (treeList?.owned_trees || []).filter(
+      (t) => t && (t.role === "viewer" || t.role === "editor" || t.isOwned === false || (t.owner_id && user?.id && t.owner_id !== user.id))
+    );
+    const combined = [...fromShared, ...misplaced];
+    const seen = new Set();
+    return combined.filter((t) => {
+      if (!t || !t.id || seen.has(t.id)) return false;
+      seen.add(t.id);
+      return !user?.id || t.owner_id !== user.id;
+    });
+  }, [treeList, user?.id]);
 
   // Selected tree for the "Collaborators & Tracking" tab
   const [selectedTreeId, setSelectedTreeId] = useState(
