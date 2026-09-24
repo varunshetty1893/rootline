@@ -220,7 +220,8 @@ export type ActivityAction =
   | "INVITATION_SENT"
   | "INVITATION_ACCEPTED"
   | "INVITATION_DECLINED"
-  | "INVITATION_CANCELLED";
+  | "INVITATION_CANCELLED"
+  | "COLLABORATOR_LEFT";
 
 export interface ActivityLog {
   id: string;

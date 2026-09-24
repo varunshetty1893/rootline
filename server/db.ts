@@ -663,11 +663,15 @@ export async function dbFindFamilyById(id: string): Promise<Family | null> {
   const res = await executeQuery<Family>("SELECT * FROM families WHERE id = $1 LIMIT 1", [id]);
   if (!res.rows[0]) return null;
   const f = res.rows[0];
+  const createdAtVal = f.created_at;
   return {
     id: f.id,
     owner_id: f.owner_id,
     name: f.name,
-    created_at: f.created_at instanceof Date ? f.created_at.toISOString() : String(f.created_at),
+    created_at:
+      (createdAtVal as any) instanceof Date
+        ? (createdAtVal as any).toISOString()
+        : String(createdAtVal || new Date().toISOString()),
   };
 }
 

@@ -7,7 +7,7 @@
  * – Provides 1-click Invitation Link copying for sharing directly via WhatsApp, email, or chat.
  * – Viewers/Editors see a read-only list.
  */
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   X,
   UserPlus,
