@@ -30,6 +30,8 @@ import {
   History,
   RotateCcw,
   CheckCircle2,
+  Undo2,
+  Redo2,
 } from "lucide-react";
 import AppHeader from "./AppHeader.jsx";
 import RelationshipChat from "./RelationshipChat.jsx";
@@ -494,6 +496,13 @@ export default function TreeView() {
     isSaving,
     lastSavedAt,
     hasUnsavedChanges,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    undoActionName,
+    redoActionName,
+    lastActionNotice,
   } = useFamily();
   const [activityModalOpen, setActivityModalOpen] = useState(false);
   const [quickEditPerson, setQuickEditPerson] = useState(null);
@@ -941,13 +950,36 @@ export default function TreeView() {
   // — the add-person form, search box, quick-add modal — is never hijacked.
   useEffect(() => {
     const handleKeyDown = async (e) => {
-      if (e.key !== "Delete" && e.key !== "Backspace") return;
       const target = e.target;
       const isEditable =
         target?.tagName === "INPUT" ||
         target?.tagName === "TEXTAREA" ||
         target?.tagName === "SELECT" ||
         target?.isContentEditable;
+
+      if (!isEditable) {
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+          e.preventDefault();
+          if (e.shiftKey) {
+            if (canRedo && canEdit) redo();
+          } else {
+            if (canUndo && canEdit) undo();
+          }
+          return;
+        }
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
+          e.preventDefault();
+          if (canRedo && canEdit) redo();
+          return;
+        }
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+          e.preventDefault();
+          if (canEdit && !isSaving && !isSavingTree) handleSaveTree();
+          return;
+        }
+      }
+
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
       if (isEditable || !selectedId) return;
 
       e.preventDefault();
@@ -956,7 +988,7 @@ export default function TreeView() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedId, deletePerson]);
+  }, [selectedId, deletePerson, canUndo, canRedo, undo, redo, canEdit, isSaving, isSavingTree]);
 
   // Click-and-drag panning on empty canvas — a large tree needs this far
   // more than thin scrollbars. Bails out if the mousedown started on an
@@ -1703,11 +1735,11 @@ export default function TreeView() {
                 <button
                   type="button"
                   onClick={handleBackToMe}
-                  title={`Move view back to Me (${rootPerson.name})`}
-                  className="flex items-center gap-1.5 text-xs font-semibold rounded-lg px-2.5 sm:px-3 py-1.5 bg-[#1C4B3C] text-white hover:bg-[#163C30] active:scale-95 shadow-2xs transition-all shrink-0"
+                  title={`Back to Me (${rootPerson.name})`}
+                  aria-label={`Back to Me (${rootPerson.name})`}
+                  className="p-1.5 text-white bg-[#1C4B3C] hover:bg-[#163C30] active:scale-95 border border-transparent rounded-lg shadow-2xs transition-all shrink-0 flex items-center justify-center"
                 >
                   <LocateFixed className="w-3.5 h-3.5 shrink-0" />
-                  <span className="whitespace-nowrap">Back to Me</span>
                 </button>
               )}
 
@@ -1716,38 +1748,54 @@ export default function TreeView() {
                 <button
                   type="button"
                   onClick={() => setConfirmSetMePerson(selectedPerson)}
-                  className="flex items-center gap-1.5 text-xs font-semibold text-[#1C4B3C] bg-[#E7F1EB] hover:bg-[#D7E7DF] border border-[#1C4B3C]/40 rounded-lg px-2.5 sm:px-3 py-1.5 shadow-2xs transition-all shrink-0 animate-in fade-in"
+                  className="p-1.5 text-[#1C4B3C] bg-[#E7F1EB] hover:bg-[#D7E7DF] border border-[#1C4B3C]/40 rounded-lg shadow-2xs transition-all shrink-0 flex items-center justify-center animate-in fade-in"
                   title={`Set ${selectedPerson.name} as "Me" (Tree starter)`}
+                  aria-label={`Set ${selectedPerson.name} as "Me" (Tree starter)`}
                 >
                   <UserCheck className="w-3.5 h-3.5 text-[#1C4B3C] shrink-0" />
-                  <span className="whitespace-nowrap">Set as Me</span>
-                  <span className="hidden md:inline font-normal text-[#1C4B3C]/80 truncate max-w-[120px]">
-                    ({selectedPerson.name})
-                  </span>
                 </button>
               )}
 
               {/* If selected person is currently Root */}
               {selectedPerson && selectedPerson.id === rootPersonId && (
-                <span className="hidden sm:flex items-center gap-1.5 text-xs font-medium text-[#1C4B3C] bg-[#E7F1EB] border border-[#1C4B3C]/25 rounded-lg px-2.5 py-1.5 shrink-0">
+                <span
+                  title={`You (${rootPerson.name}) - Tree starter`}
+                  aria-label={`You (${rootPerson.name})`}
+                  className="p-1.5 text-[#1C4B3C] bg-[#E7F1EB] border border-[#1C4B3C]/25 rounded-lg shrink-0 flex items-center justify-center"
+                >
                   <Check className="w-3.5 h-3.5" />
-                  <span>You ({rootPerson.name})</span>
                 </span>
+              )}
+
+              {/* Root Person Indicator when no one is selected */}
+              {!selectedPerson && rootPerson && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setChangeRootSearch("");
+                    setChangeRootModalOpen(true);
+                  }}
+                  title={`Tree Starter ("You"): ${rootPerson.name} (Click to change)`}
+                  aria-label={`Tree Starter: ${rootPerson.name}`}
+                  className="p-1.5 text-[#1C4B3C] border border-[#1C4B3C]/35 rounded-lg bg-white hover:bg-[#E7F1EB] shadow-2xs transition-colors shrink-0 flex items-center justify-center"
+                >
+                  <UserCheck className="w-3.5 h-3.5 text-[#1C4B3C]" />
+                </button>
               )}
 
               {/* Short family vs Full tree mode */}
               <button
                 type="button"
                 onClick={() => setFocusedView((value) => !value)}
-                title={focusedView ? "Switch to viewing the complete tree across all branches" : "Switch to viewing the selected person's immediate short family"}
-                className={`hidden xs:flex items-center gap-1 text-xs border rounded-lg px-2 sm:px-2.5 py-1.5 transition-colors ${
+                title={focusedView ? "Switch to Full tree mode" : "Switch to Short family mode"}
+                aria-label={focusedView ? "Switch to Full tree mode" : "Switch to Short family mode"}
+                className={`p-1.5 border rounded-lg transition-colors shrink-0 flex items-center justify-center ${
                   focusedView
-                    ? "border-[#1C4B3C] bg-[#E7F1EB] text-[#1C4B3C] font-semibold"
+                    ? "border-[#1C4B3C] bg-[#E7F1EB] text-[#1C4B3C]"
                     : "border-[#D9D3C3] bg-white text-[#374151] hover:bg-[#F0EDE3]"
                 }`}
               >
                 <Focus className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">{focusedView ? "Short family" : "Full tree"}</span>
               </button>
 
               {/* Branch auto-accordion focus toggle */}
@@ -1756,25 +1804,26 @@ export default function TreeView() {
                 onClick={() => setSmartAccordion((val) => !val)}
                 title={
                   smartAccordion
-                    ? "Branch focus is ON: Expanding a branch automatically collapses other sibling branches to keep the layout neat and prevent sprawling or overlapping."
-                    : "Branch focus is OFF: Multiple sibling branches can remain open simultaneously."
+                    ? "Branch focus is ON: Expanding a branch collapses others"
+                    : "Branch focus is OFF: Multiple branches remain open"
                 }
-                className={`hidden md:flex items-center gap-1 text-xs border rounded-lg px-2 sm:px-2.5 py-1.5 transition-colors shadow-2xs ${
+                aria-label={smartAccordion ? "Branch focus on" : "Branch focus off"}
+                className={`p-1.5 border rounded-lg transition-colors shadow-2xs shrink-0 flex items-center justify-center ${
                   smartAccordion
-                    ? "border-[#1C4B3C] bg-[#E7F1EB] text-[#1C4B3C] font-semibold"
+                    ? "border-[#1C4B3C] bg-[#E7F1EB] text-[#1C4B3C]"
                     : "border-[#D9D3C3] bg-white text-[#374151] hover:bg-[#F0EDE3]"
                 }`}
               >
                 <GitBranch className="w-3.5 h-3.5" />
-                <span>{smartAccordion ? "Branch focus" : "Branch focus: off"}</span>
               </button>
 
               {/* Zoom controls */}
-              <div className="flex items-center border border-[#D9D3C3] rounded-lg overflow-hidden bg-white shadow-2xs">
+              <div className="flex items-center border border-[#D9D3C3] rounded-lg overflow-hidden bg-white shadow-2xs shrink-0">
                 <button
                   type="button"
                   onClick={zoomOut}
                   title="Zoom out"
+                  aria-label="Zoom out"
                   className="p-1.5 hover:bg-[#F0EDE3] text-[#374151]"
                 >
                   <ZoomOut className="w-3.5 h-3.5" />
@@ -1786,6 +1835,7 @@ export default function TreeView() {
                   type="button"
                   onClick={zoomIn}
                   title="Zoom in"
+                  aria-label="Zoom in"
                   className="p-1.5 hover:bg-[#F0EDE3] text-[#374151]"
                 >
                   <ZoomIn className="w-3.5 h-3.5" />
@@ -1797,10 +1847,10 @@ export default function TreeView() {
                 type="button"
                 onClick={fitToScreen}
                 title="Fit to screen"
-                className="hidden sm:flex items-center gap-1 text-xs text-[#374151] border border-[#D9D3C3] rounded-lg px-2 sm:px-2.5 py-1.5 bg-white hover:bg-[#F0EDE3] shadow-2xs"
+                aria-label="Fit to screen"
+                className="p-1.5 text-[#374151] border border-[#D9D3C3] rounded-lg bg-white hover:bg-[#F0EDE3] shadow-2xs shrink-0 flex items-center justify-center"
               >
                 <Maximize2 className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Fit</span>
               </button>
 
               {/* Center selected */}
@@ -1808,35 +1858,37 @@ export default function TreeView() {
                 type="button"
                 onClick={() => centerPerson(selectedId || rootPersonId)}
                 title="Center on selected person"
-                className="p-1.5 text-[#374151] border border-[#D9D3C3] rounded-lg bg-white hover:bg-[#F0EDE3] shadow-2xs"
+                aria-label="Center on selected person"
+                className="p-1.5 text-[#374151] border border-[#D9D3C3] rounded-lg bg-white hover:bg-[#F0EDE3] shadow-2xs shrink-0 flex items-center justify-center"
               >
                 <LocateFixed className="w-3.5 h-3.5" />
               </button>
 
-              {/* Root Person Indicator when no one is selected */}
-              {!selectedPerson && rootPerson && (
-                <div className="relative hidden lg:block">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setChangeRootSearch("");
-                      setChangeRootModalOpen(true);
-                    }}
-                    title="Change starting person ('You') for the tree"
-                    className="flex items-center gap-1.5 text-xs text-[#1C1F1D] border border-[#1C4B3C]/35 rounded-lg px-2.5 py-1.5 bg-white hover:bg-[#E7F1EB] shadow-2xs transition-colors"
-                  >
-                    <UserCheck className="w-3.5 h-3.5 text-[#1C4B3C]" />
-                    <span>
-                      You: <strong className="font-semibold text-[#1C4B3C]">{rootPerson.name}</strong>
-                    </span>
-                    <span className="text-[10px] text-[#1C4B3C] bg-[#E7F1EB] px-1.5 py-0.5 rounded font-semibold border border-[#1C4B3C]/20">
-                      Change
-                    </span>
-                  </button>
-                </div>
-              )}
+              {/* Undo Button */}
+              <button
+                type="button"
+                onClick={undo}
+                disabled={!canUndo || !canEdit}
+                title={canUndo ? `Undo: ${undoActionName} (Ctrl+Z)` : "Undo (Ctrl+Z)"}
+                aria-label={canUndo ? `Undo: ${undoActionName}` : "Undo"}
+                className="p-1.5 text-[#374151] border border-[#D9D3C3] rounded-lg bg-white hover:bg-[#F0EDE3] disabled:opacity-35 disabled:cursor-not-allowed shadow-2xs transition-colors shrink-0 flex items-center justify-center"
+              >
+                <Undo2 className="w-3.5 h-3.5" />
+              </button>
 
-              <span className="w-px h-5 bg-[#D9D3C3] hidden xs:inline-block mx-0.5" />
+              {/* Redo Button */}
+              <button
+                type="button"
+                onClick={redo}
+                disabled={!canRedo || !canEdit}
+                title={canRedo ? `Redo: ${redoActionName} (Ctrl+Y)` : "Redo (Ctrl+Y)"}
+                aria-label={canRedo ? `Redo: ${redoActionName}` : "Redo"}
+                className="p-1.5 text-[#374151] border border-[#D9D3C3] rounded-lg bg-white hover:bg-[#F0EDE3] disabled:opacity-35 disabled:cursor-not-allowed shadow-2xs transition-colors shrink-0 flex items-center justify-center"
+              >
+                <Redo2 className="w-3.5 h-3.5" />
+              </button>
+
+              <span className="w-px h-5 bg-[#D9D3C3] hidden xs:inline-block mx-0.5 shrink-0" />
 
               {/* Right Corner: Save Button */}
               <button
@@ -1929,6 +1981,29 @@ export default function TreeView() {
                     <div className="border-t border-[#F0EDE3] my-1" />
                     <button
                       type="button"
+                      disabled={!canUndo || !canEdit}
+                      onClick={() => {
+                        undo();
+                        setMobileToolsOpen(false);
+                      }}
+                      className="w-full px-3 py-2 text-left text-xs text-[#374151] hover:bg-[#F7F5F0] disabled:opacity-40 flex items-center gap-2"
+                    >
+                      <Undo2 className="w-3.5 h-3.5 text-[#1C4B3C]" /> Undo {undoActionName ? `(${undoActionName})` : ""}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!canRedo || !canEdit}
+                      onClick={() => {
+                        redo();
+                        setMobileToolsOpen(false);
+                      }}
+                      className="w-full px-3 py-2 text-left text-xs text-[#374151] hover:bg-[#F7F5F0] disabled:opacity-40 flex items-center gap-2"
+                    >
+                      <Redo2 className="w-3.5 h-3.5 text-[#1C4B3C]" /> Redo {redoActionName ? `(${redoActionName})` : ""}
+                    </button>
+                    <div className="border-t border-[#F0EDE3] my-1" />
+                    <button
+                      type="button"
                       onClick={() => {
                         setChangeRootSearch("");
                         setChangeRootModalOpen(true);
@@ -1943,6 +2018,24 @@ export default function TreeView() {
               </div>
             </div>
           </div>
+
+          {saveBannerMsg && (
+            <div className="bg-emerald-700 text-white text-xs font-semibold py-2 px-4 text-center flex items-center justify-center gap-2 shadow-inner">
+              <CheckCircle2 className="w-4 h-4" />
+              <span>{saveBannerMsg}</span>
+            </div>
+          )}
+
+          {lastActionNotice && (
+            <div className="bg-[#1C1F1D] text-white text-xs font-semibold py-2 px-4 text-center flex items-center justify-center gap-2 animate-in fade-in shadow-inner">
+              {lastActionNotice.type === "undo" ? (
+                <Undo2 className="w-3.5 h-3.5 text-amber-400" />
+              ) : (
+                <Redo2 className="w-3.5 h-3.5 text-emerald-400" />
+              )}
+              <span>{lastActionNotice.text}</span>
+            </div>
+          )}
 
           {(!loaded && people.length === 0) || (treesLoading && people.length === 0) ? (
             <div

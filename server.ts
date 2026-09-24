@@ -1562,7 +1562,7 @@ export async function createExpressApp() {
     return res.json(store.serializePerson(person, { fullPhoto: true }));
   });
 
-  app.patch(["/people/:id", "/api/people/:id"], requireAuth, (req: AuthRequest, res) => {
+  const handleUpdatePerson = (req: AuthRequest, res: any) => {
     try {
       const rawId = req.params.id;
       const personId = Array.isArray(rawId) ? rawId[0] : rawId;
@@ -1600,7 +1600,10 @@ export async function createExpressApp() {
       const status = err.message === "Person not found" ? 404 : 400;
       return res.status(status).json({ detail: err.message || "Failed to update person" });
     }
-  });
+  };
+
+  app.patch(["/people/:id", "/api/people/:id"], requireAuth, handleUpdatePerson);
+  app.put(["/people/:id", "/api/people/:id"], requireAuth, handleUpdatePerson);
 
   app.delete(["/people/:id", "/api/people/:id"], requireAuth, (req: AuthRequest, res) => {
     try {
@@ -2226,13 +2229,23 @@ export async function createExpressApp() {
 
   app.post(["/api/family/save", "/api/tree/save"], requireAuth, (req: AuthRequest, res) => {
     try {
-      let familyId = ((req.body?.family_id as string) || (req.query?.family_id as string))?.trim();
-      if (!familyId || !store.families.has(familyId)) {
+      const rawFamilyId = (
+        (req.body?.family_id as string) ||
+        (req.query?.family_id as string) ||
+        (req.body?.tree_id as string) ||
+        (req.query?.tree_id as string)
+      )?.trim();
+
+      let familyId = rawFamilyId;
+      let access = familyId ? store.checkFamilyAccess(req.user!.id, familyId) : null;
+      if (!access) {
         const userTrees = store.getUserTrees(req.user!.id, req.user);
         familyId = userTrees.owned.family.id;
+        access = store.checkFamilyAccess(req.user!.id, familyId);
+      } else {
+        familyId = access.family.id;
       }
 
-      const access = store.checkFamilyAccess(req.user!.id, familyId);
       if (!access) {
         return res.status(403).json({ detail: "Access denied to this family tree." });
       }
@@ -2275,14 +2288,23 @@ export async function createExpressApp() {
 
   app.get(["/api/family/revisions", "/api/tree/revisions"], requireAuth, (req: AuthRequest, res) => {
     try {
-      const rawFamilyId = ((req.query.family_id as string) || (req.query.tree_id as string))?.trim();
+      const rawFamilyId = (
+        (req.query?.family_id as string) ||
+        (req.query?.tree_id as string) ||
+        (req.body?.family_id as string) ||
+        (req.body?.tree_id as string)
+      )?.trim();
+
       let familyId = rawFamilyId;
-      if (!familyId || !store.families.has(familyId)) {
+      let access = familyId ? store.checkFamilyAccess(req.user!.id, familyId) : null;
+      if (!access) {
         const userTrees = store.getUserTrees(req.user!.id, req.user);
         familyId = userTrees.owned.family.id;
+        access = store.checkFamilyAccess(req.user!.id, familyId);
+      } else {
+        familyId = access.family.id;
       }
 
-      const access = store.checkFamilyAccess(req.user!.id, familyId);
       if (!access) {
         return res.status(403).json({ detail: "Access denied to this family tree revisions." });
       }
@@ -2299,16 +2321,28 @@ export async function createExpressApp() {
 
   app.post(["/api/family/restore", "/api/tree/restore"], requireAuth, (req: AuthRequest, res) => {
     try {
-      let { family_id, revision_id } = req.body || {};
+      const { revision_id } = req.body || {};
       if (!revision_id) {
         return res.status(400).json({ detail: "revision_id is required." });
       }
-      if (!family_id || !store.families.has(family_id)) {
+
+      const rawFamilyId = (
+        (req.body?.family_id as string) ||
+        (req.query?.family_id as string) ||
+        (req.body?.tree_id as string) ||
+        (req.query?.tree_id as string)
+      )?.trim();
+
+      let familyId = rawFamilyId;
+      let access = familyId ? store.checkFamilyAccess(req.user!.id, familyId) : null;
+      if (!access) {
         const userTrees = store.getUserTrees(req.user!.id, req.user);
-        family_id = userTrees.owned.family.id;
+        familyId = userTrees.owned.family.id;
+        access = store.checkFamilyAccess(req.user!.id, familyId);
+      } else {
+        familyId = access.family.id;
       }
 
-      const access = store.checkFamilyAccess(req.user!.id, family_id);
       if (!access) {
         return res.status(403).json({ detail: "Access denied to this family tree." });
       }
@@ -2316,7 +2350,7 @@ export async function createExpressApp() {
         return res.status(403).json({ detail: "Only tree owners and editors can restore previous versions of this family tree." });
       }
 
-      const result = store.restoreTreeSnapshot(family_id, revision_id, {
+      const result = store.restoreTreeSnapshot(familyId, revision_id, {
         id: req.user!.id,
         name: req.user!.name,
       });

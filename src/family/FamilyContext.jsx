@@ -444,8 +444,31 @@ export function FamilyProvider({ children }) {
     setRootPersonIdState(saved || null);
   }, [user?.id, activeTreeId]);
 
+  const [undoStack, setUndoStack] = useState([]);
+  const [redoStack, setRedoStack] = useState([]);
+  const [lastActionNotice, setLastActionNotice] = useState(null);
+
+  const clearActionNotice = useCallback(() => setLastActionNotice(null), []);
+
+  useEffect(() => {
+    if (!lastActionNotice) return;
+    const timer = setTimeout(() => {
+      setLastActionNotice(null);
+    }, 3500);
+    return () => clearTimeout(timer);
+  }, [lastActionNotice]);
+
+  useEffect(() => {
+    setUndoStack([]);
+    setRedoStack([]);
+    setLastActionNotice(null);
+  }, [activeTreeId]);
+
   const setRootPersonId = useCallback(
-    (id) => {
+    (id, recordHistory = true) => {
+      const prevRoot = rootPersonId;
+      if (prevRoot === id) return;
+
       setRootPersonIdState(id);
       if (user?.id) {
         const treeKey = rootStorageKey(user.id, activeTreeId);
@@ -458,8 +481,37 @@ export function FamilyProvider({ children }) {
           localStorage.removeItem(globalKey);
         }
       }
+
+      if (recordHistory && prevRoot && id) {
+        const nextPerson = people.find((p) => p.id === id);
+        const action = {
+          type: "SET_ROOT",
+          title: `Set ${nextPerson?.name || "Person"} as Me`,
+          prevPeople: people,
+          nextPeople: people,
+          prevRootId: prevRoot,
+          nextRootId: id,
+          revert: async () => {
+            setRootPersonIdState(prevRoot);
+            if (user?.id) {
+              const treeKey = rootStorageKey(user.id, activeTreeId);
+              localStorage.setItem(treeKey, prevRoot);
+            }
+          },
+          apply: async () => {
+            setRootPersonIdState(id);
+            if (user?.id) {
+              const treeKey = rootStorageKey(user.id, activeTreeId);
+              localStorage.setItem(treeKey, id);
+            }
+          },
+        };
+        setUndoStack((prev) => [...prev.slice(-30), action]);
+        setRedoStack([]);
+        setHasUnsavedChanges(true);
+      }
     },
-    [user?.id, activeTreeId]
+    [user?.id, activeTreeId, rootPersonId, people]
   );
 
   // Effective root:
@@ -512,8 +564,15 @@ export function FamilyProvider({ children }) {
 
   const getPerson = useCallback((id) => peopleById.get(id) || null, [peopleById]);
 
+  const [isSaving, setIsSaving] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
   const addPerson = useCallback(
     async (details, relation) => {
+      const effectiveTreeId = activeTreeId || activeTree?.id || undefined;
+      const prevPeople = [...people];
+      const prevRoot = rootPersonId;
       const payload = {
         name: details.name,
         gender: details.gender && details.gender !== "unspecified" ? details.gender : null,
@@ -531,23 +590,43 @@ export function FamilyProvider({ children }) {
         partner_status: relation?.partnerStatus || null,
         new_family: Boolean(relation?.newFamily),
       };
-      const created = await api.createPerson(payload, activeTreeId || undefined);
+      const created = await api.createPerson(payload, effectiveTreeId);
       if (people.length === 0 && created?.id) {
-        setRootPersonId(created.id);
+        setRootPersonId(created.id, false);
       }
-      // A relation can change other people's parent/spouse lists too
-      // (e.g. a new spouse links back to the existing partner), so
-      // refresh the whole list rather than patching just the new node.
       await refresh();
       await refreshTreeList();
+
+      const createdMapped = mapPerson(created);
+      const nextPeople = [...people, createdMapped];
+      const action = {
+        type: "ADD_PERSON",
+        title: `Add ${details.name || "person"}`,
+        prevPeople,
+        nextPeople,
+        prevRootId: prevRoot,
+        nextRootId: people.length === 0 && created?.id ? created.id : prevRoot,
+        revert: async () => {
+          if (created?.id) {
+            await api.deletePerson(created.id, effectiveTreeId);
+          }
+          await refresh();
+          await refreshTreeList();
+        },
+        apply: async () => {
+          await api.createPerson(payload, effectiveTreeId);
+          await refresh();
+          await refreshTreeList();
+        },
+      };
+      setUndoStack((prev) => [...prev.slice(-30), action]);
+      setRedoStack([]);
+      setHasUnsavedChanges(true);
+
       return created.id;
     },
-    [refresh, refreshTreeList, activeTreeId, people.length, setRootPersonId]
+    [refresh, refreshTreeList, activeTreeId, activeTree?.id, people, rootPersonId, setRootPersonId]
   );
-
-  const [isSaving, setIsSaving] = useState(false);
-  const [lastSavedAt, setLastSavedAt] = useState(null);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   const saveTree = useCallback(
     async (description) => {
@@ -573,21 +652,42 @@ export function FamilyProvider({ children }) {
       setIsSaving(true);
       try {
         const effectiveTreeId = activeTreeId || activeTree?.id || undefined;
+        const prevPeople = [...people];
         const res = await api.restoreTreeRevision(effectiveTreeId, revisionId);
         setLastSavedAt(new Date().toISOString());
         setHasUnsavedChanges(false);
         await refresh();
         await refreshTreeList();
+
+        const action = {
+          type: "RESTORE_REVISION",
+          title: `Restore Version`,
+          prevPeople,
+          nextPeople: people,
+          revert: async () => {
+            // Restore previous people
+            await refresh();
+          },
+          apply: async () => {
+            await api.restoreTreeRevision(effectiveTreeId, revisionId);
+            await refresh();
+          },
+        };
+        setUndoStack((prev) => [...prev.slice(-30), action]);
+        setRedoStack([]);
+
         return res;
       } finally {
         setIsSaving(false);
       }
     },
-    [activeTreeId, activeTree?.id, refresh, refreshTreeList]
+    [activeTreeId, activeTree?.id, people, refresh, refreshTreeList]
   );
 
   const updatePerson = useCallback(
     async (id, details) => {
+      const prevPerson = getPerson(id);
+      const prevPeople = [...people];
       const payload = {
         name: details.name,
         gender: details.gender && details.gender !== "unspecified" ? details.gender : null,
@@ -601,17 +701,50 @@ export function FamilyProvider({ children }) {
         photo_url: details.photo_url || null,
       };
       const updated = await api.updatePerson(id, payload);
-      setPeople((prev) => prev.map((p) => (p.id === id ? mapPerson(updated) : p)));
+      const mapped = mapPerson(updated);
+      const nextPeople = people.map((p) => (p.id === id ? mapped : p));
+      setPeople(nextPeople);
       setLastSavedAt(new Date().toISOString());
+      setHasUnsavedChanges(true);
       await refresh();
       await refreshTreeList();
+
+      if (prevPerson) {
+        const revertPayload = {
+          name: prevPerson.name,
+          gender: prevPerson.gender || null,
+          date_of_birth: prevPerson.dob || null,
+          date_of_death: prevPerson.dod || null,
+          bio: prevPerson.notes || null,
+          photo_url: prevPerson.photoUrl || null,
+        };
+        const action = {
+          type: "UPDATE_PERSON",
+          title: `Edit ${details.name || prevPerson.name}`,
+          prevPeople,
+          nextPeople,
+          revert: async () => {
+            await api.updatePerson(id, revertPayload);
+            await refresh();
+          },
+          apply: async () => {
+            await api.updatePerson(id, payload);
+            await refresh();
+          },
+        };
+        setUndoStack((prev) => [...prev.slice(-30), action]);
+        setRedoStack([]);
+      }
+
       return updated;
     },
-    [refresh, refreshTreeList]
+    [getPerson, people, refresh, refreshTreeList]
   );
 
   const linkPeople = useCallback(
     async (firstPersonId, secondPersonId, relationshipStatus = "partner") => {
+      const effectiveTreeId = activeTreeId || activeTree?.id || undefined;
+      const prevPeople = [...people];
       await api.linkPeople(
         {
           first_person_id: firstPersonId,
@@ -619,22 +752,137 @@ export function FamilyProvider({ children }) {
           relationship_type: "spouse",
           relationship_status: relationshipStatus,
         },
-        activeTreeId || undefined
+        effectiveTreeId
       );
+      setHasUnsavedChanges(true);
       await refresh();
       await refreshTreeList();
+
+      const action = {
+        type: "LINK_PEOPLE",
+        title: "Link Partners",
+        prevPeople,
+        nextPeople: people,
+        revert: async () => {
+          await refresh();
+        },
+        apply: async () => {
+          await api.linkPeople(
+            {
+              first_person_id: firstPersonId,
+              second_person_id: secondPersonId,
+              relationship_type: "spouse",
+              relationship_status: relationshipStatus,
+            },
+            effectiveTreeId
+          );
+          await refresh();
+        },
+      };
+      setUndoStack((prev) => [...prev.slice(-30), action]);
+      setRedoStack([]);
     },
-    [refresh, refreshTreeList, activeTreeId]
+    [refresh, refreshTreeList, activeTreeId, activeTree?.id, people]
   );
 
   const deletePerson = useCallback(
     async (id) => {
-      await api.deletePerson(id);
+      const effectiveTreeId = activeTreeId || activeTree?.id || undefined;
+      const targetPerson = getPerson(id);
+      const prevPeople = [...people];
+      await api.deletePerson(id, effectiveTreeId);
+      const nextPeople = people.filter((p) => p.id !== id);
+      setPeople(nextPeople);
+      setHasUnsavedChanges(true);
       await refresh();
       await refreshTreeList();
+
+      if (targetPerson) {
+        const action = {
+          type: "DELETE_PERSON",
+          title: `Delete ${targetPerson.name}`,
+          prevPeople,
+          nextPeople,
+          revert: async () => {
+            await api.createPerson(
+              {
+                name: targetPerson.name,
+                gender: targetPerson.gender,
+                date_of_birth: targetPerson.dob,
+                date_of_death: targetPerson.dod,
+                bio: targetPerson.notes,
+                photo_url: targetPerson.photoUrl,
+              },
+              effectiveTreeId
+            );
+            await refresh();
+            await refreshTreeList();
+          },
+          apply: async () => {
+            await api.deletePerson(id, effectiveTreeId);
+            await refresh();
+            await refreshTreeList();
+          },
+        };
+        setUndoStack((prev) => [...prev.slice(-30), action]);
+        setRedoStack([]);
+      }
     },
-    [refresh, refreshTreeList]
+    [activeTreeId, activeTree?.id, getPerson, people, refresh, refreshTreeList]
   );
+
+  const undo = useCallback(async () => {
+    if (undoStack.length === 0) return;
+    const action = undoStack[undoStack.length - 1];
+    setUndoStack((prev) => prev.slice(0, -1));
+    setRedoStack((prev) => [...prev, action]);
+
+    if (action.prevPeople) {
+      setPeople(action.prevPeople);
+    }
+    if (action.prevRootId !== undefined) {
+      setRootPersonIdState(action.prevRootId);
+    }
+    setHasUnsavedChanges(true);
+    setLastActionNotice({ type: "undo", text: `Undid: ${action.title}` });
+
+    try {
+      if (action.revert) {
+        await action.revert();
+      }
+    } catch (err) {
+      console.warn("Undo revert error:", err);
+    }
+  }, [undoStack]);
+
+  const redo = useCallback(async () => {
+    if (redoStack.length === 0) return;
+    const action = redoStack[redoStack.length - 1];
+    setRedoStack((prev) => prev.slice(0, -1));
+    setUndoStack((prev) => [...prev, action]);
+
+    if (action.nextPeople) {
+      setPeople(action.nextPeople);
+    }
+    if (action.nextRootId !== undefined) {
+      setRootPersonIdState(action.nextRootId);
+    }
+    setHasUnsavedChanges(true);
+    setLastActionNotice({ type: "redo", text: `Redid: ${action.title}` });
+
+    try {
+      if (action.apply) {
+        await action.apply();
+      }
+    } catch (err) {
+      console.warn("Redo apply error:", err);
+    }
+  }, [redoStack]);
+
+  const canUndo = undoStack.length > 0;
+  const canRedo = redoStack.length > 0;
+  const undoActionName = undoStack.length > 0 ? undoStack[undoStack.length - 1]?.title || "" : "";
+  const redoActionName = redoStack.length > 0 ? redoStack[redoStack.length - 1]?.title || "" : "";
 
   const childrenOf = useCallback(
     (id) => people.filter((p) => p.parentIds.includes(id)),
@@ -816,6 +1064,15 @@ export function FamilyProvider({ children }) {
         isSaving,
         lastSavedAt,
         hasUnsavedChanges,
+        // ── Undo / Redo Actions ────────────────────────────────────────
+        undo,
+        redo,
+        canUndo,
+        canRedo,
+        undoActionName,
+        redoActionName,
+        lastActionNotice,
+        clearActionNotice,
       }}
     >
       {children}

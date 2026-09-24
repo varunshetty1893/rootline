@@ -1877,7 +1877,15 @@ export class MemoryStore {
   }
 
   checkFamilyAccess(userId: string, familyId: string): { family: Family; role: FamilyRole } | null {
-    const family = this.families.get(familyId);
+    let family = this.families.get(familyId);
+    if (!family) {
+      for (const f of this.families.values()) {
+        if (f.owner_id === familyId) {
+          family = f;
+          break;
+        }
+      }
+    }
     if (!family) return null;
 
     if (family.owner_id === userId) {
@@ -1894,8 +1902,9 @@ export class MemoryStore {
     for (const s of this.treeShares.values()) {
       const shareUser = this.users.get(s.user_id);
       const shareUserEmail = shareUser?.email ? shareUser.email.toLowerCase().trim() : "";
+      const matchesFamily = s.family_id === family.id || s.family_id === familyId;
       if (
-        s.family_id === familyId &&
+        matchesFamily &&
         (s.user_id === userId ||
           (email && s.user_id && typeof s.user_id === "string" && s.user_id.toLowerCase().trim() === email) ||
           (email && shareUserEmail && shareUserEmail === email))
@@ -1904,15 +1913,15 @@ export class MemoryStore {
       }
     }
 
-    const memberId = `${familyId}-${userId}`;
-    const member = this.familyMembers.get(memberId);
+    const member = this.familyMembers.get(`${family.id}-${userId}`) || this.familyMembers.get(`${familyId}-${userId}`);
     if (member) {
       return { family, role: member.role };
     }
 
     for (const inv of this.familyInvitations.values()) {
+      const matchesFamily = inv.family_id === family.id || inv.family_id === familyId;
       if (
-        inv.family_id === familyId &&
+        matchesFamily &&
         inv.status === "accepted" &&
         (inv.accepted_by_user_id === userId || (email && inv.invitee_email && typeof inv.invitee_email === "string" && inv.invitee_email.toLowerCase().trim() === email))
       ) {
@@ -4222,79 +4231,70 @@ export class MemoryStore {
       child("aarav", "prashanth", "Aarav Shetty", { gender: "male", bio: "Nephew" });
     }
 
-    // Share with user email
-    const targetEmail = "shettymu25@gmail.com";
-    const existingShare = Array.from(this.treeShares.values()).find(
-      (s) =>
-        s.family_id === pachhuFamily!.id &&
-        (s.user_id?.toLowerCase() === targetEmail ||
-          this.users.get(s.user_id)?.email?.toLowerCase() === targetEmail)
-    );
+    // Share with user emails as editors
+    const collaboratorEmails = [
+      "shettymu25@gmail.com",
+      "sbabushetty68@gmail.com",
+      "allprojectemail1893@gmail.com",
+    ];
 
-    const registeredUser = this.findUserByEmail(targetEmail);
-    if (!existingShare) {
-      const newShare: TreeShare = {
-        id: "share-pachhu-shettymu25",
-        family_id: pachhuFamily.id,
-        owner_id: pachhuUser.id,
-        user_id: registeredUser ? registeredUser.id : targetEmail,
-        permission: "editor",
-        created_at: now,
-        updated_at: now,
-      };
-      this.treeShares.set(newShare.id, newShare);
-    } else if (registeredUser && existingShare.user_id !== registeredUser.id) {
-      existingShare.user_id = registeredUser.id;
-    }
+    for (const targetEmail of collaboratorEmails) {
+      const registeredUser = this.findUserByEmail(targetEmail);
+      const existingShare = Array.from(this.treeShares.values()).find(
+        (s) =>
+          s.family_id === pachhuFamily!.id &&
+          (s.user_id?.toLowerCase() === targetEmail ||
+            (registeredUser && s.user_id === registeredUser.id) ||
+            this.users.get(s.user_id)?.email?.toLowerCase() === targetEmail)
+      );
 
-    const existingInv = Array.from(this.familyInvitations.values()).find(
-      (inv) => inv.family_id === pachhuFamily!.id && inv.invitee_email?.toLowerCase() === targetEmail
-    );
-    if (!existingInv) {
-      const newInv: FamilyInvitation = {
-        id: "inv-pachhu-shettymu25",
-        family_id: pachhuFamily.id,
-        family_name: pachhuFamily.name,
-        inviter_id: pachhuUser.id,
-        inviter_name: pachhuUser.name,
-        inviter_email: pachhuUser.email,
-        invitee_email: targetEmail,
-        permission: "editor",
-        status: "accepted",
-        token: "pachhu-invite-token-shettymu25",
-        accepted_by_user_id: registeredUser ? registeredUser.id : undefined,
-        accepted_at: now,
-        created_at: now,
-        expires_at: new Date(Date.now() + 365 * 86400000).toISOString(),
-      };
-      this.familyInvitations.set(newInv.id, newInv);
-    } else {
-      existingInv.status = "accepted";
-      if (registeredUser && !existingInv.accepted_by_user_id) {
-        existingInv.accepted_by_user_id = registeredUser.id;
+      const safeIdSuffix = targetEmail.replace(/[^a-zA-Z0-9]/g, "_");
+      if (!existingShare) {
+        const newShare: TreeShare = {
+          id: `share-pachhu-${safeIdSuffix}`,
+          family_id: pachhuFamily.id,
+          owner_id: pachhuUser.id,
+          user_id: registeredUser ? registeredUser.id : targetEmail,
+          permission: "editor",
+          created_at: now,
+          updated_at: now,
+        };
+        this.treeShares.set(newShare.id, newShare);
+      } else {
+        existingShare.permission = "editor";
+        if (registeredUser && existingShare.user_id !== registeredUser.id) {
+          existingShare.user_id = registeredUser.id;
+        }
       }
-    }
 
-    // Also share with sbabushetty68@gmail.com
-    const collaboratorEmail = "sbabushetty68@gmail.com";
-    const regCollaborator = this.findUserByEmail(collaboratorEmail);
-    const existingCollabShare = Array.from(this.treeShares.values()).find(
-      (s) =>
-        s.family_id === pachhuFamily!.id &&
-        (s.user_id?.toLowerCase() === collaboratorEmail ||
-          (regCollaborator && s.user_id === regCollaborator.id))
-    );
-    if (!existingCollabShare) {
-      const collabShare: TreeShare = {
-        id: "share-pachhu-sbabushetty68",
-        family_id: pachhuFamily.id,
-        owner_id: pachhuUser.id,
-        user_id: regCollaborator ? regCollaborator.id : collaboratorEmail,
-        permission: "editor",
-        created_at: now,
-        updated_at: now,
-      };
-      this.treeShares.set(collabShare.id, collabShare);
+      const existingInv = Array.from(this.familyInvitations.values()).find(
+        (inv) => inv.family_id === pachhuFamily!.id && inv.invitee_email?.toLowerCase() === targetEmail
+      );
+      if (!existingInv) {
+        const newInv: FamilyInvitation = {
+          id: `inv-pachhu-${safeIdSuffix}`,
+          family_id: pachhuFamily.id,
+          family_name: pachhuFamily.name,
+          inviter_id: pachhuUser.id,
+          inviter_name: pachhuUser.name,
+          inviter_email: pachhuUser.email,
+          invitee_email: targetEmail,
+          permission: "editor",
+          status: "accepted",
+          token: `pachhu-invite-token-${safeIdSuffix}`,
+          accepted_by_user_id: registeredUser ? registeredUser.id : undefined,
+          accepted_at: now,
+          created_at: now,
+          expires_at: new Date(Date.now() + 365 * 86400000).toISOString(),
+        };
+        this.familyInvitations.set(newInv.id, newInv);
+      } else {
+        existingInv.status = "accepted";
+        existingInv.permission = "editor";
+        if (registeredUser && !existingInv.accepted_by_user_id) {
+          existingInv.accepted_by_user_id = registeredUser.id;
+        }
+      }
     }
 
     // Ensure baseline snapshot exists for Pachhu's tree

@@ -168,14 +168,14 @@ export const api = {
   saveTree: (treeId, description) =>
     request("/api/family/save", {
       method: "POST",
-      body: { family_id: treeId || undefined, description },
+      body: { family_id: treeId || undefined, tree_id: treeId || undefined, description },
     }),
   getTreeRevisions: (treeId) =>
-    request(`/api/family/revisions?family_id=${encodeURIComponent(treeId || "")}`),
+    request(`/api/family/revisions?family_id=${encodeURIComponent(treeId || "")}&tree_id=${encodeURIComponent(treeId || "")}`),
   restoreTreeRevision: (treeId, revisionId) =>
     request("/api/family/restore", {
       method: "POST",
-      body: { family_id: treeId, revision_id: revisionId },
+      body: { family_id: treeId, tree_id: treeId, revision_id: revisionId },
     }),
   getFamilyStatistics: (treeId) =>
     request(`/api/family/statistics?family_id=${encodeURIComponent(treeId || "")}`),
