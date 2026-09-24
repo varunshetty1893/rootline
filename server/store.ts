@@ -3441,7 +3441,7 @@ export class MemoryStore {
   getActivityHistory(
     familyId: string,
     options?: { category?: string; page?: number; limit?: number }
-  ): { total: number; page: number; limit: number; items: ActivityLog[] } {
+  ): { total: number; page: number; limit: number; items: ActivityLog[]; logs: ActivityLog[] } {
     const category = options?.category || "all";
     const page = Math.max(1, options?.page || 1);
     const limit = Math.min(100, Math.max(1, options?.limit || 30));
@@ -3559,7 +3559,8 @@ export class MemoryStore {
   restoreTreeSnapshot(
     familyId: string,
     snapshotId: string,
-    actor: { id: string; name: string }
+    actor: { id: string; name: string },
+    customReason?: string
   ): { success: boolean; version: number; message: string; people_count: number } {
     const list = this.treeSnapshots.get(familyId);
     if (!list) {

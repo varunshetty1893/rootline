@@ -1684,38 +1684,6 @@ export default function TreeView() {
             </div>
 
             <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-              {/* Save Tree Button */}
-              <button
-                type="button"
-                onClick={handleSaveTree}
-                disabled={isSavingTree || isSaving || !canEdit}
-                className={`flex items-center gap-1.5 text-xs font-semibold rounded-lg px-2.5 sm:px-3.5 py-1.5 transition-all shadow-sm ${
-                  isSavingTree || isSaving
-                    ? "bg-[#1C4B3C]/70 text-white cursor-wait"
-                    : hasUnsavedChanges
-                    ? "bg-amber-600 hover:bg-amber-700 text-white ring-2 ring-amber-300"
-                    : "bg-[#1C4B3C] hover:bg-[#163C30] text-white"
-                } disabled:opacity-50`}
-                title="Save tree snapshot and commit revisions"
-              >
-                <Save className={`w-3.5 h-3.5 ${isSavingTree || isSaving ? "animate-spin" : ""}`} />
-                <span>{isSavingTree || isSaving ? "Saving…" : "Save Tree"}</span>
-              </button>
-
-              {/* History & Restore Button */}
-              <button
-                type="button"
-                onClick={() => setActivityModalOpen(true)}
-                title="View collaborator changes & restore previous revisions"
-                className="flex items-center gap-1.5 text-xs font-semibold text-[#1C4B3C] border border-[#1C4B3C]/35 bg-emerald-50/60 hover:bg-emerald-100/70 rounded-lg px-2.5 sm:px-3 py-1.5 shadow-2xs transition-colors"
-              >
-                <History className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">History & Restore</span>
-                <span className="sm:hidden">History</span>
-              </button>
-
-              <span className="w-px h-5 bg-[#D9D3C3] hidden xs:inline-block" />
-
               {/* Search */}
               <form onSubmit={handleSearch} className="relative">
                 <Search className="w-3.5 h-3.5 text-[#9CA3AF] absolute left-2.5 top-1/2 -translate-y-1/2" />
@@ -1843,27 +1811,6 @@ export default function TreeView() {
                 <LocateFixed className="w-3.5 h-3.5" />
               </button>
 
-              {/* Fullscreen */}
-              <button
-                type="button"
-                onClick={toggleFullscreen}
-                title="Fullscreen canvas"
-                className="hidden md:flex p-1.5 text-[#374151] border border-[#D9D3C3] rounded-lg bg-white hover:bg-[#F0EDE3] shadow-2xs"
-              >
-                <Focus className="w-3.5 h-3.5" />
-              </button>
-
-              {/* Print */}
-              <button
-                type="button"
-                onClick={() => window.print()}
-                title="Print this family tree"
-                className="hidden md:flex items-center gap-1 text-xs text-[#374151] border border-[#D9D3C3] rounded-lg px-2.5 py-1.5 bg-white hover:bg-[#F0EDE3] shadow-2xs"
-              >
-                <Printer className="w-3.5 h-3.5" />
-                Print
-              </button>
-
               {/* Root Person Indicator when no one is selected */}
               {!selectedPerson && rootPerson && (
                 <div className="relative hidden lg:block">
@@ -1885,6 +1832,40 @@ export default function TreeView() {
                     </span>
                   </button>
                 </div>
+              )}
+
+              <span className="w-px h-5 bg-[#D9D3C3] hidden xs:inline-block mx-0.5" />
+
+              {/* Right Corner: Save Button */}
+              <button
+                type="button"
+                onClick={handleSaveTree}
+                disabled={isSavingTree || isSaving || !canEdit}
+                className={`flex items-center gap-1.5 text-xs font-semibold rounded-lg px-3 py-1.5 transition-all shadow-sm ${
+                  isSavingTree || isSaving
+                    ? "bg-[#1C4B3C]/70 text-white cursor-wait"
+                    : hasUnsavedChanges
+                    ? "bg-amber-600 hover:bg-amber-700 text-white ring-2 ring-amber-300"
+                    : "bg-[#1C4B3C] hover:bg-[#163C30] text-white"
+                } disabled:opacity-50 shrink-0`}
+                title="Save tree snapshot"
+              >
+                <Save className={`w-3.5 h-3.5 ${isSavingTree || isSaving ? "animate-spin" : ""}`} />
+                <span>{isSavingTree || isSaving ? "Saving…" : "Save"}</span>
+              </button>
+
+              {/* Right Corner: History & Restore (ONLY if current user is owner) */}
+              {myRole === "owner" && (
+                <button
+                  type="button"
+                  onClick={() => setActivityModalOpen(true)}
+                  title="View collaborator changes & restore previous revisions"
+                  className="flex items-center gap-1.5 text-xs font-semibold text-[#1C4B3C] border border-[#1C4B3C]/35 bg-emerald-50/60 hover:bg-emerald-100/70 rounded-lg px-2.5 sm:px-3 py-1.5 shadow-2xs transition-colors shrink-0"
+                >
+                  <History className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">History & Restore</span>
+                  <span className="sm:hidden">History</span>
+                </button>
               )}
 
               {/* Mobile more options */}
@@ -1931,26 +1912,18 @@ export default function TreeView() {
                     >
                       <Maximize2 className="w-3.5 h-3.5 text-[#374151]" /> Fit to screen
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        toggleFullscreen();
-                        setMobileToolsOpen(false);
-                      }}
-                      className="w-full px-3 py-2 text-left text-xs text-[#374151] hover:bg-[#F7F5F0] flex items-center gap-2"
-                    >
-                      <Focus className="w-3.5 h-3.5 text-[#374151]" /> Fullscreen
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        window.print();
-                        setMobileToolsOpen(false);
-                      }}
-                      className="w-full px-3 py-2 text-left text-xs text-[#374151] hover:bg-[#F7F5F0] flex items-center gap-2"
-                    >
-                      <Printer className="w-3.5 h-3.5 text-[#374151]" /> Print tree
-                    </button>
+                    {myRole === "owner" && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActivityModalOpen(true);
+                          setMobileToolsOpen(false);
+                        }}
+                        className="w-full px-3 py-2 text-left text-xs text-[#1C4B3C] font-semibold hover:bg-[#F7F5F0] flex items-center gap-2"
+                      >
+                        <History className="w-3.5 h-3.5 text-[#1C4B3C]" /> History & Restore
+                      </button>
+                    )}
                     <div className="border-t border-[#F0EDE3] my-1" />
                     <button
                       type="button"

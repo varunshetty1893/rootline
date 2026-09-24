@@ -79,66 +79,6 @@ export default function TreeControls({
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">
-        {/* Save Tree Button */}
-        {onSaveTree && (
-          <div className="flex items-center gap-1.5 mr-1">
-            <button
-              type="button"
-              onClick={onSaveTree}
-              disabled={isSaving || !canEdit}
-              className={`flex items-center gap-1.5 text-xs font-semibold rounded-lg px-3.5 py-1.5 transition-all shadow-sm ${
-                isSaving
-                  ? "bg-[#1C4B3C]/70 text-white cursor-wait"
-                  : hasUnsavedChanges
-                  ? "bg-amber-600 hover:bg-amber-700 text-white ring-2 ring-amber-300"
-                  : "bg-[#1C4B3C] hover:bg-[#163C30] text-white"
-              } disabled:opacity-50`}
-              title="Save tree snapshot and commit revisions"
-            >
-              {isSaving ? (
-                <>
-                  <Save className="w-3.5 h-3.5 animate-spin" />
-                  Saving…
-                </>
-              ) : hasUnsavedChanges ? (
-                <>
-                  <Save className="w-3.5 h-3.5" />
-                  Save Tree
-                </>
-              ) : (
-                <>
-                  <Save className="w-3.5 h-3.5" />
-                  Save Tree
-                </>
-              )}
-            </button>
-            {lastSavedAt && (
-              <span
-                className="hidden md:inline-flex items-center gap-1 text-[11px] text-[#6B7280]"
-                title={`Last saved: ${new Date(lastSavedAt).toLocaleTimeString()}`}
-              >
-                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                Saved {formatSavedTime(lastSavedAt)}
-              </span>
-            )}
-          </div>
-        )}
-
-        {/* History & Restore Button */}
-        {onOpenHistory && (
-          <button
-            type="button"
-            onClick={onOpenHistory}
-            title="Inspect edit history and restore previous versions"
-            className="flex items-center gap-1.5 text-xs font-semibold text-[#1C4B3C] border border-[#1C4B3C]/30 bg-emerald-50/40 hover:bg-emerald-100/60 rounded-lg px-3 py-1.5 transition-colors shadow-xs"
-          >
-            <History className="w-3.5 h-3.5 text-[#1C4B3C]" />
-            <span>History & Restore</span>
-          </button>
-        )}
-
-        <span className="w-px h-5 bg-[#D9D3C3]" />
-
         <form onSubmit={onSearch} className="relative">
           <Search className="w-3.5 h-3.5 text-[#9CA3AF] absolute left-2.5 top-1/2 -translate-y-1/2" />
           <input
@@ -252,25 +192,6 @@ export default function TreeControls({
         >
           <LocateFixed className="w-3.5 h-3.5" />
         </button>
-        <button
-          type="button"
-          onClick={toggleFullscreen}
-          title="Fullscreen canvas"
-          className="p-1.5 text-[#374151] border border-[#D9D3C3] rounded-lg bg-white hover:bg-[#F0EDE3]"
-        >
-          <Focus className="w-3.5 h-3.5" />
-        </button>
-
-        <button
-          type="button"
-          onClick={() => window.print()}
-          title="Print this family tree"
-          className="flex items-center gap-1 text-xs text-[#374151] border border-[#D9D3C3] rounded-lg px-2.5 py-1.5 bg-white hover:bg-[#F0EDE3]"
-        >
-          <Printer className="w-3.5 h-3.5" />
-          Print
-        </button>
-
         <div className="flex items-center border border-[#D9D3C3] rounded-lg overflow-hidden bg-white">
           <button
             type="button"
@@ -291,6 +212,52 @@ export default function TreeControls({
             Collapse
           </button>
         </div>
+
+        <span className="w-px h-5 bg-[#D9D3C3] mx-1" />
+
+        {/* Right Corner: Save Button */}
+        {onSaveTree && (
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={onSaveTree}
+              disabled={isSaving || !canEdit}
+              className={`flex items-center gap-1.5 text-xs font-semibold rounded-lg px-3.5 py-1.5 transition-all shadow-sm ${
+                isSaving
+                  ? "bg-[#1C4B3C]/70 text-white cursor-wait"
+                  : hasUnsavedChanges
+                  ? "bg-amber-600 hover:bg-amber-700 text-white ring-2 ring-amber-300"
+                  : "bg-[#1C4B3C] hover:bg-[#163C30] text-white"
+              } disabled:opacity-50`}
+              title="Save tree snapshot"
+            >
+              <Save className={`w-3.5 h-3.5 ${isSaving ? "animate-spin" : ""}`} />
+              <span>{isSaving ? "Saving…" : "Save"}</span>
+            </button>
+            {lastSavedAt && (
+              <span
+                className="hidden lg:inline-flex items-center gap-1 text-[11px] text-[#6B7280]"
+                title={`Last saved: ${new Date(lastSavedAt).toLocaleTimeString()}`}
+              >
+                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                Saved {formatSavedTime(lastSavedAt)}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Right Corner: History & Restore (only if user owns the tree) */}
+        {onOpenHistory && !isShared && (
+          <button
+            type="button"
+            onClick={onOpenHistory}
+            title="Inspect edit history and restore previous versions"
+            className="flex items-center gap-1.5 text-xs font-semibold text-[#1C4B3C] border border-[#1C4B3C]/30 bg-emerald-50/40 hover:bg-emerald-100/60 rounded-lg px-3 py-1.5 transition-colors shadow-xs"
+          >
+            <History className="w-3.5 h-3.5 text-[#1C4B3C]" />
+            <span>History & Restore</span>
+          </button>
+        )}
       </div>
     </div>
   );

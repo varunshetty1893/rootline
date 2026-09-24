@@ -53,7 +53,7 @@ function timeAgo(dateString) {
 }
 
 export default function FamilyActivityModal({ isOpen, onClose }) {
-  const { activeTreeId, activeTree, canEdit, restoreTree } = useFamily();
+  const { activeTreeId, activeTree, myRole, canEdit, restoreTree } = useFamily();
   const [activeTab, setActiveTab] = useState("revisions"); // "revisions" | "activity"
   const [revisions, setRevisions] = useState([]);
   const [logs, setLogs] = useState([]);
@@ -63,6 +63,8 @@ export default function FamilyActivityModal({ isOpen, onClose }) {
   const [confirmRevision, setConfirmRevision] = useState(null);
   const [successMessage, setSuccessMessage] = useState("");
   const [error, setError] = useState("");
+
+  const isOwner = myRole === "owner";
 
   const loadData = async () => {
     if (!isOpen || !activeTreeId) return;

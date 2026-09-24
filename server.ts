@@ -2276,6 +2276,9 @@ export async function createExpressApp() {
       if (!access) {
         return res.status(403).json({ detail: "Access denied to this family tree revisions." });
       }
+      if (access.role !== "owner") {
+        return res.status(403).json({ detail: "Only the tree owner can access version history and revisions." });
+      }
 
       const revisions = store.getTreeRevisions(familyId);
       return res.json({ revisions });
@@ -2295,8 +2298,8 @@ export async function createExpressApp() {
       if (!access) {
         return res.status(403).json({ detail: "Access denied to this family tree." });
       }
-      if (access.role === "viewer") {
-        return res.status(403).json({ detail: "Viewers cannot restore versions of this family tree." });
+      if (access.role !== "owner") {
+        return res.status(403).json({ detail: "Only the tree owner can restore previous versions of this family tree." });
       }
 
       const result = store.restoreTreeSnapshot(family_id, revision_id, {
