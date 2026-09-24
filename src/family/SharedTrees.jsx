@@ -289,23 +289,14 @@ export default function SharedTrees() {
               <span>Create New Tree</span>
             </button>
 
-            {activeTree && (
+            {activeTree && (activeTree.owner_id === user?.id || activeTree.id === user?.id || activeTree.isOwned) && (
               <button
                 type="button"
                 onClick={() => setShareModalTree(activeTree)}
                 className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white border border-[#E7E2D6] text-[#1C1F1D] text-xs font-semibold hover:bg-[#FAF8F4] shadow-2xs transition-colors"
               >
-                {activeTree.owner_id === user?.id || activeTree.id === user?.id ? (
-                  <>
-                    <Share2 className="w-4 h-4 text-[#1C4B3C]" />
-                    <span>Share Active Tree</span>
-                  </>
-                ) : (
-                  <>
-                    <Users className="w-4 h-4 text-[#1C4B3C]" />
-                    <span>Tree Collaborators</span>
-                  </>
-                )}
+                <Share2 className="w-4 h-4 text-[#1C4B3C]" />
+                <span>Share Active Tree</span>
               </button>
             )}
           </div>
@@ -505,7 +496,6 @@ export default function SharedTrees() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 {sharedTrees.map((tree) => {
                   const isActive = activeTreeId === tree.id;
-                  const isStagedOwned = Boolean(tree.isOwned || tree.isNewlyCreatedPendingPeople || (tree.owner_id === user?.id && (tree.people_count ?? 0) === 0));
                   const isEditor = tree.role === "editor";
                   const ownerInitial = (tree.owner_name?.[0] || tree.owner_email?.[0] || user?.name?.[0] || "O").toUpperCase();
 
@@ -538,121 +528,75 @@ export default function SharedTrees() {
                             </p>
                           </div>
 
-                          {isStagedOwned ? (
-                            <span className="text-xs px-2.5 py-1 rounded-full font-semibold flex items-center gap-1.5 shrink-0 bg-amber-50 text-amber-900 border border-amber-300">
-                              <Clock className="w-3 h-3" />
-                              <span>Staging (0 Members)</span>
-                            </span>
-                          ) : (
-                            <span
-                              className={`text-xs px-2.5 py-1 rounded-full font-semibold flex items-center gap-1.5 shrink-0 ${
-                                isEditor
-                                  ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-                                  : "bg-amber-50 text-amber-800 border border-amber-200"
-                              }`}
-                            >
-                              {isEditor ? (
-                                <>
-                                  <Edit3 className="w-3 h-3" />
-                                  <span>Editor Access</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Eye className="w-3 h-3" />
-                                  <span>Viewer (Read-only)</span>
-                                </>
-                              )}
-                            </span>
-                          )}
+                          <span
+                            className={`text-xs px-2.5 py-1 rounded-full font-semibold flex items-center gap-1.5 shrink-0 ${
+                              isEditor
+                                ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
+                                : "bg-amber-50 text-amber-800 border border-amber-200"
+                            }`}
+                          >
+                            {isEditor ? (
+                              <>
+                                <Edit3 className="w-3 h-3" />
+                                <span>Editor Access</span>
+                              </>
+                            ) : (
+                              <>
+                                <Eye className="w-3 h-3" />
+                                <span>Viewer (Read-only)</span>
+                              </>
+                            )}
+                          </span>
                         </div>
 
-                        {/* Staged info OR Shared by info */}
-                        {isStagedOwned ? (
-                          <div className="p-3.5 bg-amber-50/70 border border-amber-200/80 rounded-xl mb-4 text-xs text-amber-900">
-                            <p className="font-semibold text-amber-950 flex items-center gap-1.5 mb-1">
-                              <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-                              Newly Created Tree · Awaiting Family Members
+                        {/* Shared by info */}
+                        <div className="flex items-center gap-3 p-3 bg-[#FAF8F4] border border-[#E7E2D6] rounded-xl mb-4">
+                          <div className="w-9 h-9 rounded-full bg-[#1C4B3C] text-white flex items-center justify-center text-xs font-bold shadow-2xs shrink-0">
+                            {ownerInitial}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[10px] font-semibold uppercase tracking-wide text-[#9CA3AF]">
+                              Shared by owner
                             </p>
-                            <p className="text-[11px] leading-relaxed text-amber-900/90">
-                              This tree remains in the Shared Trees tab until you add or associate people. Once you start adding people, it automatically moves to your <strong>My Family Trees</strong> tab.
+                            <p className="text-xs font-semibold text-[#1C1F1D] truncate">
+                              {tree.owner_name}
+                            </p>
+                            <p className="text-[11px] text-[#6B7280] truncate flex items-center gap-1 mt-0.5">
+                              <Mail className="w-3 h-3 text-[#9CA3AF] shrink-0" />
+                              {tree.owner_email}
                             </p>
                           </div>
-                        ) : (
-                          <div className="flex items-center gap-3 p-3 bg-[#FAF8F4] border border-[#E7E2D6] rounded-xl mb-4">
-                            <div className="w-9 h-9 rounded-full bg-[#1C4B3C] text-white flex items-center justify-center text-xs font-bold shadow-2xs shrink-0">
-                              {ownerInitial}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="text-[10px] font-semibold uppercase tracking-wide text-[#9CA3AF]">
-                                Shared by owner
-                              </p>
-                              <p className="text-xs font-semibold text-[#1C1F1D] truncate">
-                                {tree.owner_name}
-                              </p>
-                              <p className="text-[11px] text-[#6B7280] truncate flex items-center gap-1 mt-0.5">
-                                <Mail className="w-3 h-3 text-[#9CA3AF] shrink-0" />
-                                {tree.owner_email}
-                              </p>
-                            </div>
-                          </div>
-                        )}
+                        </div>
                       </div>
 
                       {/* Card Action Buttons */}
                       <div className="pt-3 border-t border-[#E7E2D6] flex items-center justify-between gap-2">
-                        {isStagedOwned ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setDeleteModalTree(tree);
-                              setDeleteError("");
-                            }}
-                            className="text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            <span>Delete</span>
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setLeaveModalTree(tree);
-                              setLeaveError("");
-                            }}
-                            className="text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1"
-                          >
-                            <LogOut className="w-3.5 h-3.5" />
-                            <span>Leave Tree</span>
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLeaveModalTree(tree);
+                            setLeaveError("");
+                          }}
+                          className="text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1"
+                        >
+                          <LogOut className="w-3.5 h-3.5" />
+                          <span>Leave Tree</span>
+                        </button>
 
                         <div className="flex items-center gap-2">
-                          {!isStagedOwned && (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => setShareModalTree(tree)}
-                                className="text-xs font-medium text-[#1C4B3C] hover:text-[#163C30] bg-[#1C4B3C]/10 hover:bg-[#1C4B3C]/20 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1"
-                                title="View collaborators & access details"
-                              >
-                                <Users className="w-3.5 h-3.5" />
-                                <span>Collaborators</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleOpenTree(tree.id, "/people")}
-                                className="text-xs font-medium text-[#374151] hover:text-[#1C1F1D] bg-[#F7F5F0] hover:bg-[#EAE6DD] px-3 py-1.5 rounded-lg transition-colors"
-                              >
-                                View People
-                              </button>
-                            </>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleOpenTree(tree.id, "/people")}
+                            className="text-xs font-medium text-[#374151] hover:text-[#1C1F1D] bg-[#F7F5F0] hover:bg-[#EAE6DD] px-3 py-1.5 rounded-lg transition-colors"
+                          >
+                            View People
+                          </button>
                           <button
                             type="button"
                             onClick={() => handleOpenTree(tree.id, "/tree")}
                             className="text-xs font-semibold text-white bg-[#1C4B3C] hover:bg-[#163C30] px-3.5 py-1.5 rounded-lg shadow-2xs flex items-center gap-1.5 transition-colors"
                           >
-                            <span>{isStagedOwned ? "Add People & Move to My Trees" : "Open Tree"}</span>
+                            <span>Open Tree</span>
                             <ChevronRight className="w-3.5 h-3.5" />
                           </button>
                         </div>
@@ -710,24 +654,6 @@ export default function SharedTrees() {
               </div>
             ) : (
               <div>
-                {sharedTrees.some((t) => t.isOwned || t.isNewlyCreatedPendingPeople) && (
-                  <div className="mb-5 p-3.5 bg-amber-50/80 border border-amber-200/90 rounded-xl flex items-center justify-between gap-3 text-xs text-amber-900">
-                    <div className="flex items-center gap-2">
-                      <Clock className="w-4 h-4 text-amber-600 shrink-0" />
-                      <span>
-                        You have {sharedTrees.filter((t) => t.isOwned || t.isNewlyCreatedPendingPeople).length} newly created tree(s) in staging under the <strong>Shared With Me</strong> tab awaiting family members.
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab("shared")}
-                      className="shrink-0 font-bold text-[#1C4B3C] hover:underline"
-                    >
-                      View in Shared Trees &rarr;
-                    </button>
-                  </div>
-                )}
-
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 {ownedTrees.map((tree) => {
                   const isActive = activeTreeId === tree.id;

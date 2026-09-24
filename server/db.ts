@@ -651,6 +651,26 @@ export async function dbFindResetTokenByHash(tokenHash: string): Promise<Passwor
   }
 }
 
+export async function dbFindFamilyById(id: string): Promise<Family | null> {
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+  if (!databaseUrl) return null;
+
+  if (!pool || !isPostgresActive) {
+    const connected = await initDatabase();
+    if (!connected || !pool) return null;
+  }
+
+  const res = await executeQuery<Family>("SELECT * FROM families WHERE id = $1 LIMIT 1", [id]);
+  if (!res.rows[0]) return null;
+  const f = res.rows[0];
+  return {
+    id: f.id,
+    owner_id: f.owner_id,
+    name: f.name,
+    created_at: f.created_at instanceof Date ? f.created_at.toISOString() : String(f.created_at),
+  };
+}
+
 export async function dbSaveFamily(family: Family): Promise<void> {
   if (!pool || !isPostgresActive) return;
   try {
@@ -920,7 +940,22 @@ export async function dbDeleteTreeShare(shareId: string): Promise<void> {
     }
   }
 
-  await executeQuery(`DELETE FROM tree_shares WHERE id = $1`, [shareId]);
+  await executeQuery(`DELETE FROM tree_shares WHERE id = $1 OR user_id = $1`, [shareId]);
+}
+
+export async function dbDeleteTreeShareByUserAndFamily(familyId: string, userId: string): Promise<void> {
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+  if (!databaseUrl) return;
+
+  if (!pool || !isPostgresActive) {
+    const connected = await initDatabase();
+    if (!connected || !pool) return;
+  }
+
+  await executeQuery(`DELETE FROM tree_shares WHERE family_id = $1 AND (user_id = $2 OR LOWER(user_id) = LOWER($2))`, [
+    familyId,
+    userId,
+  ]);
 }
 
 export async function dbSaveActivityLog(log: ActivityLog): Promise<void> {

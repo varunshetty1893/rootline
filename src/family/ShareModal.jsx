@@ -102,15 +102,19 @@ export default function ShareModal({ treeId, treeName, onClose }) {
 
   // Determine permissions strictly for this specific tree
   const isOwnerOfThisTree = sharesData?.owner
-    ? Boolean(user?.id && sharesData.owner.id === user.id)
+    ? Boolean(
+        user?.id &&
+        (sharesData.owner.id === user.id ||
+          (user.email && sharesData.owner.email && sharesData.owner.email.toLowerCase() === user.email.toLowerCase()))
+      )
     : Boolean(
         user?.id &&
         treeList?.owned_trees?.some(
           (t) =>
-            t.id === treeId &&
+            (t.id === treeId || t.name === treeName) &&
             t.role === "owner" &&
             t.isOwned !== false &&
-            (!t.owner_id || t.owner_id === user.id)
+            (!t.owner_id || t.owner_id === user.id || (user.email && t.owner_email && t.owner_email.toLowerCase() === user.email.toLowerCase()))
         )
       );
 
@@ -121,7 +125,19 @@ export default function ShareModal({ treeId, treeName, onClose }) {
     ? "owner"
     : mySharedTree?.role || "viewer";
 
-  const canManage = Boolean(isOwnerOfThisTree && myEffectiveRole === "owner");
+  const canManage = Boolean(isOwnerOfThisTree || myEffectiveRole === "owner");
+
+  const visibleShares = useMemo(() => {
+    if (!sharesData?.shares) return [];
+    if (canManage) return sharesData.shares;
+    return sharesData.shares.filter((s) => {
+      const displayEmail = s.user_email || s.email;
+      return Boolean(
+        user?.id &&
+        (s.user_id === user.id || (displayEmail && user.email && displayEmail.toLowerCase() === user.email.toLowerCase()))
+      );
+    });
+  }, [sharesData?.shares, canManage, user]);
 
   // Revoke confirmation state
   const [confirmRevokeId, setConfirmRevokeId] = useState(null);
@@ -269,13 +285,14 @@ export default function ShareModal({ treeId, treeName, onClose }) {
   };
 
   const handleConfirmRevoke = async (share) => {
+    const targetKey = share.id || share.user_id || share.user_email || share.email;
     setRowState((prev) => ({
       ...prev,
       [share.id]: { saving: true, error: "" },
     }));
     setRevokeFeedback("");
     try {
-      await api.removeShare(treeId, share.id);
+      await api.removeShare(treeId, targetKey);
       setConfirmRevokeId(null);
       const name = share.user_name || share.name || share.user_email || "User";
       setRevokeFeedback(`Successfully revoked access for ${name}.`);
@@ -498,7 +515,7 @@ export default function ShareModal({ treeId, treeName, onClose }) {
                 Collaborators with Access
               </p>
               <span className="text-[11px] text-[#6B7280]">
-                {sharesData?.shares ? `${sharesData.shares.length + 1} member(s)` : ""}
+                {canManage && sharesData?.shares ? `${sharesData.shares.length + 1} member(s)` : ""}
               </span>
             </div>
 
@@ -545,12 +562,12 @@ export default function ShareModal({ treeId, treeName, onClose }) {
                 </li>
 
                 {/* Shared users */}
-                {sharesData.shares.length === 0 && (
+                {visibleShares.length === 0 && (
                   <li className="text-xs text-[#6B7280] px-3.5 py-2 italic">
-                    No other users have joined this tree yet.
+                    {canManage ? "No other users have joined this tree yet." : "You have access as a collaborator."}
                   </li>
                 )}
-                {sharesData.shares.map((share) => {
+                {visibleShares.map((share) => {
                   const rs = rowState[share.id] || {};
                   const displayName =
                     share.user_name ||

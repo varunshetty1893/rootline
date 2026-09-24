@@ -15,7 +15,7 @@ describe("Shared Tree Ownership Isolation & Privacy Tests", () => {
     thirdParty = store.createUser("ThirdParty", "third@example.com", "secret123");
 
     // Pachhu creates their family tree
-    const result = store.createFamily(pachhu, "Apchus fam");
+    const result = await store.createFamily(pachhu, "Apchus fam");
     pachhuFamily = result.family;
 
     // Pachhu shares their tree with collaborator as viewer
@@ -67,15 +67,15 @@ describe("Shared Tree Ownership Isolation & Privacy Tests", () => {
     expect(family).toBeDefined();
   });
 
-  it("collaborator cannot revoke or delete another user's share", () => {
+  it("collaborator cannot revoke or delete another user's share", async () => {
     const thirdPartyShare = Array.from(store.treeShares.values()).find(
       (s) => s.family_id === pachhuFamily.id && s.user_id === thirdParty.id
     );
     expect(thirdPartyShare).toBeDefined();
 
-    expect(() => {
-      store.deleteTreeShare(collaborator.id, pachhuFamily.id, thirdPartyShare!.id);
-    }).toThrow(/Only the tree owner can remove access/);
+    await expect(
+      store.deleteTreeShare(collaborator.id, pachhuFamily.id, thirdPartyShare!.id)
+    ).rejects.toThrow(/Only the tree owner can remove access/);
   });
 
   it("collaborator cannot modify another user's permissions", () => {
@@ -89,34 +89,34 @@ describe("Shared Tree Ownership Isolation & Privacy Tests", () => {
     }).toThrow(/Only the tree owner can change user permissions/);
   });
 
-  it("collaborator can leave the shared tree cleanly", () => {
-    const success = store.removeSharedTreeForUser(collaborator.id, pachhuFamily.id);
+  it("collaborator can leave the shared tree cleanly", async () => {
+    const success = await store.removeSharedTreeForUser(collaborator.id, pachhuFamily.id);
     expect(success).toBe(true);
 
     const treesAfter = store.getUserTrees(collaborator.id);
     expect(treesAfter.shared.some((s) => s.family.id === pachhuFamily.id)).toBe(false);
   });
 
-  it("enforces unique tree names per user, but allows different users to use the same name", () => {
+  it("enforces unique tree names per user, but allows different users to use the same name", async () => {
     // User A cannot create another tree with the same name (case-insensitive)
-    expect(() => {
-      store.createFamily(pachhu, "Apchus fam");
-    }).toThrow(/already have a family tree named/i);
+    await expect(
+      store.createFamily(pachhu, "Apchus fam")
+    ).rejects.toThrow(/already have a family tree named/i);
 
-    expect(() => {
-      store.createFamily(pachhu, "apchus FAM");
-    }).toThrow(/already have a family tree named/i);
+    await expect(
+      store.createFamily(pachhu, "apchus FAM")
+    ).rejects.toThrow(/already have a family tree named/i);
 
     // User B (collaborator) CAN create a tree with the exact same name ("Apchus fam")
-    const userBResult = store.createFamily(collaborator, "Apchus fam");
+    const userBResult = await store.createFamily(collaborator, "Apchus fam");
     expect(userBResult.family).toBeDefined();
     expect(userBResult.family.owner_id).toBe(collaborator.id);
     expect(userBResult.family.name).toBe("Apchus fam");
 
     // Collaborator cannot create a second tree with that same name
-    expect(() => {
-      store.createFamily(collaborator, "Apchus fam");
-    }).toThrow(/already have a family tree named/i);
+    await expect(
+      store.createFamily(collaborator, "Apchus fam")
+    ).rejects.toThrow(/already have a family tree named/i);
   });
 
   it("completely deletes a tree and all associated records from all data sources", async () => {
@@ -161,9 +161,9 @@ describe("Shared Tree Ownership Isolation & Privacy Tests", () => {
     expect(ownerTrees.ownedList.some((f) => f.id === pachhuFamily.id)).toBe(false);
   });
 
-  it("isolates data: User B only sees the explicitly shared tree and cannot see User A's private trees or people", () => {
+  it("isolates data: User B only sees the explicitly shared tree and cannot see User A's private trees or people", async () => {
     // Pachhu creates a private tree that is NOT shared
-    const privateResult = store.createFamily(pachhu, "Pachhu Secret Branch");
+    const privateResult = await store.createFamily(pachhu, "Pachhu Secret Branch");
     const privateFamily = privateResult.family;
 
     store.createPerson(

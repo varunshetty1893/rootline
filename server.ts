@@ -2068,7 +2068,7 @@ export async function createExpressApp() {
   app.patch("/api/families/:id/shares/:shareId", requireAuth, handleUpdateShare);
   app.patch("/families/:id/shares/:shareId", requireAuth, handleUpdateShare);
 
-  const handleDeleteShare = (req: AuthRequest, res: any) => {
+  const handleDeleteShare = async (req: AuthRequest, res: any) => {
     try {
       const rawFamilyId = req.params.id;
       const familyId = Array.isArray(rawFamilyId) ? rawFamilyId[0] : rawFamilyId;
@@ -2079,7 +2079,7 @@ export async function createExpressApp() {
         return res.status(403).json({ detail: "Only the tree owner can remove access to this tree." });
       }
 
-      store.deleteTreeShare(req.user!.id, familyId, shareId);
+      await store.deleteTreeShare(req.user!.id, familyId, shareId);
       return res.json({ message: "Access removed successfully." });
     } catch (err: any) {
       const status = err.message.includes("owner") ? 403 : 400;
@@ -2091,7 +2091,7 @@ export async function createExpressApp() {
   app.delete("/families/:id/shares/:shareId", requireAuth, handleDeleteShare);
 
   // Tree management endpoints (create new tree, rename tree, delete tree, leave tree)
-  const handleCreateFamily = (req: AuthRequest, res: any) => {
+  const handleCreateFamily = async (req: AuthRequest, res: any) => {
     try {
       const body = isRecord(req.body) ? req.body : {};
       const { name, first_person_name, first_person_gender, first_person_dob, first_person_bio } = body;
@@ -2124,7 +2124,7 @@ export async function createExpressApp() {
         };
       }
 
-      const result = store.createFamily(req.user!, trimmedName, initialPerson);
+      const result = await store.createFamily(req.user!, trimmedName, initialPerson);
       return res.status(201).json({
         ...result.family,
         first_person: result.person,
@@ -2172,11 +2172,11 @@ export async function createExpressApp() {
   app.delete("/api/families/:id", requireAuth, handleDeleteFamily);
   app.delete("/families/:id", requireAuth, handleDeleteFamily);
 
-  const handleLeaveSharedTree = (req: AuthRequest, res: any) => {
+  const handleLeaveSharedTree = async (req: AuthRequest, res: any) => {
     try {
       const rawFamilyId = req.params.id;
       const familyId = Array.isArray(rawFamilyId) ? rawFamilyId[0] : rawFamilyId;
-      const success = store.removeSharedTreeForUser(req.user!.id, familyId);
+      const success = await store.removeSharedTreeForUser(req.user!.id, familyId);
       if (!success) {
         return res.status(404).json({ detail: "Shared tree not found or you are not a collaborator on it." });
       }

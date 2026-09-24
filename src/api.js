@@ -128,12 +128,12 @@ export const api = {
       body: { email, permission },
     }),
   updateShare: (treeId, shareId, permission) =>
-    request(`/families/${treeId}/shares/${shareId}`, {
+    request(`/families/${treeId}/shares/${encodeURIComponent(shareId)}`, {
       method: "PATCH",
       body: { permission },
     }),
   removeShare: (treeId, shareId) =>
-    request(`/families/${treeId}/shares/${shareId}`, { method: "DELETE" }),
+    request(`/families/${treeId}/shares/${encodeURIComponent(shareId)}`, { method: "DELETE" }),
 
   // Compatibility names used by the older sharing and dashboard modals.
   getMyTrees: () => request("/families/my-trees"),
@@ -141,9 +141,9 @@ export const api = {
   addTreeShare: (treeId, payload) =>
     request(`/families/${treeId}/shares`, { method: "POST", body: payload }),
   updateTreeShare: (treeId, shareId, payload) =>
-    request(`/families/${treeId}/shares/${shareId}`, { method: "PATCH", body: payload }),
+    request(`/families/${treeId}/shares/${encodeURIComponent(shareId)}`, { method: "PATCH", body: payload }),
   deleteTreeShare: (treeId, shareId) =>
-    request(`/families/${treeId}/shares/${shareId}`, { method: "DELETE" }),
+    request(`/families/${treeId}/shares/${encodeURIComponent(shareId)}`, { method: "DELETE" }),
 
   // ── Family Invitations & Tracking ("Who sent Whom") ────────────────────
   listInvitations: (treeId) => request(`/families/${treeId}/invitations`),

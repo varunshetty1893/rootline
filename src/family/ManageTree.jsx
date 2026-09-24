@@ -120,8 +120,8 @@ export default function ManageTree({ defaultTab = "people" }) {
   }, [ownedTrees, sharedTrees, user?.id]);
 
   const filteredTreeCards = useMemo(() => {
-    if (treeCardFilter === "owned") return allTrees.filter((t) => t.isOwned && (t.people_count || 0) > 0);
-    if (treeCardFilter === "shared") return allTrees.filter((t) => !t.isOwned || (t.people_count || 0) === 0);
+    if (treeCardFilter === "owned") return allTrees.filter((t) => t.isOwned);
+    if (treeCardFilter === "shared") return allTrees.filter((t) => !t.isOwned);
     return allTrees;
   }, [allTrees, treeCardFilter]);
 
@@ -148,6 +148,7 @@ export default function ManageTree({ defaultTab = "people" }) {
   // Leave Shared Tree Modal State
   const [leaveModalTree, setLeaveModalTree] = useState(null);
   const [leaveSubmitting, setLeaveSubmitting] = useState(false);
+  const [leaveError, setLeaveError] = useState("");
 
   // Revoke Collaborator Access Modal State
   const [revokeConfirmShare, setRevokeConfirmShare] = useState(null);
@@ -334,7 +335,12 @@ export default function ManageTree({ defaultTab = "people" }) {
     setRevokeSubmitting(true);
     setRevokeError("");
     try {
-      await api.removeShare(activeTreeId, revokeConfirmShare.id);
+      const shareKey =
+        revokeConfirmShare.id ||
+        revokeConfirmShare.user_id ||
+        revokeConfirmShare.user_email ||
+        revokeConfirmShare.email;
+      await api.removeShare(activeTreeId, shareKey);
       await loadShares();
       await refreshTreeList();
       setRevokeConfirmShare(null);
@@ -431,11 +437,12 @@ export default function ManageTree({ defaultTab = "people" }) {
   const handleLeaveSubmit = async () => {
     if (!leaveModalTree?.id) return;
     setLeaveSubmitting(true);
+    setLeaveError("");
     try {
       await leaveSharedTree(leaveModalTree.id);
       setLeaveModalTree(null);
     } catch (err) {
-      alert(err.message || "Failed to leave tree.");
+      setLeaveError(err.message || "Failed to leave tree.");
     } finally {
       setLeaveSubmitting(false);
     }
@@ -783,23 +790,25 @@ export default function ManageTree({ defaultTab = "people" }) {
                 <span>Tree Settings & &quot;Me&quot;</span>
               </button>
 
-              <button
-                type="button"
-                onClick={() => setActiveTab("sharing")}
-                className={`flex items-center gap-2 px-4 py-3 text-xs sm:text-sm font-semibold border-b-2 transition-all whitespace-nowrap -mb-[1px] ${
-                  activeTab === "sharing"
-                    ? "border-[#1C4B3C] text-[#1C4B3C]"
-                    : "border-transparent text-[#6B7280] hover:text-[#1C1F1D]"
-                }`}
-              >
-                <Share2 className="w-4 h-4" />
-                <span>Collaborators</span>
-                {sharesData?.shares?.length > 0 && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold bg-[#E7E2D6] text-[#4B5563]">
-                    {sharesData.shares.length}
-                  </span>
-                )}
-              </button>
+              {canManage && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("sharing")}
+                  className={`flex items-center gap-2 px-4 py-3 text-xs sm:text-sm font-semibold border-b-2 transition-all whitespace-nowrap -mb-[1px] ${
+                    activeTab === "sharing"
+                      ? "border-[#1C4B3C] text-[#1C4B3C]"
+                      : "border-transparent text-[#6B7280] hover:text-[#1C1F1D]"
+                  }`}
+                >
+                  <Share2 className="w-4 h-4" />
+                  <span>Collaborators</span>
+                  {sharesData?.shares?.length > 0 && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold bg-[#E7E2D6] text-[#4B5563]">
+                      {sharesData.shares.length}
+                    </span>
+                  )}
+                </button>
+              )}
             </div>
           </div>
 
@@ -1250,65 +1259,75 @@ export default function ManageTree({ defaultTab = "people" }) {
         {/* TAB 3: COLLABORATORS & SHARING (ATTACHED SEAMLESSLY)                  */}
         {/* ──────────────────────────────────────────────────────────────────── */}
         {activeTab === "sharing" && (
+          !canManage ? (
+            <div className="p-8 text-center">
+              <ShieldCheck className="w-10 h-10 text-[#6B7280] mx-auto mb-3 opacity-60" />
+              <h3 className="text-base font-serif font-bold text-[#1C1F1D] mb-1">
+                Tree Collaborators
+              </h3>
+              <p className="text-xs text-[#6B7280] max-w-md mx-auto mb-4">
+                Collaborator management and sharing details are only accessible by the tree owner.
+              </p>
+              <button
+                type="button"
+                onClick={() => setActiveTab("people")}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-[#1C4B3C] hover:bg-[#163C30] transition-colors"
+              >
+                Back to Family Members
+              </button>
+            </div>
+          ) : (
           <div className="divide-y divide-[#E7E2D6]">
             {/* Invite Collaborator Section */}
-            {canManage ? (
-              <div className="p-5 sm:p-6">
-                <h3 className="text-base font-serif font-bold text-[#1C1F1D] mb-1">
-                  Invite Relative or Collaborator
-                </h3>
-                <p className="text-xs text-[#6B7280] mb-4">
-                  Share &quot;{activeTree?.name}&quot; with family members so they can view or edit branches.
-                </p>
+            <div className="p-5 sm:p-6">
+              <h3 className="text-base font-serif font-bold text-[#1C1F1D] mb-1">
+                Invite Relative or Collaborator
+              </h3>
+              <p className="text-xs text-[#6B7280] mb-4">
+                Share &quot;{activeTree?.name}&quot; with family members so they can view or edit branches.
+              </p>
 
-                <form onSubmit={handleInvite} className="max-w-xl space-y-3">
-                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                    <div className="relative flex-1">
-                      <Mail className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#9CA3AF]" />
-                      <input
-                        type="email"
-                        required
-                        value={inviteEmail}
-                        onChange={(e) => setInviteEmail(e.target.value)}
-                        placeholder="relative@example.com"
-                        className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm rounded-xl border border-[#D9D3C3] bg-white text-[#1C1F1D] focus:border-[#1C4B3C] outline-none"
-                      />
-                    </div>
-
-                    <select
-                      value={inviteRole}
-                      onChange={(e) => setInviteRole(e.target.value)}
-                      className="px-3 py-2 text-xs sm:text-sm rounded-xl border border-[#D9D3C3] bg-white text-[#1C1F1D] focus:border-[#1C4B3C] outline-none shrink-0"
-                    >
-                      <option value="editor">Can Edit (Editor)</option>
-                      <option value="viewer">Can View (Viewer)</option>
-                    </select>
-
-                    <button
-                      type="submit"
-                      disabled={inviting || !inviteEmail.trim()}
-                      className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-[#1C4B3C] hover:bg-[#163C30] disabled:opacity-50 transition-colors shadow-2xs shrink-0 flex items-center justify-center gap-1.5"
-                    >
-                      {inviting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                      <span>{inviting ? "Inviting…" : "Invite"}</span>
-                    </button>
+              <form onSubmit={handleInvite} className="max-w-xl space-y-3">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  <div className="relative flex-1">
+                    <Mail className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#9CA3AF]" />
+                    <input
+                      type="email"
+                      required
+                      value={inviteEmail}
+                      onChange={(e) => setInviteEmail(e.target.value)}
+                      placeholder="relative@example.com"
+                      className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm rounded-xl border border-[#D9D3C3] bg-white text-[#1C1F1D] focus:border-[#1C4B3C] outline-none"
+                    />
                   </div>
 
-                  {inviteSuccess && (
-                    <p className="text-xs text-emerald-700 font-medium">{inviteSuccess}</p>
-                  )}
-                  {shareError && (
-                    <p className="text-xs text-rose-700 font-medium">{shareError}</p>
-                  )}
-                </form>
-              </div>
-            ) : (
-              <div className="p-5 sm:p-6">
-                <p className="text-xs text-[#6B7280]">
-                  Only the tree owner can invite new collaborators or change access roles.
-                </p>
-              </div>
-            )}
+                  <select
+                    value={inviteRole}
+                    onChange={(e) => setInviteRole(e.target.value)}
+                    className="px-3 py-2 text-xs sm:text-sm rounded-xl border border-[#D9D3C3] bg-white text-[#1C1F1D] focus:border-[#1C4B3C] outline-none shrink-0"
+                  >
+                    <option value="editor">Can Edit (Editor)</option>
+                    <option value="viewer">Can View (Viewer)</option>
+                  </select>
+
+                  <button
+                    type="submit"
+                    disabled={inviting || !inviteEmail.trim()}
+                    className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-[#1C4B3C] hover:bg-[#163C30] disabled:opacity-50 transition-colors shadow-2xs shrink-0 flex items-center justify-center gap-1.5"
+                  >
+                    {inviting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    <span>{inviting ? "Inviting…" : "Invite"}</span>
+                  </button>
+                </div>
+
+                {inviteSuccess && (
+                  <p className="text-xs text-emerald-700 font-medium">{inviteSuccess}</p>
+                )}
+                {shareError && (
+                  <p className="text-xs text-rose-700 font-medium">{shareError}</p>
+                )}
+              </form>
+            </div>
 
             {/* Active Collaborators List */}
             <div className="p-5 sm:p-6">
@@ -1451,6 +1470,7 @@ export default function ManageTree({ defaultTab = "people" }) {
               )}
             </div>
           </div>
+          )
         )}
       </div>
       </main>
@@ -1729,6 +1749,11 @@ export default function ManageTree({ defaultTab = "people" }) {
             <p className="text-xs text-rose-700 leading-relaxed mb-5">
               You will lose access to <strong>{leaveModalTree.name}</strong> until the owner invites you again.
             </p>
+            {leaveError && (
+              <p className="text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded-lg p-2.5 mb-4">
+                {leaveError}
+              </p>
+            )}
             <div className="flex items-center justify-end gap-2.5">
               <button
                 type="button"

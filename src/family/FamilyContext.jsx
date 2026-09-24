@@ -108,35 +108,31 @@ function normalizeTreeList(raw, currentUserId) {
       );
 
     if (isOwnedByUser) {
-      const pCount = tree.people_count ?? 0;
-      // Staging logic: Newly created trees with 0 members appear in the Shared Trees tab
-      // until the user actually adds or associates people with that tree.
-      // Once people are added, the tree correctly moves to the My Trees tab.
-      if (pCount === 0) {
-        actualShared.push({
-          ...tree,
-          role: "owner",
-          isOwned: true,
-          owner_id: currentUserId,
-          people_count: 0,
-          isNewlyCreatedPendingPeople: true,
-        });
-      } else {
+      actualOwned.push({
+        ...tree,
+        role: "owner",
+        isOwned: true,
+        owner_id: currentUserId,
+        people_count: tree.people_count ?? 0,
+      });
+    } else {
+      // Must NOT belong to current user
+      if (currentUserId && (tree.owner_id === currentUserId || tree.id === currentUserId)) {
         actualOwned.push({
           ...tree,
           role: "owner",
           isOwned: true,
           owner_id: currentUserId,
-          people_count: pCount,
+          people_count: tree.people_count ?? 0,
+        });
+      } else {
+        actualShared.push({
+          ...tree,
+          isOwned: false,
+          role: tree.role && tree.role !== "owner" ? tree.role : "viewer",
+          people_count: tree.people_count ?? 0,
         });
       }
-    } else {
-      actualShared.push({
-        ...tree,
-        isOwned: false,
-        role: tree.role && tree.role !== "owner" ? tree.role : "viewer",
-        people_count: tree.people_count ?? 0,
-      });
     }
   }
   owned_trees = actualOwned;
@@ -637,6 +633,9 @@ export function FamilyProvider({ children }) {
       if (typeof window !== "undefined" && user?.id) {
         try {
           localStorage.setItem(treeListStorageKey(user.id), JSON.stringify(updatedList));
+          localStorage.removeItem(`rootline_people_${treeId}`);
+          localStorage.removeItem(`rootline_tree_${treeId}`);
+          localStorage.removeItem(`rootline_relationships_${treeId}`);
         } catch (_) {}
       }
 
