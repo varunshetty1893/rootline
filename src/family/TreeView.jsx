@@ -476,6 +476,8 @@ export default function TreeView() {
   const { user } = useAuth();
   const {
     people,
+    loaded,
+    treesLoading,
     rootPersonId,
     setRootPersonId,
     addPerson,
@@ -1854,8 +1856,8 @@ export default function TreeView() {
                 <span>{isSavingTree || isSaving ? "Saving…" : "Save"}</span>
               </button>
 
-              {/* Right Corner: History & Restore (ONLY if current user is owner) */}
-              {myRole === "owner" && (
+              {/* Right Corner: History & Restore (Owner and Editor collaborators) */}
+              {(myRole === "owner" || myRole === "editor") && (
                 <button
                   type="button"
                   onClick={() => setActivityModalOpen(true)}
@@ -1912,7 +1914,7 @@ export default function TreeView() {
                     >
                       <Maximize2 className="w-3.5 h-3.5 text-[#374151]" /> Fit to screen
                     </button>
-                    {myRole === "owner" && (
+                    {(myRole === "owner" || myRole === "editor") && (
                       <button
                         type="button"
                         onClick={() => {
@@ -1942,7 +1944,20 @@ export default function TreeView() {
             </div>
           </div>
 
-          {people.length === 0 ? (
+          {(!loaded && people.length === 0) || (treesLoading && people.length === 0) ? (
+            <div
+              className="flex-1 flex flex-col items-center justify-center p-8 bg-white"
+              style={{ backgroundImage: "radial-gradient(#DCE3E1 0.7px, transparent 0.7px)", backgroundSize: "16px 16px" }}
+            >
+              <div className="flex flex-col items-center justify-center p-8 text-center max-w-sm">
+                <Loader2 className="w-8 h-8 text-[#1C4B3C] animate-spin mb-3" />
+                <h4 className="text-sm font-semibold text-[#1C1F1D]">Loading family tree…</h4>
+                <p className="text-xs text-[#6B7280] mt-1">
+                  Connecting branches and retrieving family members…
+                </p>
+              </div>
+            </div>
+          ) : people.length === 0 ? (
             <div
               className="flex-1 flex items-center justify-center p-8 bg-white"
               style={{ backgroundImage: "radial-gradient(#DCE3E1 0.7px, transparent 0.7px)", backgroundSize: "16px 16px" }}

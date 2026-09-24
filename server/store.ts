@@ -627,6 +627,13 @@ export class MemoryStore {
       throw new Error(`This account was recently deleted. You cannot re-create an account with this email address for 24 hours (until ${cooldown.cooldown_until}).`);
     }
 
+    // Ensure email uniqueness: clean up any existing user record with the same email
+    for (const [id, u] of Array.from(this.users.entries())) {
+      if (u.email && u.email.toLowerCase().trim() === normalizedEmail) {
+        this.users.delete(id);
+      }
+    }
+
     const user: User = {
       id: crypto.randomUUID(),
       name,
@@ -650,6 +657,13 @@ export class MemoryStore {
       throw new Error(`This account was recently deleted. You cannot re-create an account with this email address for 24 hours (until ${cooldown.cooldown_until}).`);
     }
 
+    // Ensure email uniqueness: clean up any existing user record with the same email
+    for (const [id, u] of Array.from(this.users.entries())) {
+      if (u.email && u.email.toLowerCase().trim() === normalizedEmail) {
+        this.users.delete(id);
+      }
+    }
+
     const user: User = {
       id: crypto.randomUUID(),
       name,
@@ -661,7 +675,7 @@ export class MemoryStore {
       password_version: 1,
     };
     this.users.set(user.id, user);
-    await dbSaveUser(user);
+    await dbSaveUser(user).catch((e) => logger.error("dbSaveUser error:", e));
     await this.getOrCreateFamilyForUserAsync(user);
     return user;
   }
@@ -1742,6 +1756,13 @@ export class MemoryStore {
 
   // --- Family & Collaboration Management ---
   getOrCreateFamilyForUser(user: User): Family {
+    // Return any existing family owned by this user
+    for (const f of this.families.values()) {
+      if (f.owner_id === user.id) {
+        return f;
+      }
+    }
+
     let family = this.families.get(user.id);
     if (!family) {
       family = {
@@ -1782,6 +1803,13 @@ export class MemoryStore {
   }
 
   async getOrCreateFamilyForUserAsync(user: User): Promise<Family> {
+    // Return any existing family owned by this user
+    for (const f of this.families.values()) {
+      if (f.owner_id === user.id) {
+        return f;
+      }
+    }
+
     let family = this.families.get(user.id);
     if (!family) {
       family = {
@@ -2609,7 +2637,7 @@ export class MemoryStore {
     if (existing) {
       existing.permission = params.permission;
       existing.updated_at = now;
-      await dbSaveTreeShare(existing);
+      await dbSaveTreeShare(existing).catch((e) => logger.error("dbSaveTreeShare error:", e));
 
       // Mark any pending invitations for this user and family as accepted
       for (const inv of this.familyInvitations.values()) {
@@ -2656,7 +2684,7 @@ export class MemoryStore {
     };
 
     this.treeShares.set(newShare.id, newShare);
-    await dbSaveTreeShare(newShare);
+    await dbSaveTreeShare(newShare).catch((e) => logger.error("dbSaveTreeShare error:", e));
 
     // Also mark any pending invitations for this user on this family as accepted
     for (const inv of this.familyInvitations.values()) {
@@ -4121,6 +4149,27 @@ export class MemoryStore {
       this.families.set(pachhuFamily.id, pachhuFamily);
     }
 
+    // Clean up any empty orphan family accidentally created with key "pachhu-user-id"
+    if (pachhuFamily.id !== pachhuUser.id && this.families.has(pachhuUser.id)) {
+      const orphanPeople = Array.from(this.people.values()).filter((p) => p.owner_id === pachhuUser.id);
+      if (orphanPeople.length === 0) {
+        this.families.delete(pachhuUser.id);
+        this.familyMembers.delete(`${pachhuUser.id}-${pachhuUser.id}`);
+      }
+    }
+
+    // Ensure Pachhu is registered as owner in familyMembers
+    const pachhuMemberId = `${pachhuFamily.id}-${pachhuUser.id}`;
+    if (!this.familyMembers.has(pachhuMemberId)) {
+      this.familyMembers.set(pachhuMemberId, {
+        id: pachhuMemberId,
+        family_id: pachhuFamily.id,
+        user_id: pachhuUser.id,
+        role: "owner",
+        joined_at: now,
+      });
+    }
+
     const pachhuPeople = Array.from(this.people.values()).filter((p) => p.owner_id === pachhuFamily!.id);
     if (pachhuPeople.length === 0) {
       const reg: Record<string, string> = {};
@@ -4256,6 +4305,30 @@ export class MemoryStore {
         "BASELINE",
         "Original Pachhu Shetty family tree (Baseline)"
       );
+    }
+
+    // Ensure baseline activity log exists for Pachhu's tree
+    if (!this.activityLogs.some((l) => l.family_id === pachhuFamily.id)) {
+      this.logActivity({
+        family_id: pachhuFamily.id,
+        actor_id: pachhuUser.id,
+        actor_name: pachhuUser.name,
+        action: "FAMILY_CREATED",
+        target_type: "family",
+        target_id: pachhuFamily.id,
+        target_name: pachhuFamily.name,
+        description: `${pachhuUser.name} created ${pachhuFamily.name}`,
+      });
+      this.logActivity({
+        family_id: pachhuFamily.id,
+        actor_id: pachhuUser.id,
+        actor_name: pachhuUser.name,
+        action: "TREE_SAVED",
+        target_type: "family",
+        target_id: pachhuFamily.id,
+        target_name: pachhuFamily.name,
+        description: `${pachhuUser.name} saved baseline version v1 with 10 members`,
+      });
     }
   }
 }

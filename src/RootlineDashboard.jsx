@@ -32,6 +32,8 @@ export default function RootlineDashboard() {
   const navigate = useNavigate();
   const {
     people,
+    loaded,
+    treesLoading,
     rootPersonId,
     activeTree,
     activeTreeId,
@@ -269,7 +271,7 @@ export default function RootlineDashboard() {
         </section>
 
         {/* ── Empty Tree Starter Prompt Banner ── */}
-        {people.length === 0 && (
+        {loaded && !treesLoading && people.length === 0 && (
           <section className="bg-white border-2 border-dashed border-[#1C4B3C]/30 rounded-3xl p-6 sm:p-8 text-center shadow-xs">
             <div className="w-12 h-12 rounded-2xl bg-[#E7F1EB] text-[#1C4B3C] flex items-center justify-center mx-auto mb-3">
               <UserPlus className="w-6 h-6" />

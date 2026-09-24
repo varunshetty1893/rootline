@@ -46,6 +46,11 @@ function treeListStorageKey(userId) {
   return `rootline:treelist:${userId}`;
 }
 
+/** Key used to cache people per tree for instant loading without empty state flicker */
+function peopleStorageKey(userId, treeId) {
+  return `rootline:people:${userId}:${treeId || "default"}`;
+}
+
 function normalizeTreeList(raw, currentUserId) {
   if (!raw || typeof raw !== "object") {
     return { owned_trees: [], shared_trees: [], owned: null, shared: [] };
@@ -147,8 +152,36 @@ function normalizeTreeList(raw, currentUserId) {
 
 export function FamilyProvider({ children }) {
   const { user } = useAuth();
-  const [people, setPeople] = useState([]);
-  const [loaded, setLoaded] = useState(false);
+  const [people, setPeople] = useState(() => {
+    if (typeof window !== "undefined" && user?.id) {
+      try {
+        const savedTreeId = localStorage.getItem(activeTreeStorageKey(user.id));
+        const cached = localStorage.getItem(peopleStorageKey(user.id, savedTreeId));
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return parsed;
+          }
+        }
+      } catch (_) {}
+    }
+    return [];
+  });
+  const [loaded, setLoaded] = useState(() => {
+    if (typeof window !== "undefined" && user?.id) {
+      try {
+        const savedTreeId = localStorage.getItem(activeTreeStorageKey(user.id));
+        const cached = localStorage.getItem(peopleStorageKey(user.id, savedTreeId));
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return true;
+          }
+        }
+      } catch (_) {}
+    }
+    return false;
+  });
   const [error, setError] = useState("");
   const [rootPersonId, setRootPersonIdState] = useState(null);
 
@@ -330,27 +363,74 @@ export function FamilyProvider({ children }) {
   }, [activeTreeId, treeList, myRole, user?.id, user?.name, people?.length]);
 
   // ── People for the active tree ─────────────────────────────────────────
-  const refresh = useCallback(async () => {
-    if (!user) {
-      setPeople([]);
-      setLoaded(true);
-      return;
-    }
-    try {
-      const data = await api.listPeople(activeTreeId || undefined);
-      setPeople(data.map(mapPerson));
-      setError("");
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoaded(true);
-    }
-  }, [user, activeTreeId]);
+  const refresh = useCallback(
+    async (isSilent = false) => {
+      if (!user) {
+        setPeople([]);
+        setLoaded(true);
+        return;
+      }
+      const effectiveTreeId = activeTreeId || activeTree?.id || undefined;
+      try {
+        // If not silent and state is empty, try instant local cache
+        if (!isSilent && people.length === 0 && typeof window !== "undefined") {
+          try {
+            const cached = localStorage.getItem(peopleStorageKey(user.id, effectiveTreeId));
+            if (cached) {
+              const parsed = JSON.parse(cached);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setPeople(parsed);
+                setLoaded(true);
+              }
+            }
+          } catch (_) {}
+        }
+
+        const data = await api.listPeople(effectiveTreeId);
+        const mapped = data.map(mapPerson);
+        setPeople(mapped);
+        setError("");
+
+        if (typeof window !== "undefined" && user?.id) {
+          try {
+            localStorage.setItem(peopleStorageKey(user.id, effectiveTreeId), JSON.stringify(mapped));
+          } catch (_) {}
+        }
+      } catch (err) {
+        if (!isSilent) setError(err.message);
+      } finally {
+        setLoaded(true);
+      }
+    },
+    [user, activeTreeId, activeTree?.id, people.length]
+  );
 
   useEffect(() => {
-    setLoaded(false);
     refresh();
-  }, [refresh, user?.id]);
+  }, [refresh, user?.id, activeTreeId]);
+
+  // Live auto-sync: Poll for tree changes in the background every 5 seconds
+  // and whenever the user returns to the tab or focuses the window.
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const syncLatest = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        refresh(true);
+        refreshTreeList();
+      }
+    };
+
+    const intervalId = setInterval(syncLatest, 5000);
+    window.addEventListener("focus", syncLatest);
+    window.addEventListener("visibilitychange", syncLatest);
+
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener("focus", syncLatest);
+      window.removeEventListener("visibilitychange", syncLatest);
+    };
+  }, [user?.id, refresh, refreshTreeList]);
 
   // Load the saved root person for this account and tree once loaded.
   useEffect(() => {
@@ -473,8 +553,9 @@ export function FamilyProvider({ children }) {
     async (description) => {
       setIsSaving(true);
       try {
+        const effectiveTreeId = activeTreeId || activeTree?.id || undefined;
         const desc = description || `Saved ${activeTree?.name || "tree"} changes`;
-        const res = await api.saveTree(activeTreeId, desc);
+        const res = await api.saveTree(effectiveTreeId, desc);
         setLastSavedAt(new Date().toISOString());
         setHasUnsavedChanges(false);
         await refresh();
@@ -484,14 +565,15 @@ export function FamilyProvider({ children }) {
         setIsSaving(false);
       }
     },
-    [activeTreeId, activeTree?.name, refresh, refreshTreeList]
+    [activeTreeId, activeTree?.id, activeTree?.name, refresh, refreshTreeList]
   );
 
   const restoreTree = useCallback(
     async (revisionId) => {
       setIsSaving(true);
       try {
-        const res = await api.restoreTreeRevision(activeTreeId, revisionId);
+        const effectiveTreeId = activeTreeId || activeTree?.id || undefined;
+        const res = await api.restoreTreeRevision(effectiveTreeId, revisionId);
         setLastSavedAt(new Date().toISOString());
         setHasUnsavedChanges(false);
         await refresh();
@@ -501,7 +583,7 @@ export function FamilyProvider({ children }) {
         setIsSaving(false);
       }
     },
-    [activeTreeId, refresh, refreshTreeList]
+    [activeTreeId, activeTree?.id, refresh, refreshTreeList]
   );
 
   const updatePerson = useCallback(

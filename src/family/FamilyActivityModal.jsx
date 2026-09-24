@@ -65,15 +65,23 @@ export default function FamilyActivityModal({ isOpen, onClose }) {
   const [error, setError] = useState("");
 
   const isOwner = myRole === "owner";
+  const canRestore = myRole === "owner" || myRole === "editor";
 
   const loadData = async () => {
-    if (!isOpen || !activeTreeId) return;
+    const currentTreeId = activeTreeId || activeTree?.id;
+    if (!isOpen || !currentTreeId) return;
     setLoading(true);
     setError("");
     try {
       const [revRes, logRes] = await Promise.all([
-        api.getTreeRevisions(activeTreeId).catch(() => ({ revisions: [] })),
-        api.getFamilyHistory(activeTreeId, { category, limit: 50 }).catch(() => ({ logs: [] })),
+        api.getTreeRevisions(currentTreeId).catch((err) => {
+          console.warn("Failed to get revisions:", err);
+          return { revisions: [] };
+        }),
+        api.getFamilyHistory(currentTreeId, { category, limit: 50 }).catch((err) => {
+          console.warn("Failed to get history:", err);
+          return { logs: [] };
+        }),
       ]);
       setRevisions(revRes.revisions || []);
       setLogs(logRes.logs || logRes.items || []);
@@ -90,7 +98,7 @@ export default function FamilyActivityModal({ isOpen, onClose }) {
       setConfirmRevision(null);
       loadData();
     }
-  }, [isOpen, activeTreeId, category]);
+  }, [isOpen, activeTreeId, activeTree?.id, category]);
 
   const handleConfirmRestore = async () => {
     if (!confirmRevision) return;
