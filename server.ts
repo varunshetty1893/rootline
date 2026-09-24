@@ -2212,6 +2212,105 @@ export async function createExpressApp() {
   });
 
   // =========================================================================
+  // Tree Persistence, Version History & Restore API
+  // =========================================================================
+
+  app.post(["/api/family/save", "/api/tree/save"], requireAuth, (req: AuthRequest, res) => {
+    try {
+      let familyId = (req.body?.family_id as string) || (req.query?.family_id as string);
+      if (!familyId) {
+        const userTrees = store.getUserTrees(req.user!.id);
+        familyId = userTrees.owned.family.id;
+      }
+
+      const access = store.checkFamilyAccess(req.user!.id, familyId);
+      if (!access) {
+        return res.status(403).json({ detail: "Access denied to this family tree." });
+      }
+      if (access.role === "viewer") {
+        return res.status(403).json({ detail: "Viewers have read-only access and cannot save modifications to this tree." });
+      }
+
+      const description = req.body?.description || `${req.user!.name} saved the family tree`;
+      const snapshot = store.createTreeSnapshot(
+        familyId,
+        { id: req.user!.id, name: req.user!.name },
+        "TREE_SAVED",
+        description
+      );
+
+      store.logActivity({
+        family_id: familyId,
+        actor_id: req.user!.id,
+        actor_name: req.user!.name,
+        action: "TREE_SAVED",
+        target_type: "family",
+        target_id: familyId,
+        description,
+      });
+
+      return res.json({
+        success: true,
+        message: "Family tree saved successfully.",
+        snapshot: {
+          id: snapshot.id,
+          version: snapshot.version,
+          created_at: snapshot.created_at,
+          people_count: snapshot.people_count,
+        },
+      });
+    } catch (err: any) {
+      return res.status(500).json({ detail: err.message || "Failed to save family tree." });
+    }
+  });
+
+  app.get(["/api/family/revisions", "/api/tree/revisions"], requireAuth, (req: AuthRequest, res) => {
+    try {
+      let familyId = (req.query.family_id as string) || req.user!.id;
+      if (!store.families.has(familyId)) {
+        const userTrees = store.getUserTrees(req.user!.id);
+        familyId = userTrees.owned.family.id;
+      }
+
+      const access = store.checkFamilyAccess(req.user!.id, familyId);
+      if (!access) {
+        return res.status(403).json({ detail: "Access denied to this family tree revisions." });
+      }
+
+      const revisions = store.getTreeRevisions(familyId);
+      return res.json({ revisions });
+    } catch (err: any) {
+      return res.status(500).json({ detail: err.message || "Failed to get tree revisions." });
+    }
+  });
+
+  app.post(["/api/family/restore", "/api/tree/restore"], requireAuth, (req: AuthRequest, res) => {
+    try {
+      const { family_id, revision_id } = req.body;
+      if (!family_id || !revision_id) {
+        return res.status(400).json({ detail: "family_id and revision_id are required." });
+      }
+
+      const access = store.checkFamilyAccess(req.user!.id, family_id);
+      if (!access) {
+        return res.status(403).json({ detail: "Access denied to this family tree." });
+      }
+      if (access.role === "viewer") {
+        return res.status(403).json({ detail: "Viewers cannot restore versions of this family tree." });
+      }
+
+      const result = store.restoreTreeSnapshot(family_id, revision_id, {
+        id: req.user!.id,
+        name: req.user!.name,
+      });
+
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(500).json({ detail: err.message || "Failed to restore family tree version." });
+    }
+  });
+
+  // =========================================================================
   // Phase 3: Family Statistics Dashboard Endpoint
   // =========================================================================
 

@@ -465,22 +465,67 @@ export function FamilyProvider({ children }) {
     [refresh, refreshTreeList, activeTreeId, people.length, setRootPersonId]
   );
 
+  const [isSaving, setIsSaving] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+  const saveTree = useCallback(
+    async (description) => {
+      setIsSaving(true);
+      try {
+        const desc = description || `Saved ${activeTree?.name || "tree"} changes`;
+        const res = await api.saveTree(activeTreeId, desc);
+        setLastSavedAt(new Date().toISOString());
+        setHasUnsavedChanges(false);
+        await refresh();
+        await refreshTreeList();
+        return res;
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [activeTreeId, activeTree?.name, refresh, refreshTreeList]
+  );
+
+  const restoreTree = useCallback(
+    async (revisionId) => {
+      setIsSaving(true);
+      try {
+        const res = await api.restoreTreeRevision(activeTreeId, revisionId);
+        setLastSavedAt(new Date().toISOString());
+        setHasUnsavedChanges(false);
+        await refresh();
+        await refreshTreeList();
+        return res;
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [activeTreeId, refresh, refreshTreeList]
+  );
+
   const updatePerson = useCallback(
     async (id, details) => {
       const payload = {
         name: details.name,
         gender: details.gender && details.gender !== "unspecified" ? details.gender : null,
-        date_of_birth: details.dob || null,
-        date_of_death: details.dod || null,
-        bio: details.notes || null,
+        date_of_birth: details.date_of_birth || details.dob || null,
+        date_of_death: details.date_of_death || details.dod || null,
+        place_of_birth: details.place_of_birth || null,
+        occupation: details.occupation || null,
+        bio: details.bio !== undefined ? details.bio : (details.notes || null),
         address: details.address || null,
         phone: details.phone || null,
         photo_url: details.photo_url || null,
       };
       const updated = await api.updatePerson(id, payload);
       setPeople((prev) => prev.map((p) => (p.id === id ? mapPerson(updated) : p)));
+      setLastSavedAt(new Date().toISOString());
+      await refresh();
+      await refreshTreeList();
+      return updated;
     },
-    []
+    [refresh, refreshTreeList]
   );
 
   const linkPeople = useCallback(
@@ -668,8 +713,10 @@ export function FamilyProvider({ children }) {
         setRootPersonId,
         // ── Sharing / multi-tree ──────────────────────────────────────
         activeTreeId,
+        activeFamilyId: activeTreeId,
         setActiveTreeId,
         activeTree,
+        currentFamily: activeTree,
         myRole,
         canEdit,
         canManage,
@@ -681,6 +728,12 @@ export function FamilyProvider({ children }) {
         renameTree,
         deleteTree,
         leaveSharedTree,
+        // ── Tree Saving & Version Restore ─────────────────────────────
+        saveTree,
+        restoreTree,
+        isSaving,
+        lastSavedAt,
+        hasUnsavedChanges,
       }}
     >
       {children}

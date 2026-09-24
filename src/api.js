@@ -165,6 +165,18 @@ export const api = {
     const query = new URLSearchParams({ family_id: treeId || "", ...params });
     return request(`/api/family/history?${query}`);
   },
+  saveTree: (treeId, description) =>
+    request("/api/family/save", {
+      method: "POST",
+      body: { family_id: treeId || undefined, description },
+    }),
+  getTreeRevisions: (treeId) =>
+    request(`/api/family/revisions?family_id=${encodeURIComponent(treeId || "")}`),
+  restoreTreeRevision: (treeId, revisionId) =>
+    request("/api/family/restore", {
+      method: "POST",
+      body: { family_id: treeId, revision_id: revisionId },
+    }),
   getFamilyStatistics: (treeId) =>
     request(`/api/family/statistics?family_id=${encodeURIComponent(treeId || "")}`),
   explainRelationship: (payload) =>

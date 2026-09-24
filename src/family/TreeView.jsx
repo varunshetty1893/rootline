@@ -26,6 +26,10 @@ import {
   ChevronDown,
   ChevronUp,
   AlertCircle,
+  Save,
+  History,
+  RotateCcw,
+  CheckCircle2,
 } from "lucide-react";
 import AppHeader from "./AppHeader.jsx";
 import RelationshipChat from "./RelationshipChat.jsx";
@@ -33,6 +37,8 @@ import { useFamily } from "./FamilyContext.jsx";
 import { useAuth } from "../AuthContext.jsx";
 import { computeLayout, ancestorsOf, recommendedCollapsedFamilyKeys, parentGroupsFor } from "./treeLayout.js";
 import { findRelationship, pathToEdgeKeySet } from "./relationship.js";
+import FamilyActivityModal from "./FamilyActivityModal.jsx";
+import TreeQuickEditModal from "./tree/TreeQuickEditModal.jsx";
 
 const CARD_W = 136;
 const ROW_HEIGHT = 190;
@@ -475,11 +481,36 @@ export default function TreeView() {
     addPerson,
     linkPeople,
     deletePerson,
+    updatePerson,
     createTree,
     activeTree,
+    activeTreeId,
     myRole,
     canEdit,
+    saveTree,
+    restoreTree,
+    isSaving,
+    lastSavedAt,
+    hasUnsavedChanges,
   } = useFamily();
+  const [activityModalOpen, setActivityModalOpen] = useState(false);
+  const [quickEditPerson, setQuickEditPerson] = useState(null);
+  const [saveBannerMsg, setSaveBannerMsg] = useState("");
+  const [isSavingTree, setIsSavingTree] = useState(false);
+
+  const handleSaveTree = async () => {
+    setIsSavingTree(true);
+    try {
+      const res = await saveTree();
+      setSaveBannerMsg(res?.message || "Family tree saved successfully!");
+      setTimeout(() => setSaveBannerMsg(""), 3500);
+    } catch (err) {
+      setSaveBannerMsg(err?.message || "Failed to save tree");
+      setTimeout(() => setSaveBannerMsg(""), 3500);
+    } finally {
+      setIsSavingTree(false);
+    }
+  };
   const containerRef = useRef(null);
   const scrollRef = useRef(null);
   const cardRefs = useRef({});
@@ -1412,12 +1443,23 @@ export default function TreeView() {
                         </div>
                       ))}
                     </div>
-                    <Link
-                      to={`/people/${selectedPerson.id}/edit`}
-                      className="flex items-center justify-center gap-2 w-full rounded-md bg-[#1C4B3C] text-white text-sm font-medium py-2.5 shadow-sm hover:bg-[#163C30]"
-                    >
-                      <Pencil className="w-4 h-4" /> Edit person
-                    </Link>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setQuickEditPerson(selectedPerson)}
+                        className="flex-1 flex items-center justify-center gap-2 rounded-md bg-[#1C4B3C] text-white text-sm font-medium py-2.5 shadow-sm hover:bg-[#163C30] transition-colors"
+                        title="Edit person details directly in tree"
+                      >
+                        <Pencil className="w-4 h-4" /> Quick Edit
+                      </button>
+                      <Link
+                        to={`/people/${selectedPerson.id}/edit`}
+                        className="px-3 flex items-center justify-center rounded-md border border-[#DCE3E1] text-[#374151] hover:bg-[#F7F5F0] text-xs font-medium"
+                        title="Full profile editor"
+                      >
+                        Full
+                      </Link>
+                    </div>
                     {rootPersonId === selectedPerson.id ? (
                       <div className="mt-2.5 flex items-center justify-between px-3 py-2 rounded-md bg-[#E7F1EB] border border-[#1C4B3C]/30 text-[#1C4B3C] text-xs font-semibold">
                         <div className="flex items-center gap-1.5">
@@ -1586,12 +1628,13 @@ export default function TreeView() {
                   <span>Gender: {selectedPerson.gender || "Not recorded"}</span>
                 </div>
                 <div className="grid grid-cols-2 gap-2 p-4">
-                  <Link
-                    to={`/people/${selectedPerson.id}/edit`}
-                    className="col-span-2 flex items-center justify-center gap-2 rounded-md bg-[#1C4B3C] py-2 text-xs font-medium text-white shadow-2xs"
+                  <button
+                    type="button"
+                    onClick={() => setQuickEditPerson(selectedPerson)}
+                    className="col-span-2 flex items-center justify-center gap-2 rounded-md bg-[#1C4B3C] py-2 text-xs font-semibold text-white shadow-2xs hover:bg-[#163C30]"
                   >
-                    <Pencil className="h-3.5 w-3.5" /> Edit person profile
-                  </Link>
+                    <Pencil className="h-3.5 w-3.5" /> Edit person in tree
+                  </button>
                   {rootPersonId === selectedPerson.id ? (
                     <div className="col-span-2 flex items-center justify-between px-3 py-1.5 rounded-md bg-[#E7F1EB] border border-[#1C4B3C]/30 text-[#1C4B3C] text-xs font-semibold">
                       <div className="flex items-center gap-1.5">
@@ -1629,11 +1672,50 @@ export default function TreeView() {
 
         <main className="flex-1 min-h-0 flex flex-col min-w-0">
           <div className="flex items-center justify-between gap-2.5 sm:gap-4 px-3 sm:px-6 lg:px-10 py-2.5 sm:py-3.5 border-b border-[#E7E2D6] bg-white/80 backdrop-blur-xs flex-wrap">
-            <div>
-              <h1 className="text-base sm:text-xl font-serif font-bold text-[#1C1F1D] tracking-tight">Your family tree</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-base sm:text-xl font-serif font-bold text-[#1C1F1D] tracking-tight">
+                {activeTree?.name || "Your family tree"}
+              </h1>
+              {activeTree?.owner_name && (
+                <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-100/90 px-2 py-0.5 rounded-full hidden sm:inline">
+                  {myRole === "owner" ? "Owner" : `Shared by ${activeTree.owner_name} (${myRole})`}
+                </span>
+              )}
             </div>
 
             <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+              {/* Save Tree Button */}
+              <button
+                type="button"
+                onClick={handleSaveTree}
+                disabled={isSavingTree || isSaving || !canEdit}
+                className={`flex items-center gap-1.5 text-xs font-semibold rounded-lg px-2.5 sm:px-3.5 py-1.5 transition-all shadow-sm ${
+                  isSavingTree || isSaving
+                    ? "bg-[#1C4B3C]/70 text-white cursor-wait"
+                    : hasUnsavedChanges
+                    ? "bg-amber-600 hover:bg-amber-700 text-white ring-2 ring-amber-300"
+                    : "bg-[#1C4B3C] hover:bg-[#163C30] text-white"
+                } disabled:opacity-50`}
+                title="Save tree snapshot and commit revisions"
+              >
+                <Save className={`w-3.5 h-3.5 ${isSavingTree || isSaving ? "animate-spin" : ""}`} />
+                <span>{isSavingTree || isSaving ? "Saving…" : "Save Tree"}</span>
+              </button>
+
+              {/* History & Restore Button */}
+              <button
+                type="button"
+                onClick={() => setActivityModalOpen(true)}
+                title="View collaborator changes & restore previous revisions"
+                className="flex items-center gap-1.5 text-xs font-semibold text-[#1C4B3C] border border-[#1C4B3C]/35 bg-emerald-50/60 hover:bg-emerald-100/70 rounded-lg px-2.5 sm:px-3 py-1.5 shadow-2xs transition-colors"
+              >
+                <History className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">History & Restore</span>
+                <span className="sm:hidden">History</span>
+              </button>
+
+              <span className="w-px h-5 bg-[#D9D3C3] hidden xs:inline-block" />
+
               {/* Search */}
               <form onSubmit={handleSearch} className="relative">
                 <Search className="w-3.5 h-3.5 text-[#9CA3AF] absolute left-2.5 top-1/2 -translate-y-1/2" />
@@ -2583,6 +2665,27 @@ export default function TreeView() {
         defaultOpen={searchParams.get("guide") === "1"}
         isMobileSheetOpen={Boolean(selectedPerson)}
         isMobileSheetMinimized={mobileSheetMinimized}
+      />
+
+      {/* Save Notification Toast */}
+      {saveBannerMsg && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-[#1C4B3C] text-white text-xs font-semibold px-4 py-2.5 rounded-full shadow-xl flex items-center gap-2 animate-in fade-in slide-in-from-top-2 border border-emerald-400/30">
+          <CheckCircle2 className="w-4 h-4 text-emerald-300 shrink-0" />
+          <span>{saveBannerMsg}</span>
+        </div>
+      )}
+
+      {/* Family Tree History & Restore Modal */}
+      <FamilyActivityModal
+        isOpen={activityModalOpen}
+        onClose={() => setActivityModalOpen(false)}
+      />
+
+      {/* Quick Edit Person Modal */}
+      <TreeQuickEditModal
+        isOpen={Boolean(quickEditPerson)}
+        onClose={() => setQuickEditPerson(null)}
+        person={quickEditPerson}
       />
     </div>
   );

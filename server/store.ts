@@ -223,7 +223,24 @@ export type ActivityAction =
   | "INVITATION_ACCEPTED"
   | "INVITATION_DECLINED"
   | "INVITATION_CANCELLED"
-  | "COLLABORATOR_LEFT";
+  | "COLLABORATOR_LEFT"
+  | "TREE_SAVED"
+  | "TREE_RESTORED";
+
+export interface TreeSnapshot {
+  id: string;
+  family_id: string;
+  version: number;
+  created_at: string;
+  actor_id: string;
+  actor_name: string;
+  action: string;
+  description: string;
+  people_count: number;
+  people: Person[];
+  family_units: FamilyUnit[];
+  family_children: FamilyChild[];
+}
 
 export interface ActivityLog {
   id: string;
@@ -319,6 +336,7 @@ export class MemoryStore {
   treeShares: Map<string, TreeShare> = new Map();
   familyInvitations: Map<string, FamilyInvitation> = new Map();
   activityLogs: ActivityLog[] = [];
+  treeSnapshots: Map<string, TreeSnapshot[]> = new Map(); // key: family_id
   chatHistories: Map<string, ChatMessage[]> = new Map(); // key: `${userId}:${familyId}`
   deletedAccounts: Map<string, DeletedAccountRecord> = new Map(); // key: lowercase email
   isDatabaseSynced = false;
@@ -376,6 +394,7 @@ export class MemoryStore {
         treeShares: Array.from(this.treeShares.entries()),
         familyInvitations: Array.from(this.familyInvitations.entries()),
         activityLogs: this.activityLogs,
+        treeSnapshots: Array.from(this.treeSnapshots.entries()),
         chatHistories: Array.from(this.chatHistories.entries()),
         deletedAccounts: Array.from(this.deletedAccounts.entries()),
         saved_at: new Date().toISOString(),
@@ -405,6 +424,7 @@ export class MemoryStore {
       this.treeShares = new Map(parsed.treeShares || []);
       this.familyInvitations = new Map(parsed.familyInvitations || []);
       this.activityLogs = Array.isArray(parsed.activityLogs) ? parsed.activityLogs : [];
+      this.treeSnapshots = new Map(parsed.treeSnapshots || []);
       this.chatHistories = new Map(parsed.chatHistories || []);
       this.deletedAccounts = new Map(parsed.deletedAccounts || []);
       return true;
@@ -1182,6 +1202,7 @@ export class MemoryStore {
         target_name: person.name,
         description: `${actor.name} added ${person.name} to the family tree`,
       });
+      this.createTreeSnapshot(ownerId, actor, "PERSON_ADDED", `${actor.name} added ${person.name}`);
     }
 
     return this.serializePerson(person);
@@ -1515,6 +1536,7 @@ export class MemoryStore {
             target_type: "relationship",
             description: `${actor.name} linked ${p1.name} and ${p2.name}`,
           });
+          this.createTreeSnapshot(ownerId, actor, "RELATIONSHIP_ADDED", `${actor.name} linked ${p1.name} and ${p2.name}`);
         }
         return { message: "People linked." };
       }
@@ -1531,6 +1553,7 @@ export class MemoryStore {
             target_type: "relationship",
             description: `${actor.name} linked ${p1.name} and ${p2.name}`,
           });
+          this.createTreeSnapshot(ownerId, actor, "RELATIONSHIP_ADDED", `${actor.name} linked ${p1.name} and ${p2.name}`);
         }
         return { message: "People linked." };
       }
@@ -1547,6 +1570,7 @@ export class MemoryStore {
             target_type: "relationship",
             description: `${actor.name} linked ${p1.name} and ${p2.name}`,
           });
+          this.createTreeSnapshot(ownerId, actor, "RELATIONSHIP_ADDED", `${actor.name} linked ${p1.name} and ${p2.name}`);
         }
         return { message: "People linked." };
       }
@@ -1563,6 +1587,7 @@ export class MemoryStore {
             target_type: "relationship",
             description: `${actor.name} linked ${p1.name} and ${p2.name}`,
           });
+          this.createTreeSnapshot(ownerId, actor, "RELATIONSHIP_ADDED", `${actor.name} linked ${p1.name} and ${p2.name}`);
         }
         return { message: "People linked." };
       }
@@ -1587,6 +1612,7 @@ export class MemoryStore {
         target_type: "relationship",
         description: `${actor.name} linked ${p1.name} and ${p2.name}`,
       });
+      this.createTreeSnapshot(ownerId, actor, "RELATIONSHIP_ADDED", `${actor.name} linked ${p1.name} and ${p2.name}`);
     }
 
     return { message: "People linked." };
@@ -1647,6 +1673,7 @@ export class MemoryStore {
         target_name: person.name,
         description: `${actor.name} updated details for ${person.name}`,
       });
+      this.createTreeSnapshot(ownerId, actor, "PERSON_UPDATED", `${actor.name} updated details for ${person.name}`);
     }
 
     return this.serializePerson(person);
@@ -1707,6 +1734,7 @@ export class MemoryStore {
         target_name: personName,
         description: `${actor.name} removed ${personName} from the family tree`,
       });
+      this.createTreeSnapshot(ownerId, actor, "PERSON_DELETED", `${actor.name} removed ${personName}`);
     }
 
     return { message: "Person removed." };
@@ -2079,6 +2107,41 @@ export class MemoryStore {
             });
           }
         }
+      }
+    }
+
+    // Ensure Pachhu's shared demo tree is available to other users with editor permissions
+    const pachhuFam = this.families.get("pachhu-family-id");
+    const pachhuUser = this.users.get("pachhu-user-id");
+    if (
+      pachhuFam &&
+      pachhuUser &&
+      pachhuFam.owner_id !== userId &&
+      normalizedUserEmail !== "pachhu@rootline.app"
+    ) {
+      if (!shared.some((sh) => sh.family?.id === pachhuFam.id)) {
+        const shareKey = `share-pachhu-${userId}`;
+        if (!this.treeShares.has(shareKey)) {
+          this.treeShares.set(shareKey, {
+            id: shareKey,
+            family_id: pachhuFam.id,
+            owner_id: pachhuUser.id,
+            user_id: userId,
+            permission: "editor",
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+          this.scheduleDiskSave();
+        }
+        shared.push({
+          family: pachhuFam,
+          role: "editor",
+          owner: {
+            id: pachhuUser.id,
+            name: pachhuUser.name,
+            email: pachhuUser.email,
+          },
+        });
       }
     }
 
@@ -3399,7 +3462,184 @@ export class MemoryStore {
     const start = (page - 1) * limit;
     const items = filtered.slice(start, start + limit);
 
-    return { total, page, limit, items };
+    return { total, page, limit, items, logs: items };
+  }
+
+  // --- Tree Snapshots & Version History (Revisions & Restore) ---
+  createTreeSnapshot(
+    familyId: string,
+    actor: { id: string; name: string },
+    action: string,
+    description: string
+  ): TreeSnapshot {
+    const familyPeople = Array.from(this.people.values())
+      .filter((p) => p.owner_id === familyId)
+      .map((p) => ({ ...p }));
+
+    const familyUnits = Array.from(this.familyUnits.values())
+      .filter((fu) => fu.owner_id === familyId)
+      .map((fu) => ({ ...fu }));
+
+    const unitIdSet = new Set(familyUnits.map((fu) => fu.id));
+    const familyChildren = Array.from(this.familyChildren.values())
+      .filter((fc) => unitIdSet.has(fc.family_unit_id))
+      .map((fc) => ({ ...fc }));
+
+    let list = this.treeSnapshots.get(familyId);
+    if (!list) {
+      list = [];
+      this.treeSnapshots.set(familyId, list);
+    }
+
+    const nextVersion = list.length > 0 ? Math.max(...list.map((s) => s.version)) + 1 : 1;
+
+    const snapshot: TreeSnapshot = {
+      id: crypto.randomUUID(),
+      family_id: familyId,
+      version: nextVersion,
+      created_at: new Date().toISOString(),
+      actor_id: actor.id,
+      actor_name: actor.name,
+      action,
+      description,
+      people_count: familyPeople.length,
+      people: familyPeople,
+      family_units: familyUnits,
+      family_children: familyChildren,
+    };
+
+    list.unshift(snapshot);
+    if (list.length > 50) {
+      list.length = 50; // keep last 50 revisions
+    }
+
+    this.scheduleDiskSave();
+    return snapshot;
+  }
+
+  getTreeRevisions(familyId: string): {
+    id: string;
+    family_id: string;
+    version: number;
+    created_at: string;
+    actor_id: string;
+    actor_name: string;
+    action: string;
+    description: string;
+    people_count: number;
+    is_current: boolean;
+  }[] {
+    let list = this.treeSnapshots.get(familyId);
+    if (!list || list.length === 0) {
+      const fam = this.families.get(familyId);
+      const owner = fam ? this.users.get(fam.owner_id) : null;
+      const initialSnapshot = this.createTreeSnapshot(
+        familyId,
+        { id: owner?.id || "system", name: owner?.name || "Tree Starter" },
+        "BASELINE",
+        "Initial tree state"
+      );
+      list = [initialSnapshot];
+    }
+
+    return list.map((s, idx) => ({
+      id: s.id,
+      family_id: s.family_id,
+      version: s.version,
+      created_at: s.created_at,
+      actor_id: s.actor_id,
+      actor_name: s.actor_name,
+      action: s.action,
+      description: s.description,
+      people_count: s.people_count,
+      is_current: idx === 0,
+    }));
+  }
+
+  restoreTreeSnapshot(
+    familyId: string,
+    snapshotId: string,
+    actor: { id: string; name: string }
+  ): { success: boolean; version: number; message: string; people_count: number } {
+    const list = this.treeSnapshots.get(familyId);
+    if (!list) {
+      throw new Error("No revisions found for this tree");
+    }
+    const target = list.find((s) => s.id === snapshotId);
+    if (!target) {
+      throw new Error("Selected revision not found");
+    }
+
+    // 1. Remove all current people, units, children for this family
+    const peopleToDelete = Array.from(this.people.values()).filter((p) => p.owner_id === familyId);
+    for (const p of peopleToDelete) {
+      this.people.delete(p.id);
+      dbDeletePerson(p.id).catch((e) => logger.error("dbDeletePerson error during restore:", e));
+    }
+
+    const unitsToDelete = Array.from(this.familyUnits.values()).filter((fu) => fu.owner_id === familyId);
+    for (const fu of unitsToDelete) {
+      this.familyUnits.delete(fu.id);
+      dbDeleteFamilyUnit(fu.id).catch((e) => logger.error("dbDeleteFamilyUnit error during restore:", e));
+    }
+
+    const unitIdsToDelete = new Set(unitsToDelete.map((fu) => fu.id));
+    for (const [fcId, fc] of this.familyChildren.entries()) {
+      if (unitIdsToDelete.has(fc.family_unit_id)) {
+        this.familyChildren.delete(fcId);
+        dbDeleteFamilyChild(fcId).catch((e) => logger.error("dbDeleteFamilyChild error during restore:", e));
+      }
+    }
+
+    // 2. Restore people from snapshot
+    for (const p of target.people) {
+      const cloned = { ...p, owner_id: familyId };
+      this.people.set(cloned.id, cloned);
+      dbSavePerson(cloned).catch((e) => logger.error("dbSavePerson error during restore:", e));
+    }
+
+    // 3. Restore family units from snapshot
+    for (const fu of target.family_units) {
+      const cloned = { ...fu, owner_id: familyId };
+      this.familyUnits.set(cloned.id, cloned);
+      dbSaveFamilyUnit(cloned).catch((e) => logger.error("dbSaveFamilyUnit error during restore:", e));
+    }
+
+    // 4. Restore family children from snapshot
+    for (const fc of target.family_children) {
+      const cloned = { ...fc };
+      this.familyChildren.set(cloned.id, cloned);
+      dbSaveFamilyChild(cloned).catch((e) => logger.error("dbSaveFamilyChild error during restore:", e));
+    }
+
+    // 5. Log activity
+    const restoreDesc = `${actor.name} restored tree to version v${target.version} (${new Date(target.created_at).toLocaleString()})`;
+    this.logActivity({
+      family_id: familyId,
+      actor_id: actor.id,
+      actor_name: actor.name,
+      action: "TREE_RESTORED",
+      target_type: "family",
+      target_id: familyId,
+      description: restoreDesc,
+    });
+
+    // 6. Record a new snapshot for this restored state
+    const newSnapshot = this.createTreeSnapshot(
+      familyId,
+      actor,
+      "TREE_RESTORED",
+      `Restored tree to version v${target.version}`
+    );
+
+    this.scheduleDiskSave();
+
+    return {
+      success: true,
+      version: newSnapshot.version,
+      message: `Successfully restored tree to version v${target.version}`,
+      people_count: target.people.length,
+    };
   }
 
   // --- Family Statistics (Phase 3) ---
@@ -3983,6 +4223,38 @@ export class MemoryStore {
       if (registeredUser && !existingInv.accepted_by_user_id) {
         existingInv.accepted_by_user_id = registeredUser.id;
       }
+    }
+
+    // Also share with sbabushetty68@gmail.com
+    const collaboratorEmail = "sbabushetty68@gmail.com";
+    const regCollaborator = this.findUserByEmail(collaboratorEmail);
+    const existingCollabShare = Array.from(this.treeShares.values()).find(
+      (s) =>
+        s.family_id === pachhuFamily!.id &&
+        (s.user_id?.toLowerCase() === collaboratorEmail ||
+          (regCollaborator && s.user_id === regCollaborator.id))
+    );
+    if (!existingCollabShare) {
+      const collabShare: TreeShare = {
+        id: "share-pachhu-sbabushetty68",
+        family_id: pachhuFamily.id,
+        owner_id: pachhuUser.id,
+        user_id: regCollaborator ? regCollaborator.id : collaboratorEmail,
+        permission: "editor",
+        created_at: now,
+        updated_at: now,
+      };
+      this.treeShares.set(collabShare.id, collabShare);
+    }
+
+    // Ensure baseline snapshot exists for Pachhu's tree
+    if (!this.treeSnapshots.has(pachhuFamily.id) || this.treeSnapshots.get(pachhuFamily.id)!.length === 0) {
+      this.createTreeSnapshot(
+        pachhuFamily.id,
+        { id: pachhuUser.id, name: pachhuUser.name },
+        "BASELINE",
+        "Original Pachhu Shetty family tree (Baseline)"
+      );
     }
   }
 }

@@ -11,8 +11,21 @@ import {
   ChevronsUpDown,
   Sparkles,
   Share2,
+  Save,
+  History,
+  CheckCircle2,
+  Users,
 } from "lucide-react";
 import BranchFilterControl from "./BranchFilterControl.jsx";
+
+function formatSavedTime(dateString) {
+  if (!dateString) return null;
+  const diff = Date.now() - new Date(dateString).getTime();
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  return `${Math.floor(minutes / 60)}h ago`;
+}
 
 export default function TreeControls({
   query,
@@ -36,17 +49,96 @@ export default function TreeControls({
   collapseAll,
   onOpenKinship,
   onOpenShare,
+  onSaveTree,
+  isSaving,
+  lastSavedAt,
+  hasUnsavedChanges,
+  onOpenHistory,
+  treeName,
+  isShared,
+  ownerName,
+  canEdit = true,
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 flex-wrap px-6 lg:px-10 py-4 border-b border-[#E7E2D6] bg-white">
+    <div className="flex items-center justify-between gap-4 flex-wrap px-6 lg:px-10 py-3.5 border-b border-[#E7E2D6] bg-white shadow-xs">
       <div>
-        <h1 className="text-xl font-serif font-bold text-[#1C1F1D] mb-0.5">Your family tree</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-xl font-serif font-bold text-[#1C1F1D]">
+            {treeName || "Your family tree"}
+          </h1>
+          {isShared && (
+            <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-100/90 px-2 py-0.5 rounded-full flex items-center gap-1">
+              <Users className="w-3 h-3" />
+              Shared by {ownerName || "Collaborator"}
+            </span>
+          )}
+        </div>
         <p className="text-xs text-[#6B7280]">
-          Generated automatically from the people and relationships you've added.
+          Interactive family tree with collaborative edits, manual save checkpoints, and revision restore.
         </p>
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">
+        {/* Save Tree Button */}
+        {onSaveTree && (
+          <div className="flex items-center gap-1.5 mr-1">
+            <button
+              type="button"
+              onClick={onSaveTree}
+              disabled={isSaving || !canEdit}
+              className={`flex items-center gap-1.5 text-xs font-semibold rounded-lg px-3.5 py-1.5 transition-all shadow-sm ${
+                isSaving
+                  ? "bg-[#1C4B3C]/70 text-white cursor-wait"
+                  : hasUnsavedChanges
+                  ? "bg-amber-600 hover:bg-amber-700 text-white ring-2 ring-amber-300"
+                  : "bg-[#1C4B3C] hover:bg-[#163C30] text-white"
+              } disabled:opacity-50`}
+              title="Save tree snapshot and commit revisions"
+            >
+              {isSaving ? (
+                <>
+                  <Save className="w-3.5 h-3.5 animate-spin" />
+                  Saving…
+                </>
+              ) : hasUnsavedChanges ? (
+                <>
+                  <Save className="w-3.5 h-3.5" />
+                  Save Tree
+                </>
+              ) : (
+                <>
+                  <Save className="w-3.5 h-3.5" />
+                  Save Tree
+                </>
+              )}
+            </button>
+            {lastSavedAt && (
+              <span
+                className="hidden md:inline-flex items-center gap-1 text-[11px] text-[#6B7280]"
+                title={`Last saved: ${new Date(lastSavedAt).toLocaleTimeString()}`}
+              >
+                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                Saved {formatSavedTime(lastSavedAt)}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* History & Restore Button */}
+        {onOpenHistory && (
+          <button
+            type="button"
+            onClick={onOpenHistory}
+            title="Inspect edit history and restore previous versions"
+            className="flex items-center gap-1.5 text-xs font-semibold text-[#1C4B3C] border border-[#1C4B3C]/30 bg-emerald-50/40 hover:bg-emerald-100/60 rounded-lg px-3 py-1.5 transition-colors shadow-xs"
+          >
+            <History className="w-3.5 h-3.5 text-[#1C4B3C]" />
+            <span>History & Restore</span>
+          </button>
+        )}
+
+        <span className="w-px h-5 bg-[#D9D3C3]" />
+
         <form onSubmit={onSearch} className="relative">
           <Search className="w-3.5 h-3.5 text-[#9CA3AF] absolute left-2.5 top-1/2 -translate-y-1/2" />
           <input
