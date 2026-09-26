@@ -51,7 +51,18 @@ export default function AppHeader() {
     myRole,
     canManage,
     createTree,
+    guardNavigation,
   } = useFamily();
+
+  const handleNavClick = (e, path) => {
+    if (typeof guardNavigation === "function") {
+      const allowed = guardNavigation(path);
+      if (!allowed) {
+        e.preventDefault();
+        return;
+      }
+    }
+  };
 
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -296,7 +307,11 @@ export default function AppHeader() {
       <header className="flex items-center justify-between px-3.5 sm:px-8 lg:px-16 py-3 sm:py-5 border-b border-[#E7E2D6] bg-[#F7F5F0]">
         {/* Left — Logo */}
         <div className="flex items-center">
-          <Link to="/dashboard" className="flex items-center gap-1.5 hover:opacity-85 transition-opacity">
+          <Link
+            to="/dashboard"
+            onClick={(e) => handleNavClick(e, "/dashboard")}
+            className="flex items-center gap-1.5 hover:opacity-85 transition-opacity"
+          >
             <GitBranch className="w-4 h-4 text-[#1C4B3C]" strokeWidth={2.5} />
             <span className="text-[13px] tracking-[0.2em] font-semibold text-[#1C4B3C]">
               ROOTLINE
@@ -306,16 +321,33 @@ export default function AppHeader() {
 
         {/* Centre — Main Navigation */}
         <nav className="hidden md:flex items-center gap-7">
-          <NavLink to="/dashboard" className={navLinkClass} end>
+          <NavLink
+            to="/dashboard"
+            onClick={(e) => handleNavClick(e, "/dashboard")}
+            className={navLinkClass}
+            end
+          >
             Overview
           </NavLink>
-          <NavLink to="/tree" className={navLinkClass}>
+          <NavLink
+            to="/tree"
+            onClick={(e) => handleNavClick(e, "/tree")}
+            className={navLinkClass}
+          >
             Tree
           </NavLink>
-          <NavLink to="/manage-tree" className={navLinkClass}>
+          <NavLink
+            to="/manage-tree"
+            onClick={(e) => handleNavClick(e, "/manage-tree")}
+            className={navLinkClass}
+          >
             Manage Tree
           </NavLink>
-          <NavLink to="/shared-trees" className={navLinkClass}>
+          <NavLink
+            to="/shared-trees"
+            onClick={(e) => handleNavClick(e, "/shared-trees")}
+            className={navLinkClass}
+          >
             <span className="flex items-center gap-1.5">
               <span>Shared Trees</span>
               {sharedTrees.length > 0 && (
@@ -357,7 +389,10 @@ export default function AppHeader() {
                     </span>
                     <Link
                       to="/shared-trees"
-                      onClick={() => setTreeSwitcherOpen(false)}
+                      onClick={(e) => {
+                        setTreeSwitcherOpen(false);
+                        handleNavClick(e, "/shared-trees");
+                      }}
                       className="text-[11px] font-semibold text-[#1C4B3C] hover:underline"
                     >
                       Manage All
@@ -376,10 +411,17 @@ export default function AppHeader() {
                           key={tree.id}
                           type="button"
                           onClick={() => {
-                            setActiveTreeId(tree.id);
-                            setTreeSwitcherOpen(false);
+                            if (typeof guardNavigation === "function") {
+                              guardNavigation(() => {
+                                setActiveTreeId(tree.id);
+                                setTreeSwitcherOpen(false);
+                              });
+                            } else {
+                              setActiveTreeId(tree.id);
+                              setTreeSwitcherOpen(false);
+                            }
                           }}
-                          className={`w-full text-left px-3.5 py-2 text-xs flex items-center justify-between transition-colors ${
+                          className={`w-full text-left px-3.5 py-2 text-xs flex items-center justify-between transition-colors cursor-pointer ${
                             isCur ? "bg-[#1C4B3C]/5 font-semibold text-[#1C4B3C]" : "hover:bg-[#F7F5F0] text-[#1C1F1D]"
                           }`}
                         >
@@ -413,10 +455,17 @@ export default function AppHeader() {
                             key={tree.id}
                             type="button"
                             onClick={() => {
-                              setActiveTreeId(tree.id);
-                              setTreeSwitcherOpen(false);
+                              if (typeof guardNavigation === "function") {
+                                guardNavigation(() => {
+                                  setActiveTreeId(tree.id);
+                                  setTreeSwitcherOpen(false);
+                                });
+                              } else {
+                                setActiveTreeId(tree.id);
+                                setTreeSwitcherOpen(false);
+                              }
                             }}
-                            className={`w-full text-left px-3.5 py-2 text-xs flex items-center justify-between transition-colors ${
+                            className={`w-full text-left px-3.5 py-2 text-xs flex items-center justify-between transition-colors cursor-pointer ${
                               isCur ? "bg-[#1C4B3C]/5 font-semibold text-[#1C4B3C]" : "hover:bg-[#F7F5F0] text-[#1C1F1D]"
                             }`}
                           >
@@ -436,7 +485,10 @@ export default function AppHeader() {
                   <div className="p-2 bg-[#FAF8F4]">
                     <Link
                       to="/shared-trees"
-                      onClick={() => setTreeSwitcherOpen(false)}
+                      onClick={(e) => {
+                        setTreeSwitcherOpen(false);
+                        handleNavClick(e, "/shared-trees");
+                      }}
                       className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-xl text-xs font-semibold text-white bg-[#1C4B3C] hover:bg-[#163C30] transition-colors"
                     >
                       <Share2 className="w-3.5 h-3.5" />

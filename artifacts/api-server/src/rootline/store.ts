@@ -1132,23 +1132,42 @@ export class MemoryStore {
   }
 
   getPeopleForOwner(ownerId: string, options?: { fullPhoto?: boolean }): PersonOut[] {
-    const ownerPeople = Array.from(this.people.values()).filter((p) => p.owner_id === ownerId);
+    const family = this.families.get(ownerId);
+    const validOwnerIds = new Set<string>([ownerId]);
+    if (family) {
+      validOwnerIds.add(family.id);
+      if (family.owner_id) validOwnerIds.add(family.owner_id);
+    }
+    const ownerPeople = Array.from(this.people.values()).filter((p) => validOwnerIds.has(p.owner_id));
     ownerPeople.sort((a, b) => normalizeToIsoString(a.created_at).localeCompare(normalizeToIsoString(b.created_at)));
 
     return ownerPeople.map((person) => this.serializePerson(person, options));
   }
 
   getPeopleCount(ownerId: string): number {
+    const family = this.families.get(ownerId);
+    const validOwnerIds = new Set<string>([ownerId]);
+    if (family) {
+      validOwnerIds.add(family.id);
+      if (family.owner_id) validOwnerIds.add(family.owner_id);
+    }
     let count = 0;
     for (const p of this.people.values()) {
-      if (p.owner_id === ownerId) count++;
+      if (validOwnerIds.has(p.owner_id)) count++;
     }
     return count;
   }
 
   getPerson(id: string, ownerId: string): Person | null {
     const p = this.people.get(id);
-    if (!p || p.owner_id !== ownerId) return null;
+    if (!p) return null;
+    const family = this.families.get(ownerId);
+    const validOwnerIds = new Set<string>([ownerId]);
+    if (family) {
+      validOwnerIds.add(family.id);
+      if (family.owner_id) validOwnerIds.add(family.owner_id);
+    }
+    if (!validOwnerIds.has(p.owner_id)) return null;
     return p;
   }
 
@@ -2344,7 +2363,12 @@ export class MemoryStore {
     let targetPersonName = "None";
     if (rootPersonId) {
       const person = this.people.get(rootPersonId);
-      if (!person || person.owner_id !== family.id) {
+      const belongs =
+        person &&
+        (person.owner_id === family.id ||
+          person.owner_id === family.owner_id ||
+          person.owner_id === familyId);
+      if (!belongs) {
         throw new Error("The selected person does not belong to this family tree.");
       }
       targetPersonName = person.name;
@@ -2352,6 +2376,11 @@ export class MemoryStore {
 
     family.root_person_id = rootPersonId || null;
     this.families.set(family.id, family);
+    if (familyId && familyId !== family.id && this.families.has(familyId)) {
+      const aliasFamily = this.families.get(familyId)!;
+      aliasFamily.root_person_id = rootPersonId || null;
+      this.families.set(familyId, aliasFamily);
+    }
     this.scheduleDiskSave();
     dbSaveFamily(family).catch((e) => logger.error("dbSaveFamily error:", e));
 

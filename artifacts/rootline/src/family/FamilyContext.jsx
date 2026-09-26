@@ -6,6 +6,8 @@ import {
   useCallback,
   useMemo,
 } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
+import { AlertTriangle, Save, X, Loader2, FolderTree } from "lucide-react";
 import { useAuth } from "../AuthContext.jsx";
 import { api } from "../api.js";
 
@@ -186,6 +188,19 @@ export function FamilyProvider({ children }) {
   });
   const [error, setError] = useState("");
   const [rootPersonId, setRootPersonIdState] = useState(null);
+  const [loadedTreeId, setLoadedTreeId] = useState(() => {
+    if (typeof window !== "undefined" && user?.id) {
+      return localStorage.getItem(activeTreeStorageKey(user.id)) || "default";
+    }
+    return null;
+  });
+
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // ── MS Word-style Unsaved Changes Prompt State ──────────────────────────
+  const [unsavedModalOpen, setUnsavedModalOpen] = useState(false);
+  const [pendingNavigation, setPendingNavigation] = useState(null);
 
   // ── Tree state ──────────────────────────────────────────────────────────
   /** { owned_trees: TreeOut[], shared_trees: TreeOut[] } */
@@ -284,7 +299,39 @@ export function FamilyProvider({ children }) {
   /** Switch the active tree. Accepts a tree UUID string (or null = own default). */
   const setActiveTreeId = useCallback(
     (treeId) => {
-      setActiveTreeIdState(treeId);
+      setActiveTreeIdState((prevId) => {
+        if (prevId === treeId) return prevId;
+        // When tree changes, immediately mark as loading so previous tree's nodes are never flashed
+        setLoaded(false);
+        if (user?.id) {
+          const targetTreeId = treeId || undefined;
+          const cached = localStorage.getItem(peopleStorageKey(user.id, targetTreeId));
+          if (cached) {
+            try {
+              const parsed = JSON.parse(cached);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setPeople(parsed);
+                setLoadedTreeId(targetTreeId || "default");
+                setLoaded(true);
+              } else {
+                setPeople([]);
+                setLoadedTreeId(null);
+              }
+            } catch (_) {
+              setPeople([]);
+              setLoadedTreeId(null);
+            }
+          } else {
+            setPeople([]);
+            setLoadedTreeId(null);
+          }
+        } else {
+          setPeople([]);
+          setLoadedTreeId(null);
+        }
+        return treeId;
+      });
+
       if (user?.id) {
         if (treeId) localStorage.setItem(activeTreeStorageKey(user.id), treeId);
         else localStorage.removeItem(activeTreeStorageKey(user.id));
@@ -389,27 +436,22 @@ export function FamilyProvider({ children }) {
       if (!user) {
         setPeople([]);
         setLoaded(true);
+        setLoadedTreeId(null);
         return;
       }
       const effectiveTreeId = activeTreeId || activeTree?.id || undefined;
-      try {
-        // If not silent and state is empty, try instant local cache
-        if (!isSilent && people.length === 0 && typeof window !== "undefined") {
-          try {
-            const cached = localStorage.getItem(peopleStorageKey(user.id, effectiveTreeId));
-            if (cached) {
-              const parsed = JSON.parse(cached);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                setPeople(parsed);
-                setLoaded(true);
-              }
-            }
-          } catch (_) {}
-        }
+      const targetIdStr = effectiveTreeId || "default";
 
+      // If active tree does not match what was loaded, immediately unmark loaded
+      if (!isSilent && loadedTreeId !== targetIdStr) {
+        setLoaded(false);
+      }
+
+      try {
         const data = await api.listPeople(effectiveTreeId);
         const mapped = data.map(mapPerson);
         setPeople(mapped);
+        setLoadedTreeId(targetIdStr);
         setError("");
 
         if (typeof window !== "undefined" && user?.id) {
@@ -423,7 +465,7 @@ export function FamilyProvider({ children }) {
         setLoaded(true);
       }
     },
-    [user, activeTreeId, activeTree?.id, people.length]
+    [user, activeTreeId, activeTree?.id, loadedTreeId]
   );
 
   useEffect(() => {
@@ -1116,11 +1158,88 @@ export function FamilyProvider({ children }) {
     return treeList;
   }, [treeList]);
 
+  // ── MS Word-style Unsaved Changes Handlers & Guard ──────────────────────
+  const guardNavigation = useCallback(
+    (target) => {
+      // If user has unsaved changes and is currently on the tree page
+      if (hasUnsavedChanges && location.pathname === "/tree") {
+        setPendingNavigation(typeof target === "string" ? { path: target } : { action: target });
+        setUnsavedModalOpen(true);
+        return false;
+      }
+      if (typeof target === "string") {
+        navigate(target);
+      } else if (typeof target === "function") {
+        target();
+      }
+      return true;
+    },
+    [hasUnsavedChanges, location.pathname, navigate]
+  );
+
+  const confirmDiscardUnsavedAndProceed = useCallback(() => {
+    setHasUnsavedChanges(false);
+    setUnsavedModalOpen(false);
+    const nav = pendingNavigation;
+    setPendingNavigation(null);
+    if (nav) {
+      if (nav.path) {
+        navigate(nav.path);
+      } else if (typeof nav.action === "function") {
+        nav.action();
+      }
+    }
+  }, [pendingNavigation, navigate]);
+
+  const saveAndProceed = useCallback(async () => {
+    try {
+      await saveTree();
+    } catch (err) {
+      console.warn("Failed to auto-save before leaving:", err);
+    }
+    setHasUnsavedChanges(false);
+    setUnsavedModalOpen(false);
+    const nav = pendingNavigation;
+    setPendingNavigation(null);
+    if (nav) {
+      if (nav.path) {
+        navigate(nav.path);
+      } else if (typeof nav.action === "function") {
+        nav.action();
+      }
+    }
+  }, [pendingNavigation, saveTree, navigate]);
+
+  const cancelUnsavedNavigation = useCallback(() => {
+    setUnsavedModalOpen(false);
+    setPendingNavigation(null);
+  }, []);
+
+  // Browser window/tab unload or reload guard
+  useEffect(() => {
+    if (!hasUnsavedChanges || location.pathname !== "/tree") return;
+
+    const handleBeforeUnload = (e) => {
+      e.preventDefault();
+      e.returnValue = "You have unsaved changes in your family tree. Are you sure you want to leave?";
+      return e.returnValue;
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [hasUnsavedChanges, location.pathname]);
+
+  const isTreeLoading = !loaded || treesLoading || (Boolean(activeTreeId) && loadedTreeId !== (activeTreeId || activeTree?.id));
+
   return (
     <FamilyContext.Provider
       value={{
         people,
         loaded,
+        loadedTreeId,
+        isTreeLoading,
         error,
         addPerson,
         linkPeople,
@@ -1154,6 +1273,13 @@ export function FamilyProvider({ children }) {
         isSaving,
         lastSavedAt,
         hasUnsavedChanges,
+        setHasUnsavedChanges,
+        guardNavigation,
+        unsavedModalOpen,
+        setUnsavedModalOpen,
+        confirmDiscardUnsavedAndProceed,
+        saveAndProceed,
+        cancelUnsavedNavigation,
         // ── Undo / Redo Actions ────────────────────────────────────────
         undo,
         redo,
@@ -1165,6 +1291,77 @@ export function FamilyProvider({ children }) {
         clearActionNotice,
       }}
     >
+      {/* ── MS Word-style Save Changes Confirmation Dialog ── */}
+      {unsavedModalOpen && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-[#E7E2D6] animate-in zoom-in-95 duration-150 relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3.5 mb-4">
+              <div className="w-11 h-11 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-6 h-6 text-amber-600" />
+              </div>
+              <div className="flex-1 min-w-0 pr-6">
+                <h3 className="text-base font-serif font-bold text-[#1C1F1D]">
+                  Save changes to {activeTree?.name || "family tree"}?
+                </h3>
+                <p className="text-xs text-[#6B7280] mt-0.5">
+                  You have unsaved edits in this family tree
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={cancelUnsavedNavigation}
+                className="absolute top-5 right-5 text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 transition-colors"
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-[#FAF8F4] border border-[#E7E2D6] text-xs text-[#4B5563] mb-6 space-y-1.5">
+              <p className="leading-relaxed">
+                Do you want to save your progress before switching tabs or leaving? If you don't save, recently added members, relationships, or perspective changes will not be saved.
+              </p>
+              <div className="flex items-center gap-1.5 pt-1 font-medium text-[#1C4B3C]">
+                <FolderTree className="w-3.5 h-3.5" />
+                <span>Tree: <strong>{activeTree?.name || "Family Tree"}</strong></span>
+              </div>
+            </div>
+
+            <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2">
+              <button
+                type="button"
+                onClick={cancelUnsavedNavigation}
+                className="px-4 py-2.5 text-xs font-medium text-[#6B7280] hover:text-[#1C1F1D] hover:bg-[#F7F5F0] rounded-xl transition-colors text-center cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDiscardUnsavedAndProceed}
+                className="px-4 py-2.5 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors text-center cursor-pointer"
+              >
+                Don't Save
+              </button>
+              <button
+                type="button"
+                onClick={saveAndProceed}
+                disabled={isSaving}
+                className="px-4 py-2.5 text-xs font-semibold text-white bg-[#1C4B3C] hover:bg-[#163C30] rounded-xl shadow-sm transition-colors flex items-center justify-center gap-1.5 text-center cursor-pointer disabled:opacity-50"
+              >
+                {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                <span>{isSaving ? "Saving..." : "Save"}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {children}
     </FamilyContext.Provider>
   );
