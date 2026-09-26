@@ -1,0 +1,1 @@
+- [Vercel monorepo builds](vercel-monorepo-builds.md) — workspace builds run every artifact, so build-time configs must tolerate missing Replit-only environment variables.

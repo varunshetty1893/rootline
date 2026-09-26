@@ -2322,9 +2322,10 @@ export class MemoryStore {
   async deleteFamily(userId: string, familyId: string): Promise<boolean> {
     let family = this.families.get(familyId);
     if (!family && isDatabaseConnected()) {
-      family = await dbFindFamilyById(familyId);
-      if (family) {
-        this.families.set(family.id, family);
+      const databaseFamily = await dbFindFamilyById(familyId);
+      if (databaseFamily) {
+        family = databaseFamily;
+        this.families.set(databaseFamily.id, databaseFamily);
       }
     }
     if (!family) {
@@ -2891,8 +2892,11 @@ export class MemoryStore {
   async deleteTreeShare(ownerId: string, familyId: string, shareId: string): Promise<boolean> {
     let family = this.families.get(familyId);
     if (!family && isDatabaseConnected()) {
-      family = await dbFindFamilyById(familyId);
-      if (family) this.families.set(family.id, family);
+      const databaseFamily = await dbFindFamilyById(familyId);
+      if (databaseFamily) {
+        family = databaseFamily;
+        this.families.set(databaseFamily.id, databaseFamily);
+      }
     }
     const callerUser = this.users.get(ownerId);
     const familyOwnerUser = family ? this.users.get(family.owner_id) : null;

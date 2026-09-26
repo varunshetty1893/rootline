@@ -158,7 +158,7 @@ function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
   if (!req.user) {
     return res.status(401).json({ detail: "Not authenticated" });
   }
-  next();
+  return next();
 }
 
 function setSessionCookie(res: Response, token: string) {

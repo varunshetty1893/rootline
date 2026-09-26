@@ -18,10 +18,11 @@ async function start() {
   }
 
   const app = await createExpressApp();
-  app.listen(port, "0.0.0.0", () => logger.info({ port }, "Rootline API listening"));
+  app.listen(port, "0.0.0.0", () => logger.info(`Rootline API listening on port ${port}`));
 }
 
 start().catch((error) => {
-  logger.error({ err: error }, "Failed to start Rootline API");
+  const message = error instanceof Error ? error.message : String(error);
+  logger.error(`Failed to start Rootline API: ${message}`);
   process.exit(1);
 });

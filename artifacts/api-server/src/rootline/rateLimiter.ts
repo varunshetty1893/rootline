@@ -84,7 +84,10 @@ export class DistributedRateLimitStore implements RateLimitStore {
         multi.zcard(key);
         multi.expire(key, Math.ceil(windowMs / 1000));
         const results = await multi.exec();
-        const count = results[2][1] as number;
+        const count = results?.[2]?.[1];
+        if (typeof count !== "number") {
+          throw new Error("Redis rate limiter returned an invalid count.");
+        }
         return { count, resetTime: Math.ceil((now + windowMs) / 1000) };
       } catch (err) {
         logger.warn("Distributed rate limiter error, falling back to local memory store:", err);
