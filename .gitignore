@@ -1,42 +1,49 @@
-# Environment files and secrets
-.env
-.env.*
-!.env.example
+# See https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
 
-# Dependencies and build output
-node_modules/
-dist/
-build/
+# compiled output
+dist
+tmp
+out-tsc
+*.tsbuildinfo
+.expo
+.expo-shared
 
-# Local databases, logs, and runtime files
-*.db
-*.sqlite
-*.sqlite3
-*.log
+# dependencies
+node_modules
 
-# Python tooling accidentally created during local development
-.venv/
-venv/
-env/
-myvenv/
-myenv/
-__pycache__/
-*.py[cod]
-*.pyo
-*.egg-info/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
+# IDEs and editors
+/.idea
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
 
-# Local/editor/OS files
-.cache/
-.local/
-.agents/
-.snapshots/
-scratch/
+# IDE - VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# misc
+/.sass-cache
+/connect.lock
+/coverage
+/libpeerconnection.log
+npm-debug.log
+yarn-error.log
+testem.log
+/typings
+
+# System Files
 .DS_Store
 Thumbs.db
-.idea/
-.vscode/
-*.swp
-*~
+
+.cursor/rules/nx-rules.mdc
+.github/instructions/nx.instructions.md
+
+# Replit
+.cache/
+.local/

@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Rootline"
+description = "A family tree app for building, exploring, and sharing family histories, with people records, relationship discovery, and collaborative trees."
+version = "1.0.0"
+id = "artifacts/rootline"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 24050
+
+[services.development]
+run = "pnpm --filter @workspace/rootline run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/rootline", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/rootline/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24050"
+BASE_PATH = "/"
