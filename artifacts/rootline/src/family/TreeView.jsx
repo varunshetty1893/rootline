@@ -400,6 +400,7 @@ function PersonCard({
   highlighted,
   onPath,
   isRoot,
+  isOwner,
   isSelected,
   onSelect,
 }) {
@@ -451,10 +452,10 @@ function PersonCard({
           </div>
           {isRoot && (
             <span
-              title="This is you (Tree Starter)"
+              title={isOwner ? "This is you (Tree Starter)" : "Tree Starter (Me)"}
               className="absolute -bottom-1 -right-2 text-[9px] font-bold bg-[#174F61] text-white rounded-full px-1.5 py-0.5 leading-none shadow-sm ring-1 ring-white"
             >
-              You
+              {isOwner ? "You" : "Tree Starter"}
             </span>
           )}
         </div>
@@ -1498,7 +1499,7 @@ export default function TreeView() {
                       <div className="mt-2.5 flex items-center justify-between px-3 py-2 rounded-md bg-[#E7F1EB] border border-[#1C4B3C]/30 text-[#1C4B3C] text-xs font-semibold">
                         <div className="flex items-center gap-1.5">
                           <Check className="w-4 h-4 text-[#1C4B3C]" strokeWidth={2.5} />
-                          <span>Marked as "You" (Tree Starter)</span>
+                          <span>{myRole === "owner" ? 'Marked as "You" (Tree Starter)' : 'Tree Starter (Default Focus)'}</span>
                         </div>
                         <button
                           type="button"
@@ -1518,7 +1519,7 @@ export default function TreeView() {
                         className="mt-2.5 flex items-center justify-center gap-2 w-full rounded-md border border-[#1C4B3C] bg-white text-[#1C4B3C] hover:bg-[#1C4B3C] hover:text-white text-xs font-semibold py-2 transition-colors shadow-2xs"
                       >
                         <UserCheck className="w-3.5 h-3.5" />
-                        Set as "You" (Tree Starter)
+                        {myRole === "owner" ? 'Set as "You" (Tree Starter)' : 'Set as Tree Starter'}
                       </button>
                     )}
                   </>
@@ -1691,7 +1692,7 @@ export default function TreeView() {
                       onClick={() => setConfirmSetMePerson(selectedPerson)}
                       className="col-span-2 min-h-[42px] flex items-center justify-center gap-1.5 rounded-lg border border-[#1C4B3C] bg-white text-[#1C4B3C] text-xs font-semibold py-2 transition-colors hover:bg-[#E7F1EB]"
                     >
-                      <UserCheck className="w-3.5 h-3.5" /> Set as "You" (Tree Starter)
+                      <UserCheck className="w-3.5 h-3.5" /> {myRole === "owner" ? 'Set as "You" (Tree Starter)' : 'Set as Tree Starter'}
                     </button>
                   )}
                   <button type="button" onClick={() => openQuickAdd("parent")} className="rounded-md bg-[#D7E7DF] py-2 text-xs font-medium text-[#1C4B3C] hover:bg-[#c6ddd2] transition-colors">+ Parent</button>
@@ -2179,6 +2180,7 @@ export default function TreeView() {
                               highlighted={highlightId === person.id}
                               onPath={pathIdSet.has(person.id)}
                               isRoot={rootPersonId === person.id}
+                              isOwner={myRole === "owner"}
                               isSelected={selectedId === person.id}
                               onSelect={handleSelectPerson}
                             />
@@ -2568,7 +2570,7 @@ export default function TreeView() {
               </div>
               <div className="flex-1 min-w-0">
                 <h3 className="text-base font-serif font-bold text-[#1C1F1D]">
-                  Set {confirmSetMePerson.name} as "Me"?
+                  Set {confirmSetMePerson.name} as {myRole === "owner" ? '"Me" (Tree Starter)' : 'Tree Starter'}?
                 </h3>
                 <p className="text-xs text-[#6B7280] mt-0.5">
                   Confirm change of the tree's starting person
@@ -2577,8 +2579,8 @@ export default function TreeView() {
             </div>
 
             <p className="text-sm text-[#374151] mb-6 leading-relaxed">
-              Are you sure you want to set <strong className="font-semibold text-[#1C1F1D]">{confirmSetMePerson.name}</strong> as <strong>"Me"</strong>? 
-              The family tree will re-orient around them, with relationship paths and generational levels calculated from their perspective.
+              Are you sure you want to set <strong className="font-semibold text-[#1C1F1D]">{confirmSetMePerson.name}</strong> as the {myRole === "owner" ? '<strong>"Me"</strong> tree starter' : '<strong>Tree Starter</strong>'}? 
+              The family tree will re-orient around them for all members and collaborators, with relationship paths and generational levels calculated from their perspective.
             </p>
 
             <div className="flex items-center justify-end gap-2.5">

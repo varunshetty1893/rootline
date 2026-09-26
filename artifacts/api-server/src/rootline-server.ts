@@ -1721,6 +1721,7 @@ export async function createExpressApp() {
           id: fam.id,
           name: fam.name,
           owner_id: fam.owner_id,
+          root_person_id: fam.root_person_id || null,
           role: "owner" as const,
           created_at: fam.created_at,
           people_count: count,
@@ -1739,6 +1740,7 @@ export async function createExpressApp() {
             owner_id: s.family.owner_id,
             owner_name: s.owner?.name || "Owner",
             owner_email: s.owner?.email || "",
+            root_person_id: s.family.root_person_id || null,
             role: s.role,
             created_at: s.family.created_at,
             people_count: count,
@@ -1803,9 +1805,15 @@ export async function createExpressApp() {
         return res.status(404).json({ detail: "Family tree not found." });
       }
 
-      // Check if user already exists
+      // Check if user is already an accepted collaborator on this family tree
       const existingUser = store.findUserByEmail(email.trim().toLowerCase());
-      if (existingUser) {
+      const existingShare = existingUser
+        ? Array.from(store.treeShares.values()).find(
+            (s) => s.family_id === familyId && (s.user_id === existingUser.id || s.user_id === existingUser.email.toLowerCase())
+          )
+        : null;
+
+      if (existingShare) {
         const result = await store.createOrUpdateTreeShare({
           ownerId: req.user!.id,
           familyId,
@@ -1813,39 +1821,14 @@ export async function createExpressApp() {
           permission,
         });
 
-        // Also create/update an invitation record so history and notifications track "who sent whom"
-        const inviteResult = await store.createFamilyInvitation({
-          ownerId: req.user!.id,
-          familyId,
-          inviteeEmail: email.trim().toLowerCase(),
-          permission,
-          message: messageStr,
-        });
-
-        // Attempt sending email notification
-        const emailResult = await sendFamilyInvitationEmail({
-          toEmail: email.trim().toLowerCase(),
-          inviterName: req.user!.name,
-          inviterEmail: req.user!.email,
-          familyName: family.name,
-          invitationToken: inviteResult.invitation.token,
-          message: messageStr,
-          permission,
-          req,
-        });
-
-        return res.status(201).json({
-          message: `Successfully shared tree with ${result.recipient.name} as ${result.share.permission}.`,
+        return res.status(200).json({
+          message: `Successfully updated ${result.recipient.name}'s permission to ${result.share.permission}.`,
           share: result.share,
           recipient: result.recipient,
-          invitation: inviteResult.invitation,
-          inviteUrl: emailResult.inviteUrl,
-          emailDelivered: emailResult.success,
-          deliveryNote: emailResult.error || null,
         });
       }
 
-      // Recipient does not have an account yet: create invitation and send email!
+      // Recipient is not yet an active collaborator: create invitation so B must accept it before tree appears
       const inviteResult = await store.createFamilyInvitation({
         ownerId: req.user!.id,
         familyId,
@@ -1939,7 +1922,7 @@ export async function createExpressApp() {
   app.post("/api/families/:id/invitations", requireAuth, handleSendInvitation);
   app.post("/families/:id/invitations", requireAuth, handleSendInvitation);
 
-  const handleGetInvitations = (req: AuthRequest, res: any) => {
+  const handleGetInvitations = async (req: AuthRequest, res: any) => {
     try {
       const rawFamilyId = req.params.id;
       const familyId = Array.isArray(rawFamilyId) ? rawFamilyId[0] : rawFamilyId;
@@ -1949,7 +1932,7 @@ export async function createExpressApp() {
         return res.status(403).json({ detail: "Access denied to this family tree." });
       }
 
-      const invitations = store.getFamilyInvitations(req.user!.id, familyId);
+      const invitations = await store.getFamilyInvitations(req.user!.id, familyId);
       return res.json({ invitations });
     } catch (err: any) {
       return res.status(500).json({ detail: err.message || "Failed to load invitations." });
@@ -2160,22 +2143,50 @@ export async function createExpressApp() {
     try {
       const rawFamilyId = req.params.id;
       const familyId = Array.isArray(rawFamilyId) ? rawFamilyId[0] : rawFamilyId;
-      const { name } = isRecord(req.body) ? req.body : {};
-      if (!name || typeof name !== "string" || !name.trim()) {
-        return res.status(400).json({ detail: "Tree name is required." });
+      const { name, root_person_id } = isRecord(req.body) ? req.body : {};
+      let updated: Family | null = null;
+      if (name && typeof name === "string" && name.trim()) {
+        if (name.trim().length > 100) {
+          return res.status(400).json({ detail: "Tree name cannot exceed 100 characters." });
+        }
+        updated = store.renameFamily(req.user!.id, familyId, name.trim());
       }
-      if (name.trim().length > 100) {
-        return res.status(400).json({ detail: "Tree name cannot exceed 100 characters." });
+      if (root_person_id !== undefined) {
+        updated = store.setRootPerson(req.user!.id, familyId, root_person_id);
       }
-      const updated = store.renameFamily(req.user!.id, familyId, name.trim());
+      if (!updated) {
+        return res.status(400).json({ detail: "No valid update parameters provided." });
+      }
       return res.json(updated);
     } catch (err: any) {
-      const status = err.message.includes("owner") ? 403 : err.message.includes("not found") ? 404 : 400;
+      const status = err.message.includes("owner") || err.message.includes("editors") ? 403 : err.message.includes("not found") ? 404 : 400;
       return res.status(status).json({ detail: err.message || "Failed to update family tree." });
     }
   };
   app.patch("/api/families/:id", requireAuth, handleUpdateFamily);
   app.patch("/families/:id", requireAuth, handleUpdateFamily);
+
+  const handleSetRootPerson = (req: AuthRequest, res: any) => {
+    try {
+      const rawFamilyId = req.params.id;
+      const familyId = Array.isArray(rawFamilyId) ? rawFamilyId[0] : rawFamilyId;
+      const rootPersonId = req.body?.root_person_id || req.body?.rootPersonId || null;
+      const updated = store.setRootPerson(req.user!.id, familyId, rootPersonId);
+      return res.json({
+        success: true,
+        family: updated,
+        root_person_id: updated.root_person_id || null,
+        message: "Tree Starter updated successfully.",
+      });
+    } catch (err: any) {
+      const status = err.message.includes("owner") || err.message.includes("editors") ? 403 : err.message.includes("not found") ? 404 : 400;
+      return res.status(status).json({ detail: err.message || "Failed to update Tree Starter." });
+    }
+  };
+  app.post("/api/families/:id/root-person", requireAuth, handleSetRootPerson);
+  app.post("/families/:id/root-person", requireAuth, handleSetRootPerson);
+  app.patch("/api/families/:id/root-person", requireAuth, handleSetRootPerson);
+  app.patch("/families/:id/root-person", requireAuth, handleSetRootPerson);
 
   const handleDeleteFamily = async (req: AuthRequest, res: any) => {
     try {
@@ -2263,6 +2274,11 @@ export async function createExpressApp() {
       }
       if (access.role === "viewer") {
         return res.status(403).json({ detail: "Viewers have read-only access and cannot save modifications to this tree." });
+      }
+
+      const rootPersonId = req.body?.root_person_id || req.body?.rootPersonId;
+      if (rootPersonId !== undefined) {
+        store.setRootPerson(req.user!.id, familyId, rootPersonId);
       }
 
       const description = req.body?.description || `${req.user!.name} saved the family tree`;

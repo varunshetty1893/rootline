@@ -179,10 +179,20 @@ export const api = {
     const query = new URLSearchParams({ family_id: treeId || "", ...params });
     return request(`/api/family/history?${query}`);
   },
-  saveTree: (treeId, description) =>
+  setRootPerson: (treeId, personId) =>
+    request(`/families/${treeId}/root-person`, {
+      method: "POST",
+      body: { root_person_id: personId },
+    }),
+  saveTree: (treeId, description, rootPersonId) =>
     request("/api/family/save", {
       method: "POST",
-      body: { family_id: treeId || undefined, tree_id: treeId || undefined, description },
+      body: {
+        family_id: treeId || undefined,
+        tree_id: treeId || undefined,
+        description,
+        root_person_id: rootPersonId !== undefined ? rootPersonId : undefined,
+      },
     }),
   getTreeRevisions: (treeId) =>
     request(`/api/family/revisions?family_id=${encodeURIComponent(treeId || "")}&tree_id=${encodeURIComponent(treeId || "")}`),

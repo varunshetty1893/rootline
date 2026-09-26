@@ -37,6 +37,7 @@ import {
   dbDeleteInvitation,
   dbUpdateInvitationStatus,
   dbGetPendingInvitationsForEmail,
+  dbGetInvitationsForFamily,
 } from "./db.js";
 import { logger } from "./logger.js";
 
@@ -152,6 +153,7 @@ export interface Family {
   owner_id: string;
   name: string;
   created_at: string;
+  root_person_id?: string | null;
 }
 
 export interface FamilyMember {
@@ -2063,6 +2065,18 @@ export class MemoryStore {
         const fam = this.families.get(s.family_id);
         // Strictly avoid manufacturing dummy families with owner_id = "owner"
         if (fam && fam.owner_id !== userId && fam.id !== userId && !ownedFamilyIds.has(fam.id)) {
+          // Check if there is an unaccepted/pending invitation for this user and family
+          const hasPendingInvite = Array.from(this.familyInvitations.values()).some(
+            (inv) =>
+              (inv.family_id === fam.id || inv.family_id === s.family_id) &&
+              inv.status === "pending" &&
+              (inv.accepted_by_user_id === userId ||
+                (normalizedUserEmail && inv.invitee_email && inv.invitee_email.toLowerCase().trim() === normalizedUserEmail))
+          );
+          if (hasPendingInvite) {
+            continue; // User has not accepted this invitation yet! Do not show in shared trees!
+          }
+
           const ownerUser = this.users.get(s.owner_id) || this.users.get(fam.owner_id);
           if (!shared.some((sh) => sh.family?.id === fam.id)) {
             shared.push({
@@ -2314,6 +2328,45 @@ export class MemoryStore {
       target_id: family.id,
       target_name: family.name,
       description: `Renamed family tree to "${family.name}"`,
+    });
+
+    return family;
+  }
+
+  setRootPerson(userId: string, familyId: string, rootPersonId: string | null): Family {
+    const access = this.checkFamilyAccess(userId, familyId);
+    if (!access) throw new Error("Family tree not found or access denied.");
+    if (access.role === "viewer") {
+      throw new Error("Only the tree owner or editors can update the Tree Starter.");
+    }
+
+    const family = access.family;
+    let targetPersonName = "None";
+    if (rootPersonId) {
+      const person = this.people.get(rootPersonId);
+      if (!person || person.owner_id !== family.id) {
+        throw new Error("The selected person does not belong to this family tree.");
+      }
+      targetPersonName = person.name;
+    }
+
+    family.root_person_id = rootPersonId || null;
+    this.families.set(family.id, family);
+    this.scheduleDiskSave();
+    dbSaveFamily(family).catch((e) => logger.error("dbSaveFamily error:", e));
+
+    const user = this.users.get(userId);
+    this.logActivity({
+      family_id: family.id,
+      actor_id: userId,
+      actor_name: user?.name || "User",
+      action: "FAMILY_UPDATED",
+      target_type: "family",
+      target_id: family.id,
+      target_name: family.name,
+      description: rootPersonId 
+        ? `Set "${targetPersonName}" as the Tree Starter`
+        : `Cleared the Tree Starter`,
     });
 
     return family;
@@ -3314,18 +3367,32 @@ export class MemoryStore {
     return { success: true, invitation };
   }
 
-  getFamilyInvitations(userId: string, familyId: string): FamilyInvitation[] {
+  async getFamilyInvitations(userId: string, familyId: string): Promise<FamilyInvitation[]> {
     const access = this.checkFamilyAccess(userId, familyId);
-    if (!access || access.role !== "owner") {
+    if (!access) {
       return [];
+    }
+
+    const family = access.family;
+    if (isDatabaseConnected()) {
+      try {
+        const dbInvites = await dbGetInvitationsForFamily(family.id, familyId);
+        if (dbInvites && dbInvites.length > 0) {
+          for (const inv of dbInvites) {
+            this.familyInvitations.set(inv.id, inv);
+          }
+        }
+      } catch (err) {
+        logger.error("dbGetInvitationsForFamily error:", err);
+      }
     }
 
     const now = new Date();
     const mapByEmail = new Map<string, FamilyInvitation>();
 
-    // Scan invitations for this family
+    // Scan invitations for this family (match family.id or familyId)
     const allForFamily = Array.from(this.familyInvitations.values()).filter(
-      (inv) => inv.family_id === familyId
+      (inv) => inv.family_id === family.id || inv.family_id === familyId
     );
 
     // Sort newest first
@@ -3339,7 +3406,7 @@ export class MemoryStore {
 
       const emailKey = inv.invitee_email && typeof inv.invitee_email === "string" ? inv.invitee_email.toLowerCase().trim() : "";
       if (!emailKey) continue;
-      // Keep highest priority invitation per email: pending > accepted > declined/expired/cancelled
+      // Keep highest priority invitation per email: pending > accepted > left > declined/expired/cancelled
       const existing = mapByEmail.get(emailKey);
       if (!existing) {
         mapByEmail.set(emailKey, inv);

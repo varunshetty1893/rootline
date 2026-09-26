@@ -215,7 +215,8 @@ async function initSchema(client: pg.PoolClient) {
       id VARCHAR(64) PRIMARY KEY,
       owner_id VARCHAR(64) NOT NULL,
       name TEXT NOT NULL,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      root_person_id VARCHAR(64)
     );
 
     CREATE TABLE IF NOT EXISTS family_members (
@@ -350,6 +351,7 @@ async function initSchema(client: pg.PoolClient) {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS address TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT;
+    ALTER TABLE families ADD COLUMN IF NOT EXISTS root_person_id VARCHAR(64);
     ALTER TABLE family_members ALTER COLUMN id TYPE VARCHAR(255);
     ALTER TABLE family_invitations ALTER COLUMN id TYPE VARCHAR(255);
   `);
@@ -679,10 +681,12 @@ export async function dbSaveFamily(family: Family): Promise<void> {
   if (!pool || !isPostgresActive) return;
   try {
     await executeQuery(
-      `INSERT INTO families (id, owner_id, name, created_at)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name`,
-      [family.id, family.owner_id, family.name, family.created_at]
+      `INSERT INTO families (id, owner_id, name, created_at, root_person_id)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (id) DO UPDATE SET 
+         name = EXCLUDED.name,
+         root_person_id = EXCLUDED.root_person_id`,
+      [family.id, family.owner_id, family.name, family.created_at, family.root_person_id || null]
     );
   } catch (err) {
     logger.error("dbSaveFamily error:", err);
@@ -1136,6 +1140,31 @@ export async function dbGetPendingInvitationsForEmail(
     return res.rows;
   } catch (err) {
     logger.error("dbGetPendingInvitationsForEmail error:", err);
+    return [];
+  }
+}
+
+export async function dbGetInvitationsForFamily(
+  familyId: string,
+  alternateFamilyId?: string
+): Promise<FamilyInvitation[]> {
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+  if (!databaseUrl || !pool || !isPostgresActive) return [];
+
+  try {
+    let query: string;
+    let params: any[];
+    if (alternateFamilyId && alternateFamilyId !== familyId) {
+      query = `SELECT * FROM family_invitations WHERE family_id = $1 OR family_id = $2 ORDER BY created_at DESC`;
+      params = [familyId, alternateFamilyId];
+    } else {
+      query = `SELECT * FROM family_invitations WHERE family_id = $1 ORDER BY created_at DESC`;
+      params = [familyId];
+    }
+    const res = await executeQuery<FamilyInvitation>(query, params);
+    return res.rows;
+  } catch (err) {
+    logger.error("dbGetInvitationsForFamily error:", err);
     return [];
   }
 }

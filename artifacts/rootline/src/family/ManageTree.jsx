@@ -85,9 +85,9 @@ export default function ManageTree({ defaultTab = "people" }) {
     refreshTreeList();
   }, [refreshTreeList]);
 
-  // Current tab: "people" | "settings" | "sharing" | "all-trees"
+  // Current tab: "people" | "sharing" | "all-trees"
   const tabParam = searchParams.get("tab");
-  const activeTab = tabParam || defaultTab;
+  const activeTab = tabParam === "settings" ? "people" : (tabParam || defaultTab);
 
   const setActiveTab = (tab) => {
     setSearchParams((prev) => {
@@ -777,19 +777,6 @@ export default function ManageTree({ defaultTab = "people" }) {
                 </span>
               </button>
 
-              <button
-                type="button"
-                onClick={() => setActiveTab("settings")}
-                className={`flex items-center gap-2 px-4 py-3 text-xs sm:text-sm font-semibold border-b-2 transition-all whitespace-nowrap -mb-[1px] ${
-                  activeTab === "settings"
-                    ? "border-[#1C4B3C] text-[#1C4B3C]"
-                    : "border-transparent text-[#6B7280] hover:text-[#1C1F1D]"
-                }`}
-              >
-                <Settings className="w-4 h-4" />
-                <span>Tree Settings & &quot;Me&quot;</span>
-              </button>
-
               {canManage && (
                 <button
                   type="button"
@@ -1071,192 +1058,7 @@ export default function ManageTree({ defaultTab = "people" }) {
         )}
 
         {/* ──────────────────────────────────────────────────────────────────── */}
-        {/* TAB 2: TREE SETTINGS & "ME" PERSPECTIVE (ATTACHED SEAMLESSLY)        */}
-        {/* ──────────────────────────────────────────────────────────────────── */}
-        {activeTab === "settings" && (
-          <div className="divide-y divide-[#E7E2D6]">
-            {/* Rename Form */}
-            {canManage ? (
-              <div className="p-5 sm:p-6">
-                <h3 className="text-base font-serif font-bold text-[#1C1F1D] mb-1">
-                  Family Tree Name
-                </h3>
-                <p className="text-xs text-[#6B7280] mb-4">
-                  Update the official title displayed across the app, tree export, and shared invitations.
-                </p>
-
-                <form onSubmit={handleSaveTreeName} className="max-w-md space-y-3">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={treeNameInput}
-                      onChange={(e) => setTreeNameInput(e.target.value)}
-                      placeholder="e.g. Vance Family Tree"
-                      maxLength={100}
-                      className="flex-1 rounded-xl border border-[#D9D3C3] px-3.5 py-2 text-sm text-[#1C1F1D] focus:outline-none focus:ring-2 focus:ring-[#1C4B3C]/30 focus:border-[#1C4B3C]"
-                    />
-                    <button
-                      type="submit"
-                      disabled={savingTreeName || !treeNameInput.trim()}
-                      className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-[#1C4B3C] hover:bg-[#163C30] disabled:opacity-50 transition-colors shadow-2xs shrink-0"
-                    >
-                      {savingTreeName ? "Saving…" : "Save Name"}
-                    </button>
-                  </div>
-
-                  {treeNameSuccess && (
-                    <p className="text-xs text-emerald-700 font-medium">{treeNameSuccess}</p>
-                  )}
-                  {treeNameError && (
-                    <p className="text-xs text-rose-700 font-medium">{treeNameError}</p>
-                  )}
-                </form>
-              </div>
-            ) : (
-              <div className="p-5 sm:p-6">
-                <h3 className="text-base font-serif font-bold text-[#1C1F1D] mb-1">
-                  Family Tree Name
-                </h3>
-                <p className="text-sm font-semibold text-[#1C1F1D] mt-2">
-                  {activeTree?.name}
-                </p>
-                <p className="text-xs text-[#6B7280] mt-1">
-                  Only the tree owner can rename this tree.
-                </p>
-              </div>
-            )}
-
-            {/* Starting Person ("Me") Configuration */}
-            <div className="p-5 sm:p-6">
-              <div className="flex items-start justify-between gap-4 mb-4">
-                <div>
-                  <h3 className="text-base font-serif font-bold text-[#1C1F1D]">
-                    Starting Person (&quot;Me&quot;) Perspective
-                  </h3>
-                  <p className="text-xs text-[#6B7280] mt-0.5">
-                    Rootline calculates all relationships (&quot;your grandmother&quot;, &quot;your second cousin&quot;) and generational heights relative to this person.
-                  </p>
-                </div>
-                {rootPerson && (
-                  <span className="shrink-0 px-2.5 py-1 rounded-lg text-xs font-bold bg-[#E7F1EB] text-[#1C4B3C] border border-teal-200">
-                    Current: {rootPerson.name}
-                  </span>
-                )}
-              </div>
-
-              <div className="max-w-md space-y-3">
-                <div className="relative">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#9CA3AF]" />
-                  <input
-                    type="text"
-                    value={rootPersonSearch}
-                    onChange={(e) => setRootPersonSearch(e.target.value)}
-                    placeholder="Search relative to set as starting person…"
-                    className="w-full rounded-xl border border-[#D9D3C3] py-2 pl-9 pr-3 text-xs text-[#1C1F1D] outline-none focus:border-[#1C4B3C]"
-                  />
-                </div>
-
-                <div className="border border-[#E7E2D6] rounded-xl divide-y divide-[#E7E2D6] max-h-48 overflow-y-auto bg-[#FAF8F4]/30">
-                  {rootCandidates.map((candidate) => {
-                    const isCandidateRoot = candidate.id === rootPersonId;
-                    return (
-                      <div
-                        key={candidate.id}
-                        className="px-3.5 py-2 flex items-center justify-between text-xs hover:bg-white transition-colors"
-                      >
-                        <span className="font-medium text-[#1C1F1D] truncate">
-                          {candidate.name}
-                        </span>
-                        {isCandidateRoot ? (
-                          <span className="text-[10px] font-bold text-[#1C4B3C] bg-[#E7F1EB] px-2 py-0.5 rounded">
-                            Active Starter
-                          </span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => setConfirmSetMePerson(candidate)}
-                            className="text-[11px] font-semibold text-[#1C4B3C] hover:underline"
-                          >
-                            Set as Starter
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-
-            {/* Tree Statistics */}
-            <div className="p-5 sm:p-6">
-              <h3 className="text-base font-serif font-bold text-[#1C1F1D] mb-1">
-                Generational & Demographic Statistics
-              </h3>
-              <p className="text-xs text-[#6B7280] mb-4">
-                Overview of family links and records recorded in {activeTree?.name}.
-              </p>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="p-3.5 rounded-xl bg-[#FAF8F4] border border-[#E7E2D6]">
-                  <p className="text-xs text-[#6B7280]">Total Relatives</p>
-                  <p className="text-xl font-bold text-[#1C1F1D] mt-1">{stats.total}</p>
-                </div>
-                <div className="p-3.5 rounded-xl bg-[#FAF8F4] border border-[#E7E2D6]">
-                  <p className="text-xs text-[#6B7280]">Couples / Unions</p>
-                  <p className="text-xl font-bold text-[#1C1F1D] mt-1">{stats.couplesCount}</p>
-                </div>
-                <div className="p-3.5 rounded-xl bg-[#FAF8F4] border border-[#E7E2D6]">
-                  <p className="text-xs text-[#6B7280]">Living Relatives</p>
-                  <p className="text-xl font-bold text-emerald-800 mt-1">{stats.livingCount}</p>
-                </div>
-                <div className="p-3.5 rounded-xl bg-[#FAF8F4] border border-[#E7E2D6]">
-                  <p className="text-xs text-[#6B7280]">Passed Ancestors</p>
-                  <p className="text-xl font-bold text-[#4B5563] mt-1">{stats.deceasedCount}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Danger Zone */}
-            <div className="p-5 sm:p-6 bg-rose-50/20">
-              <h3 className="text-base font-serif font-bold text-rose-900 mb-1">
-                Danger Zone
-              </h3>
-              {canManage ? (
-                <div>
-                  <p className="text-xs text-rose-700 mb-4">
-                    Deleting this family tree will permanently remove all {people.length} member records, relationship links, and shared collaborator permissions. This cannot be undone.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDeleteModalTree(activeTree);
-                      setDeleteError("");
-                    }}
-                    className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 transition-colors shadow-2xs"
-                  >
-                    Permanently Delete Tree
-                  </button>
-                </div>
-              ) : (
-                <div>
-                  <p className="text-xs text-rose-700 mb-4">
-                    Leave this shared tree. You will lose access to its branches until the owner invites you again.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setLeaveModalTree(activeTree)}
-                    className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 transition-colors shadow-2xs"
-                  >
-                    Leave Shared Tree
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ──────────────────────────────────────────────────────────────────── */}
-        {/* TAB 3: COLLABORATORS & SHARING (ATTACHED SEAMLESSLY)                  */}
+        {/* TAB 2: COLLABORATORS & SHARING (ATTACHED SEAMLESSLY)                  */}
         {/* ──────────────────────────────────────────────────────────────────── */}
         {activeTab === "sharing" && (
           !canManage ? (

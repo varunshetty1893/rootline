@@ -152,18 +152,31 @@ export default function SharedTrees() {
     });
   }, [treeList, user?.id]);
 
+  // Preferred owned tree for the "Collaborators & Tracking" tab
+  const preferredOwnedTreeId = useMemo(() => {
+    const urlTreeId = searchParams.get("treeId");
+    if (urlTreeId && ownedTrees.some((t) => t.id === urlTreeId)) return urlTreeId;
+    if (activeTreeId && ownedTrees.some((t) => t.id === activeTreeId)) return activeTreeId;
+    return ownedTrees[0]?.id || "";
+  }, [searchParams, ownedTrees, activeTreeId]);
+
   // Selected tree for the "Collaborators & Tracking" tab
-  const [selectedTreeId, setSelectedTreeId] = useState(
-    searchParams.get("treeId") || activeTreeId || ownedTrees[0]?.id || ""
-  );
+  const [selectedTreeId, setSelectedTreeId] = useState(preferredOwnedTreeId);
 
   // Sync selected tree if search param or ownedTrees change
   useEffect(() => {
+    if (ownedTrees.length === 0) {
+      if (selectedTreeId) setSelectedTreeId("");
+      return;
+    }
     const urlTreeId = searchParams.get("treeId");
     if (urlTreeId && ownedTrees.some((t) => t.id === urlTreeId)) {
-      setSelectedTreeId(urlTreeId);
-    } else if (!selectedTreeId && ownedTrees.length > 0) {
-      setSelectedTreeId(activeTreeId || ownedTrees[0].id);
+      if (selectedTreeId !== urlTreeId) setSelectedTreeId(urlTreeId);
+    } else if (!selectedTreeId || !ownedTrees.some((t) => t.id === selectedTreeId)) {
+      const fallback = ownedTrees.find((t) => t.id === activeTreeId) || ownedTrees[0];
+      if (fallback && selectedTreeId !== fallback.id) {
+        setSelectedTreeId(fallback.id);
+      }
     }
   }, [searchParams, ownedTrees, activeTreeId, selectedTreeId]);
 
@@ -862,7 +875,13 @@ export default function SharedTrees() {
         ══════════════════════════════════════════════════════════════════ */}
         {activeTab === "shared" && (
           <div>
-            {sharedTrees.length === 0 ? (
+            {treesLoading && sharedTrees.length === 0 ? (
+              <div className="bg-white border border-[#E7E2D6] rounded-2xl p-12 text-center max-w-md mx-auto shadow-2xs">
+                <Loader2 className="w-8 h-8 text-[#1C4B3C] animate-spin mx-auto mb-3" />
+                <h3 className="text-sm font-semibold text-[#1C1F1D]">Loading shared trees...</h3>
+                <p className="text-xs text-[#6B7280] mt-1">Retrieving family trees shared with your account</p>
+              </div>
+            ) : sharedTrees.length === 0 ? (
               <div className="bg-white border border-[#E7E2D6] rounded-2xl p-8 sm:p-12 text-center max-w-2xl mx-auto shadow-sm">
                 <div className="w-14 h-14 rounded-2xl bg-[#1C4B3C]/10 text-[#1C4B3C] flex items-center justify-center mx-auto mb-4">
                   <Users className="w-7 h-7" />
