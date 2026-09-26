@@ -1385,6 +1385,10 @@ export async function createExpressApp() {
 
       const fullPhotos = req.query.include_photos === "full";
       const people = store.getPeopleForOwner(familyId, { fullPhoto: fullPhotos });
+      if (access.family?.root_person_id) {
+        res.setHeader("X-Root-Person-Id", access.family.root_person_id);
+        res.setHeader("Access-Control-Expose-Headers", "X-Root-Person-Id");
+      }
       return res.json(people);
     } catch (err: any) {
       return res.status(500).json({ detail: err.message || "Failed to list people" });

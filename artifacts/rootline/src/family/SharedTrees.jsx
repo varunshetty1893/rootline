@@ -112,6 +112,7 @@ export default function SharedTrees() {
     renameTree,
     deleteTree,
     leaveSharedTree,
+    guardNavigation,
   } = useFamily();
 
   // Active tab: 'shared' | 'collaborators' | 'owned'
@@ -459,8 +460,15 @@ export default function SharedTrees() {
   };
 
   const handleOpenTree = (treeId, destination = "/tree") => {
-    setActiveTreeId(treeId);
-    navigate(destination);
+    if (typeof guardNavigation === "function") {
+      guardNavigation(() => {
+        setActiveTreeId(treeId);
+        navigate(destination);
+      });
+    } else {
+      setActiveTreeId(treeId);
+      navigate(destination);
+    }
   };
 
   const handleCreateTreeSubmit = async (e) => {

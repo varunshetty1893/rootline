@@ -698,7 +698,10 @@ export default function AppHeader() {
         <div className="md:hidden border-b border-[#E7E2D6] bg-[#F7F5F0] px-4 sm:px-6 py-3 flex flex-col gap-1.5 shadow-sm animate-in slide-in-from-top duration-200">
           <NavLink
             to="/dashboard"
-            onClick={() => setMobileNavOpen(false)}
+            onClick={(e) => {
+              setMobileNavOpen(false);
+              handleNavClick(e, "/dashboard");
+            }}
             className={({ isActive }) =>
               `px-3.5 py-2 rounded-xl text-sm font-medium transition-colors ${
                 isActive
@@ -712,7 +715,10 @@ export default function AppHeader() {
           </NavLink>
           <NavLink
             to="/tree"
-            onClick={() => setMobileNavOpen(false)}
+            onClick={(e) => {
+              setMobileNavOpen(false);
+              handleNavClick(e, "/tree");
+            }}
             className={({ isActive }) =>
               `px-3.5 py-2 rounded-xl text-sm font-medium transition-colors ${
                 isActive
@@ -725,7 +731,10 @@ export default function AppHeader() {
           </NavLink>
           <NavLink
             to="/manage-tree"
-            onClick={() => setMobileNavOpen(false)}
+            onClick={(e) => {
+              setMobileNavOpen(false);
+              handleNavClick(e, "/manage-tree");
+            }}
             className={({ isActive }) =>
               `px-3.5 py-2 rounded-xl text-sm font-medium transition-colors ${
                 isActive
@@ -738,7 +747,10 @@ export default function AppHeader() {
           </NavLink>
           <NavLink
             to="/shared-trees"
-            onClick={() => setMobileNavOpen(false)}
+            onClick={(e) => {
+              setMobileNavOpen(false);
+              handleNavClick(e, "/shared-trees");
+            }}
             className={({ isActive }) =>
               `px-3.5 py-2 rounded-xl text-sm font-medium transition-colors flex items-center justify-between ${
                 isActive

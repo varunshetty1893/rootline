@@ -201,6 +201,9 @@ export function FamilyProvider({ children }) {
   // ── MS Word-style Unsaved Changes Prompt State ──────────────────────────
   const [unsavedModalOpen, setUnsavedModalOpen] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   // ── Tree state ──────────────────────────────────────────────────────────
   /** { owned_trees: TreeOut[], shared_trees: TreeOut[] } */
@@ -300,35 +303,11 @@ export function FamilyProvider({ children }) {
   const setActiveTreeId = useCallback(
     (treeId) => {
       setActiveTreeIdState((prevId) => {
-        if (prevId === treeId) return prevId;
-        // When tree changes, immediately mark as loading so previous tree's nodes are never flashed
+        // When tree changes or is switched, immediately mark as loading and reset people
+        // so previous tree's nodes are NEVER flashed for a few seconds
         setLoaded(false);
-        if (user?.id) {
-          const targetTreeId = treeId || undefined;
-          const cached = localStorage.getItem(peopleStorageKey(user.id, targetTreeId));
-          if (cached) {
-            try {
-              const parsed = JSON.parse(cached);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                setPeople(parsed);
-                setLoadedTreeId(targetTreeId || "default");
-                setLoaded(true);
-              } else {
-                setPeople([]);
-                setLoadedTreeId(null);
-              }
-            } catch (_) {
-              setPeople([]);
-              setLoadedTreeId(null);
-            }
-          } else {
-            setPeople([]);
-            setLoadedTreeId(null);
-          }
-        } else {
-          setPeople([]);
-          setLoadedTreeId(null);
-        }
+        setPeople([]);
+        setLoadedTreeId(null);
         return treeId;
       });
 
@@ -478,6 +457,8 @@ export function FamilyProvider({ children }) {
     if (!user?.id) return;
 
     const syncLatest = () => {
+      // Do NOT overwrite user's work with background polling if there are unsaved changes
+      if (hasUnsavedChanges) return;
       if (typeof document !== "undefined" && document.visibilityState === "visible") {
         refresh(true);
         refreshTreeList();
@@ -493,12 +474,12 @@ export function FamilyProvider({ children }) {
       window.removeEventListener("focus", syncLatest);
       window.removeEventListener("visibilitychange", syncLatest);
     };
-  }, [user?.id, refresh, refreshTreeList]);
+  }, [user?.id, refresh, refreshTreeList, hasUnsavedChanges]);
 
   // Load the saved root person for this account and tree once loaded.
   // Restore active tree root person:
-  // 1. Canonical server-persisted tree root_person_id
-  // 2. Fuzzy match owner or tree name (e.g. "Pachu" / "Pachu's Family" matches person "pachhu")
+  // 1. Canonical server-persisted tree root_person_id (Highest priority — single source of truth for the tree!)
+  // 2. Person matching current logged-in user (so if Pachhu is logged in, she is recognized as herself)
   // 3. Saved localStorage
   // 4. Default to first person
   useEffect(() => {
@@ -518,21 +499,16 @@ export function FamilyProvider({ children }) {
       return;
     }
 
-    // 2. Fuzzy match owner or tree name
-    const ownerOrUserName = (activeTree?.owner_name || (myRole === "owner" ? user?.name : "") || activeTree?.name || "").trim();
-    if (ownerOrUserName && people.length > 0) {
+    // 2. Person matching the current logged-in user
+    if (user?.name && people.length > 0) {
       const normalize = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").replace(/h/g, "");
-      const normOwner = normalize(ownerOrUserName);
-      const match = people.find((p) => {
+      const normUserName = normalize(user.name);
+      const matchUser = people.find((p) => {
         const normP = normalize(p?.name);
-        return normP && (normP === normOwner || normOwner.includes(normP) || normP.includes(normOwner));
+        return normP && (normP === normUserName || normUserName.includes(normP) || normP.includes(normUserName));
       });
-      if (match) {
-        setRootPersonIdState(match.id);
-        const effectiveTreeId = activeTreeId || activeTree?.id;
-        if (effectiveTreeId && (myRole === "owner" || myRole === "editor") && !serverRoot) {
-          api.setRootPerson(effectiveTreeId, match.id).catch(() => {});
-        }
+      if (matchUser) {
+        setRootPersonIdState(matchUser.id);
         return;
       }
     }
@@ -548,7 +524,7 @@ export function FamilyProvider({ children }) {
     if (people.length > 0) {
       setRootPersonIdState(people[0].id);
     }
-  }, [user?.id, user?.name, activeTreeId, activeTree?.id, activeTree?.root_person_id, activeTree?.owner_name, activeTree?.name, myRole, people]);
+  }, [user?.id, user?.name, activeTreeId, activeTree?.id, activeTree?.root_person_id, people]);
 
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
@@ -694,10 +670,6 @@ export function FamilyProvider({ children }) {
   }, [people]);
 
   const getPerson = useCallback((id) => peopleById.get(id) || null, [peopleById]);
-
-  const [isSaving, setIsSaving] = useState(false);
-  const [lastSavedAt, setLastSavedAt] = useState(null);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   const addPerson = useCallback(
     async (details, relation) => {
@@ -1059,6 +1031,7 @@ export function FamilyProvider({ children }) {
       if (createdPerson?.id) {
         setRootPersonId(createdPerson.id);
       }
+      setHasUnsavedChanges(true);
 
       await refreshTreeList();
       await refresh();
@@ -1163,6 +1136,9 @@ export function FamilyProvider({ children }) {
     (target) => {
       // If user has unsaved changes and is currently on the tree page
       if (hasUnsavedChanges && location.pathname === "/tree") {
+        if (typeof target === "string" && target === "/tree") {
+          return true; // Already on tree page
+        }
         setPendingNavigation(typeof target === "string" ? { path: target } : { action: target });
         setUnsavedModalOpen(true);
         return false;
@@ -1226,8 +1202,21 @@ export function FamilyProvider({ children }) {
     };
 
     window.addEventListener("beforeunload", handleBeforeUnload);
+
+    // Guard browser back/forward buttons
+    window.history.pushState({ guarded: true }, "", window.location.href);
+    const handlePopState = () => {
+      if (hasUnsavedChanges && location.pathname === "/tree") {
+        window.history.pushState({ guarded: true }, "", window.location.href);
+        setPendingNavigation({ action: () => window.history.back() });
+        setUnsavedModalOpen(true);
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
+      window.removeEventListener("popstate", handlePopState);
     };
   }, [hasUnsavedChanges, location.pathname]);
 

@@ -4329,6 +4329,18 @@ export class MemoryStore {
 
       spouse("kavitha", "prashanth", "Kavitha Shetty", { gender: "female", bio: "Sister-in-law" });
       child("aarav", "prashanth", "Aarav Shetty", { gender: "male", bio: "Nephew" });
+      if (reg["pachhu"]) {
+        pachhuFamily.root_person_id = reg["pachhu"];
+      }
+    }
+
+    if (!pachhuFamily.root_person_id) {
+      const pachhuPerson = Array.from(this.people.values()).find(
+        (p) => p.owner_id === pachhuFamily!.id && (p.name || "").toLowerCase().includes("pachhu")
+      );
+      if (pachhuPerson) {
+        pachhuFamily.root_person_id = pachhuPerson.id;
+      }
     }
 
     // Share with user emails as editors

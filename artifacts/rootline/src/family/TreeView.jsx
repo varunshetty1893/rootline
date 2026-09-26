@@ -401,6 +401,7 @@ function PersonCard({
   onPath,
   isRoot,
   isOwner,
+  isCurrentUser,
   isSelected,
   onSelect,
 }) {
@@ -452,10 +453,18 @@ function PersonCard({
           </div>
           {isRoot && (
             <span
-              title={isOwner ? "This is you (Tree Starter)" : "Tree Starter (Me)"}
+              title={isCurrentUser ? "This is you (Tree Starter)" : `Tree Starter: ${person.name}`}
               className="absolute -bottom-1 -right-2 text-[9px] font-bold bg-[#174F61] text-white rounded-full px-1.5 py-0.5 leading-none shadow-sm ring-1 ring-white"
             >
-              {isOwner ? "You" : "Tree Starter"}
+              {isCurrentUser ? "You" : "Tree Starter"}
+            </span>
+          )}
+          {!isRoot && isCurrentUser && (
+            <span
+              title="This is you"
+              className="absolute -bottom-1 -right-2 text-[9px] font-bold bg-[#1C4B3C] text-white rounded-full px-1.5 py-0.5 leading-none shadow-sm ring-1 ring-white"
+            >
+              You
             </span>
           )}
         </div>
@@ -504,6 +513,8 @@ export default function TreeView() {
     undoActionName,
     redoActionName,
     lastActionNotice,
+    guardNavigation,
+    loadedTreeId,
   } = useFamily();
   const [activityModalOpen, setActivityModalOpen] = useState(false);
   const [quickEditPerson, setQuickEditPerson] = useState(null);
@@ -1489,6 +1500,12 @@ export default function TreeView() {
                       </button>
                       <Link
                         to={`/people/${selectedPerson.id}/edit`}
+                        onClick={(e) => {
+                          if (typeof guardNavigation === "function") {
+                            const allowed = guardNavigation(`/people/${selectedPerson.id}/edit`);
+                            if (!allowed) e.preventDefault();
+                          }
+                        }}
                         className="px-3 flex items-center justify-center rounded-md border border-[#DCE3E1] text-[#374151] hover:bg-[#F7F5F0] text-xs font-medium"
                         title="Full profile editor"
                       >
@@ -2038,15 +2055,17 @@ export default function TreeView() {
             </div>
           )}
 
-          {(!loaded && people.length === 0) || (treesLoading && people.length === 0) ? (
+          {!loaded || treesLoading || (Boolean(activeTreeId) && loadedTreeId !== (activeTreeId || activeTree?.id)) ? (
             <div
               className="flex-1 flex flex-col items-center justify-center p-8 bg-white"
               style={{ backgroundImage: "radial-gradient(#DCE3E1 0.7px, transparent 0.7px)", backgroundSize: "16px 16px" }}
             >
               <div className="flex flex-col items-center justify-center p-8 text-center max-w-sm">
-                <Loader2 className="w-8 h-8 text-[#1C4B3C] animate-spin mb-3" />
-                <h4 className="text-sm font-semibold text-[#1C1F1D]">Loading family tree…</h4>
-                <p className="text-xs text-[#6B7280] mt-1">
+                <Loader2 className="w-9 h-9 text-[#1C4B3C] animate-spin mb-3" />
+                <h4 className="text-base font-serif font-bold text-[#1C1F1D]">
+                  Loading {activeTree?.name || "family tree"}…
+                </h4>
+                <p className="text-xs text-[#6B7280] mt-1 leading-relaxed">
                   Connecting branches and retrieving family members…
                 </p>
               </div>
@@ -2181,6 +2200,17 @@ export default function TreeView() {
                               onPath={pathIdSet.has(person.id)}
                               isRoot={rootPersonId === person.id}
                               isOwner={myRole === "owner"}
+                              isCurrentUser={
+                                Boolean(
+                                  user?.name &&
+                                  person?.name &&
+                                  (
+                                    person.name.toLowerCase().trim() === user.name.toLowerCase().trim() ||
+                                    person.name.toLowerCase().replace(/[^a-z0-9]/g, "").includes(user.name.toLowerCase().replace(/[^a-z0-9]/g, "")) ||
+                                    user.name.toLowerCase().replace(/[^a-z0-9]/g, "").includes(person.name.toLowerCase().replace(/[^a-z0-9]/g, ""))
+                                  )
+                                )
+                              }
                               isSelected={selectedId === person.id}
                               onSelect={handleSelectPerson}
                             />
