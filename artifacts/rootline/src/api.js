@@ -1,8 +1,20 @@
 // The local Express/Vite server listens on port 3000. In production this is
 // set to the public API URL if configured, or relative origin by default.
-// The shared proxy exposes the API service at /api. Keeping this prefix here
-// prevents page routes such as /people from competing with API requests.
-const API_URL = (import.meta.env.VITE_API_URL || "/api").replace(/\/+$/, "");
+const RAW_API_URL = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
+
+function buildUrl(path) {
+  if (path.startsWith("http://") || path.startsWith("https://")) {
+    return path;
+  }
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  if (!RAW_API_URL) {
+    return cleanPath;
+  }
+  if (RAW_API_URL.endsWith("/api") && cleanPath.startsWith("/api/")) {
+    return `${RAW_API_URL}${cleanPath.slice(4)}`;
+  }
+  return `${RAW_API_URL}${cleanPath}`;
+}
 
 /**
  * Central fetch wrapper.
@@ -19,7 +31,7 @@ async function request(path, { method = "GET", body } = {}) {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetch(buildUrl(path), {
     method,
     credentials: "include",          // send the session cookie
     headers,
@@ -94,7 +106,7 @@ export const api = {
       answer: data?.message?.content || data?.message || "I could not generate an answer.",
       provider: data?.provider || data?.message?.provider || "Rootline guide",
     })),
-  googleLoginUrl: () => `${API_URL}/auth/google/login`,
+  googleLoginUrl: () => buildUrl("/auth/google/login"),
 
   // ── People (tree-scoped) ───────────────────────────────────────────────
   listPeople: (treeId) => request(withTree("/people", treeId)),

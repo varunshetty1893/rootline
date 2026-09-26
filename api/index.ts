@@ -23,6 +23,11 @@ async function getApp() {
 }
 
 export default async function handler(req: Request, res: Response) {
+  const matchedPath = (req.headers["x-matched-path"] as string) || (req.headers["x-forwarded-uri"] as string);
+  if (matchedPath && (req.url === "/api/index" || req.url.startsWith("/api/index?"))) {
+    req.url = matchedPath;
+  }
+
   if (process.env.DATABASE_URL?.trim() && !isDatabaseConnected()) {
     try {
       const connected = await initDatabase();

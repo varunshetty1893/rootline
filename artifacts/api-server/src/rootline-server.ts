@@ -164,7 +164,7 @@ function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
 function setSessionCookie(res: Response, token: string) {
   res.cookie(COOKIE_NAME, token, {
     httpOnly: true,
-    secure: COOKIE_SAMESITE === "none" || IS_PROD,
+    secure: COOKIE_SAMESITE === "none" || IS_PROD || Boolean(process.env.VERCEL),
     sameSite: COOKIE_SAMESITE,
     maxAge: COOKIE_MAX_AGE,
     path: "/",
@@ -175,12 +175,15 @@ export async function createExpressApp() {
   const app = express();
   app.enable("trust proxy");
 
-  // Replit routes the whole API service through /api. Strip only that
-  // service prefix so the imported app can keep its original endpoint paths,
-  // including its existing /api/* endpoints.
+  // Normalize Vercel serverless rewrites and avoid duplicate /api/api prefixes
   app.use((req, _res, next) => {
-    if (req.url === "/api") req.url = "/";
-    else if (req.url.startsWith("/api/")) req.url = req.url.slice(4);
+    const matchedPath = (req.headers["x-matched-path"] as string) || (req.headers["x-forwarded-uri"] as string);
+    if (matchedPath && (req.url === "/api/index" || req.url.startsWith("/api/index?"))) {
+      req.url = matchedPath;
+    }
+    if (req.url.startsWith("/api/api/")) {
+      req.url = req.url.slice(4);
+    }
     next();
   });
 
@@ -883,7 +886,7 @@ export async function createExpressApp() {
   app.post("/api/auth/verify-otp", passwordResetLimiter, handleVerifyOtp);
 
   // Functional Contact Message Submission (Fixes Issue 28)
-  app.post("/api/contact", contactLimiter, async (req, res) => {
+  app.post(["/api/contact", "/contact"], contactLimiter, async (req, res) => {
     const { name, email, subject, message } = isRecord(req.body) ? req.body : {};
     if (!isText(email, 254, 3) || !isText(message, 5000, 1)) {
       return res.status(400).json({ detail: "Email and message are required." });
@@ -1168,7 +1171,7 @@ export async function createExpressApp() {
   app.get("/api/auth/google/debug", handleGoogleDebug);
 
   // Google OAuth with Browser-Bound Cookie State & HMAC Signature (Fixes Issue 1 & Stateless Multi-Process OAuth)
-  app.get("/auth/google/login", (req, res) => {
+  app.get(["/auth/google/login", "/api/auth/google/login"], (req, res) => {
     const rawState = crypto.randomBytes(32).toString("hex");
     const sig = crypto.createHmac("sha256", SECRET_KEY).update(rawState).digest("hex");
     const cookieValue = `${rawState}.${sig}`;
@@ -1201,7 +1204,7 @@ export async function createExpressApp() {
     return res.redirect(`/auth/google/callback?state=${rawState}&code=dev_code`);
   });
 
-  app.get("/auth/google/callback", async (req, res) => {
+  app.get(["/auth/google/callback", "/api/auth/google/callback"], async (req, res) => {
     const state = typeof req.query.state === "string" ? req.query.state : null;
     const code = typeof req.query.code === "string" ? req.query.code : null;
     const oauthCookie = req.cookies?.oauth_state;
@@ -1360,7 +1363,7 @@ export async function createExpressApp() {
     }
     const proto = (req.headers["x-forwarded-proto"] as string) || (process.env.VERCEL ? "https" : req.protocol) || "https";
     const host = (req.headers["x-forwarded-host"] as string) || req.get("host") || "localhost:3000";
-    return res.redirect(`${proto}://${host}/dashboard`);
+    return res.redirect(`${proto}://${host}/oauth-callback?token=${encodeURIComponent(token)}`);
   });
 
   // People endpoints with Multi-Family Collaboration & Activity Tracking
@@ -1650,7 +1653,7 @@ export async function createExpressApp() {
   // Tree Sharing & Access Control API (Viewer & Editor Permissions)
   // =========================================================================
 
-  app.get("/api/family/current", requireAuth, (req: AuthRequest, res) => {
+  app.get(["/api/family/current", "/family/current"], requireAuth, (req: AuthRequest, res) => {
     try {
       if (req.user && !store.users.has(req.user.id)) {
         store.users.set(req.user.id, req.user);
@@ -2208,7 +2211,7 @@ export async function createExpressApp() {
   // Phase 2: Change History / Family Activity Log Endpoints
   // =========================================================================
 
-  app.get("/api/family/history", requireAuth, (req: AuthRequest, res) => {
+  app.get(["/api/family/history", "/family/history"], requireAuth, (req: AuthRequest, res) => {
     try {
       const rawFamilyId = ((req.query.family_id as string) || (req.query.tree_id as string))?.trim();
       let familyId = rawFamilyId;
@@ -2374,7 +2377,7 @@ export async function createExpressApp() {
   // Phase 3: Family Statistics Dashboard Endpoint
   // =========================================================================
 
-  app.get("/api/family/statistics", requireAuth, (req: AuthRequest, res) => {
+  app.get(["/api/family/statistics", "/family/statistics"], requireAuth, (req: AuthRequest, res) => {
     try {
       const rawFamilyId = ((req.query.family_id as string) || (req.query.tree_id as string))?.trim();
       let familyId = rawFamilyId;
@@ -2398,7 +2401,7 @@ export async function createExpressApp() {
   // Phase 6: "How Are We Related?" with AI Kinship Explanation
   // =========================================================================
 
-  app.post("/api/ai/relationship-explain", requireAuth, async (req: AuthRequest, res) => {
+  app.post(["/api/ai/relationship-explain", "/ai/relationship-explain"], requireAuth, async (req: AuthRequest, res) => {
     try {
       const body = isRecord(req.body) ? req.body : {};
       const person1_id = body.person1_id || body.person_a_id;
@@ -2575,7 +2578,7 @@ Respond with a warm, conversational 2-3 sentence explanation. Do not use Markdow
   // =========================================================================
 
   // Send message to Family AI Chatbot
-  app.post("/api/ai/chat", requireAuth, async (req: AuthRequest, res) => {
+  app.post(["/api/ai/chat", "/ai/chat"], requireAuth, async (req: AuthRequest, res) => {
     try {
       const body = isRecord(req.body) ? req.body : {};
       const rawMessage = body.message;
@@ -2649,7 +2652,7 @@ Respond with a warm, conversational 2-3 sentence explanation. Do not use Markdow
   });
 
   // Get isolated chat history for a family
-  app.get("/api/ai/chat/history", requireAuth, (req: AuthRequest, res) => {
+  app.get(["/api/ai/chat/history", "/ai/chat/history"], requireAuth, (req: AuthRequest, res) => {
     try {
       const targetFamilyId = (req.query.family_id as string) || req.user!.id;
       const access = store.checkFamilyAccess(req.user!.id, targetFamilyId);
@@ -2665,7 +2668,7 @@ Respond with a warm, conversational 2-3 sentence explanation. Do not use Markdow
   });
 
   // Clear chat history for a family
-  app.delete("/api/ai/chat/history", requireAuth, (req: AuthRequest, res) => {
+  app.delete(["/api/ai/chat/history", "/ai/chat/history"], requireAuth, (req: AuthRequest, res) => {
     try {
       const targetFamilyId = (req.query.family_id as string) || (req.body?.family_id as string) || req.user!.id;
       const access = store.checkFamilyAccess(req.user!.id, targetFamilyId);

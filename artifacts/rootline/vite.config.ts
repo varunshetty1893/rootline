@@ -2,7 +2,13 @@ import path from 'path';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
-import runtimeErrorOverlay from '@replit/vite-plugin-runtime-error-modal';
+let runtimeErrorOverlay: any = () => ({ name: 'no-op-overlay' });
+try {
+  const mod = await import('@replit/vite-plugin-runtime-error-modal');
+  if (mod?.default) runtimeErrorOverlay = mod.default;
+} catch {
+  // Fallback when @replit plugins are not installed
+}
 
 const rawPort = process.env.PORT ?? '5173';
 
