@@ -2,5 +2,47 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "pnpm run build",
   "outputDirectory": "artifacts/rootline/dist/public",
-  "framework": "vite"
+  "framework": "vite",
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/api",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/auth/(.*)",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/auth",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/people/(.*)",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/people",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/families/(.*)",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/families",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/health",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
 }
