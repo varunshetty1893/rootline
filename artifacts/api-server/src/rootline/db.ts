@@ -670,6 +670,7 @@ export async function dbFindFamilyById(id: string): Promise<Family | null> {
     id: f.id,
     owner_id: f.owner_id,
     name: f.name,
+    root_person_id: f.root_person_id || null,
     created_at:
       (createdAtVal as any) instanceof Date
         ? (createdAtVal as any).toISOString()
