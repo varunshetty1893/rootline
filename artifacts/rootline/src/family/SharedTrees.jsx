@@ -107,6 +107,7 @@ export default function SharedTrees() {
     setActiveTreeId,
     activeTree,
     treeList = { owned_trees: [], shared_trees: [] },
+    treesLoading = false,
     refreshTreeList,
     createTree,
     renameTree,

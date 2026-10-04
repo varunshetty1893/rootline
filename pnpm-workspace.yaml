@@ -1,0 +1,6 @@
+linkWorkspacePackages: true
+
+packages:
+  - "artifacts/*"
+  - "lib/*"
+  - "scripts"
