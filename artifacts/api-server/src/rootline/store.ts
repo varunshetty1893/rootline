@@ -32,6 +32,7 @@ import {
   dbDeleteTreeShare,
   dbDeleteTreeShareByUserAndFamily,
   dbSaveActivityLog,
+  dbSaveTreeSnapshot,
   dbSaveChatMessage,
   dbSaveInvitation,
   dbDeleteInvitation,
@@ -239,6 +240,7 @@ export interface TreeSnapshot {
   action: string;
   description: string;
   people_count: number;
+  root_person_id?: string | null;
   people: Person[];
   family_units: FamilyUnit[];
   family_children: FamilyChild[];
@@ -510,6 +512,20 @@ export class MemoryStore {
       this.familyInvitations.set(inv.id, inv);
     }
     this.activityLogs = data.activityLogs || [];
+
+    if ((data as any).treeSnapshots && Array.isArray((data as any).treeSnapshots)) {
+      this.treeSnapshots.clear();
+      for (const snap of (data as any).treeSnapshots) {
+        const famId = this.resolveCanonicalFamilyId(snap.family_id);
+        const list = this.treeSnapshots.get(famId) || [];
+        list.push({ ...snap, family_id: famId });
+        this.treeSnapshots.set(famId, list);
+      }
+      for (const [famId, list] of this.treeSnapshots.entries()) {
+        list.sort((a, b) => b.version - a.version);
+        this.treeSnapshots.set(famId, list);
+      }
+    }
 
     for (const msg of data.chatMessages || []) {
       const key = `${msg.user_id}:${msg.family_id}`;
@@ -1092,7 +1108,15 @@ export class MemoryStore {
 
   getValidOwnerIds(ownerId: string): Set<string> {
     const validOwnerIds = new Set<string>([ownerId]);
-    const family = this.families.get(ownerId) || this.families.get(`family-${ownerId}`);
+    let family = this.families.get(ownerId) || this.families.get(`family-${ownerId}`);
+    if (!family) {
+      for (const f of this.families.values()) {
+        if (f.owner_id === ownerId) {
+          family = f;
+          break;
+        }
+      }
+    }
     if (family) {
       validOwnerIds.add(family.id);
       if (family.owner_id) {
@@ -1101,6 +1125,39 @@ export class MemoryStore {
       }
     }
     return validOwnerIds;
+  }
+
+  resolveCanonicalFamilyId(ownerOrFamilyId: string): string {
+    if (!ownerOrFamilyId) return ownerOrFamilyId;
+    const direct = this.families.get(ownerOrFamilyId);
+    if (direct) return direct.id;
+    const prefixed = this.families.get(`family-${ownerOrFamilyId}`);
+    if (prefixed) return prefixed.id;
+    for (const f of this.families.values()) {
+      if (f.owner_id === ownerOrFamilyId) {
+        return f.id;
+      }
+    }
+    return ownerOrFamilyId;
+  }
+
+  ensureBaselineSnapshot(familyId: string): void {
+    const canonicalId = this.resolveCanonicalFamilyId(familyId);
+    const existing = this.getMergedSnapshotsForFamily(canonicalId);
+    if (existing.length === 0) {
+      const validIds = this.getValidOwnerIds(canonicalId);
+      const currentPeopleCount = Array.from(this.people.values()).filter((p) => validIds.has(p.owner_id)).length;
+      if (currentPeopleCount > 0) {
+        const fam = this.families.get(canonicalId);
+        const owner = fam ? this.users.get(fam.owner_id) : null;
+        this.createTreeSnapshot(
+          canonicalId,
+          { id: owner?.id || "system", name: owner?.name || "System" },
+          "BASELINE",
+          `Initial tree state (${currentPeopleCount} ${currentPeopleCount === 1 ? "person" : "people"})`
+        );
+      }
+    }
   }
 
   // Serializes person with optimized lightweight photo URL (Fixes Issues 5 & 6)
@@ -1234,9 +1291,14 @@ export class MemoryStore {
       }
     }
 
+    const canonicalFamilyId = this.resolveCanonicalFamilyId(ownerId);
+    if (actor) {
+      this.ensureBaselineSnapshot(canonicalFamilyId);
+    }
+
     const person: Person = {
       id: crypto.randomUUID(),
-      owner_id: ownerId,
+      owner_id: canonicalFamilyId,
       name: data.name,
       gender: data.gender || null,
       date_of_birth: data.date_of_birth || null,
@@ -1253,28 +1315,34 @@ export class MemoryStore {
     this.trackDbWrite(dbSavePerson(person));
 
     // If the target family does not yet have a root_person_id, set this first person as root_person_id
-    const targetFamily = this.families.get(ownerId) || this.families.get(`family-${ownerId}`);
+    const targetFamily = this.families.get(canonicalFamilyId) || this.families.get(ownerId) || this.families.get(`family-${ownerId}`);
     if (targetFamily && (!targetFamily.root_person_id || !this.people.has(targetFamily.root_person_id))) {
       targetFamily.root_person_id = person.id;
       this.trackDbWrite(dbSaveFamily(targetFamily));
     }
 
     if (relation?.relation_type && relation?.related_to_id) {
-      this.applyRelation(person, relation, ownerId);
+      this.applyRelation(person, relation, canonicalFamilyId);
     }
 
     if (actor) {
+      const relatedPerson = relation?.related_to_id ? this.people.get(relation.related_to_id) : null;
+      const relationSuffix =
+        relation?.relation_type && relatedPerson
+          ? ` (${relation.relation_type} of ${relatedPerson.name})`
+          : "";
+      const actionDesc = `${actor.name} added ${person.name}${relationSuffix} to the family tree`;
       this.logActivity({
-        family_id: ownerId,
+        family_id: canonicalFamilyId,
         actor_id: actor.id,
         actor_name: actor.name,
         action: "PERSON_ADDED",
         target_type: "person",
         target_id: person.id,
         target_name: person.name,
-        description: `${actor.name} added ${person.name} to the family tree`,
+        description: actionDesc,
       });
-      this.createTreeSnapshot(ownerId, actor, "PERSON_ADDED", `${actor.name} added ${person.name}`);
+      this.createTreeSnapshot(canonicalFamilyId, actor, "PERSON_ADDED", `${actor.name} added ${person.name}${relationSuffix}`);
     }
 
     return this.serializePerson(person);
@@ -1577,6 +1645,11 @@ export class MemoryStore {
       return { message: "People are already linked." };
     }
 
+    const canonicalFamilyId = this.resolveCanonicalFamilyId(ownerId);
+    if (actor) {
+      this.ensureBaselineSnapshot(canonicalFamilyId);
+    }
+
     const candidateUnits = Array.from(this.familyUnits.values()).filter(
       (fu) =>
         validOwnerIds.has(fu.owner_id) &&
@@ -1723,6 +1796,34 @@ export class MemoryStore {
       }
     }
 
+    const canonicalFamilyId = this.resolveCanonicalFamilyId(ownerId);
+    if (actor) {
+      this.ensureBaselineSnapshot(canonicalFamilyId);
+    }
+
+    const details: Record<string, { before?: any; after?: any }> = {};
+    const changedLabels: string[] = [];
+    const checkDiff = (field: keyof Person, label: string, nextVal: any) => {
+      if (nextVal !== undefined && person[field] !== nextVal) {
+        details[field] = { before: person[field], after: nextVal };
+        changedLabels.push(label);
+      }
+    };
+
+    checkDiff("name", "name", updates.name);
+    checkDiff("gender", "gender", updates.gender);
+    checkDiff("date_of_birth", "birth date", updates.date_of_birth);
+    checkDiff("date_of_death", "death date", updates.date_of_death);
+    checkDiff("place_of_birth", "birthplace", updates.place_of_birth);
+    checkDiff("occupation", "occupation", updates.occupation);
+    checkDiff("bio", "notes", updates.bio);
+    checkDiff("address", "location", updates.address);
+    checkDiff("phone", "phone", updates.phone);
+    if (updates.photo_url !== undefined && person.photo_url !== updates.photo_url) {
+      details.photo = { before: person.photo_url ? "updated" : "none", after: updates.photo_url ? "updated" : "removed" };
+      changedLabels.push("photo");
+    }
+
     if (updates.name !== undefined) person.name = updates.name;
     if (updates.gender !== undefined) person.gender = updates.gender;
     if (updates.date_of_birth !== undefined) person.date_of_birth = updates.date_of_birth;
@@ -1737,17 +1838,20 @@ export class MemoryStore {
     this.trackDbWrite(dbSavePerson(person));
 
     if (actor) {
+      const fieldsSummary = changedLabels.length > 0 ? ` (${changedLabels.join(", ")})` : "";
+      const desc = `${actor.name} updated ${person.name}${fieldsSummary}`;
       this.logActivity({
-        family_id: ownerId,
+        family_id: canonicalFamilyId,
         actor_id: actor.id,
         actor_name: actor.name,
         action: "PERSON_UPDATED",
         target_type: "person",
         target_id: person.id,
         target_name: person.name,
-        description: `${actor.name} updated details for ${person.name}`,
+        description: desc,
+        details: Object.keys(details).length > 0 ? details : null,
       });
-      this.createTreeSnapshot(ownerId, actor, "PERSON_UPDATED", `${actor.name} updated details for ${person.name}`);
+      this.createTreeSnapshot(canonicalFamilyId, actor, "PERSON_UPDATED", desc);
     }
 
     return this.serializePerson(person);
@@ -1762,6 +1866,11 @@ export class MemoryStore {
     const person = this.getPerson(id, ownerId);
     if (!person) throw new Error("Person not found");
     const personName = person.name;
+    const canonicalFamilyId = this.resolveCanonicalFamilyId(ownerId);
+
+    if (actor) {
+      this.ensureBaselineSnapshot(canonicalFamilyId);
+    }
 
     for (const [fcId, fc] of this.familyChildren.entries()) {
       if (fc.person_id === id) {
@@ -1800,7 +1909,7 @@ export class MemoryStore {
 
     if (actor) {
       this.logActivity({
-        family_id: ownerId,
+        family_id: canonicalFamilyId,
         actor_id: actor.id,
         actor_name: actor.name,
         action: "PERSON_DELETED",
@@ -1809,7 +1918,7 @@ export class MemoryStore {
         target_name: personName,
         description: `${actor.name} removed ${personName} from the family tree`,
       });
-      this.createTreeSnapshot(ownerId, actor, "PERSON_DELETED", `${actor.name} removed ${personName}`);
+      this.createTreeSnapshot(canonicalFamilyId, actor, "PERSON_DELETED", `${actor.name} removed ${personName}`);
     }
 
     return { message: "Person removed." };
@@ -3099,7 +3208,7 @@ export class MemoryStore {
         email: owner?.email || "",
       },
       shares: finalShares,
-      invitations: isOwner ? this.getFamilyInvitations(userId, familyId) : [],
+      invitations: isOwner ? this.getFamilyInvitationsSync(userId, familyId) : [],
       currentUserRole: access.role,
     };
   }
@@ -3580,26 +3689,13 @@ export class MemoryStore {
     return { success: true, invitation };
   }
 
-  async getFamilyInvitations(userId: string, familyId: string): Promise<FamilyInvitation[]> {
+  getFamilyInvitationsSync(userId: string, familyId: string): FamilyInvitation[] {
     const access = this.checkFamilyAccess(userId, familyId);
     if (!access) {
       return [];
     }
 
     const family = access.family;
-    if (isDatabaseConnected()) {
-      try {
-        const dbInvites = await dbGetInvitationsForFamily(family.id, familyId);
-        if (dbInvites && dbInvites.length > 0) {
-          for (const inv of dbInvites) {
-            this.familyInvitations.set(inv.id, inv);
-          }
-        }
-      } catch (err) {
-        logger.error("dbGetInvitationsForFamily error:", err);
-      }
-    }
-
     const now = new Date();
     const mapByEmail = new Map<string, FamilyInvitation>();
 
@@ -3629,6 +3725,29 @@ export class MemoryStore {
     }
 
     return Array.from(mapByEmail.values());
+  }
+
+  async getFamilyInvitations(userId: string, familyId: string): Promise<FamilyInvitation[]> {
+    const access = this.checkFamilyAccess(userId, familyId);
+    if (!access) {
+      return [];
+    }
+
+    const family = access.family;
+    if (isDatabaseConnected()) {
+      try {
+        const dbInvites = await dbGetInvitationsForFamily(family.id, familyId);
+        if (dbInvites && dbInvites.length > 0) {
+          for (const inv of dbInvites) {
+            this.familyInvitations.set(inv.id, inv);
+          }
+        }
+      } catch (err) {
+        logger.error("dbGetInvitationsForFamily error:", err);
+      }
+    }
+
+    return this.getFamilyInvitationsSync(userId, familyId);
   }
 
   async getMyPendingInvitations(userEmail: string, userId?: string): Promise<FamilyInvitation[]> {
@@ -3741,9 +3860,10 @@ export class MemoryStore {
     description: string;
     details?: Record<string, { before?: any; after?: any }> | null;
   }): ActivityLog {
+    const canonicalFamilyId = this.resolveCanonicalFamilyId(params.family_id);
     const log: ActivityLog = {
       id: crypto.randomUUID(),
-      family_id: params.family_id,
+      family_id: canonicalFamilyId,
       actor_id: params.actor_id,
       actor_name: params.actor_name,
       action: params.action,
@@ -3755,7 +3875,8 @@ export class MemoryStore {
       created_at: new Date().toISOString(),
     };
     this.activityLogs.unshift(log);
-    dbSaveActivityLog(log).catch((e) => logger.error("dbSaveActivityLog error:", e));
+    this.trackDbWrite(dbSaveActivityLog(log));
+    this.scheduleDiskSave();
     return log;
   }
 
@@ -3767,16 +3888,17 @@ export class MemoryStore {
     const page = Math.max(1, options?.page || 1);
     const limit = Math.min(100, Math.max(1, options?.limit || 30));
 
-    let filtered = this.activityLogs.filter((log) => log.family_id === familyId);
+    const validIds = this.getValidOwnerIds(familyId);
+    let filtered = this.activityLogs.filter((log) => validIds.has(log.family_id));
 
     if (category === "people") {
       filtered = filtered.filter((l) => l.target_type === "person");
     } else if (category === "relationships") {
       filtered = filtered.filter((l) => l.target_type === "relationship");
     } else if (category === "members") {
-      filtered = filtered.filter((l) => l.target_type === "member");
+      filtered = filtered.filter((l) => l.target_type === "member" || l.target_type === "invitation");
     } else if (category === "shares") {
-      filtered = filtered.filter((l) => l.target_type === "share");
+      filtered = filtered.filter((l) => l.target_type === "share" || l.target_type === "invitation");
     }
 
     const total = filtered.length;
@@ -3786,6 +3908,32 @@ export class MemoryStore {
     return { total, page, limit, items, logs: items };
   }
 
+  private getMergedSnapshotsForFamily(familyId: string): TreeSnapshot[] {
+    const canonicalId = this.resolveCanonicalFamilyId(familyId);
+    const validIds = this.getValidOwnerIds(canonicalId);
+    const byId = new Map<string, TreeSnapshot>();
+
+    for (const id of validIds) {
+      const list = this.treeSnapshots.get(id);
+      if (list) {
+        for (const snap of list) {
+          byId.set(snap.id, { ...snap, family_id: canonicalId });
+        }
+      }
+    }
+
+    const merged = Array.from(byId.values());
+    merged.sort((a, b) => {
+      if (b.version !== a.version) return b.version - a.version;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+
+    if (merged.length > 0) {
+      this.treeSnapshots.set(canonicalId, merged);
+    }
+    return merged;
+  }
+
   // --- Tree Snapshots & Version History (Revisions & Restore) ---
   createTreeSnapshot(
     familyId: string,
@@ -3793,30 +3941,29 @@ export class MemoryStore {
     action: string,
     description: string
   ): TreeSnapshot {
+    const canonicalId = this.resolveCanonicalFamilyId(familyId);
+    const validIds = this.getValidOwnerIds(canonicalId);
+    const fam = this.families.get(canonicalId);
+
     const familyPeople = Array.from(this.people.values())
-      .filter((p) => p.owner_id === familyId)
-      .map((p) => ({ ...p }));
+      .filter((p) => validIds.has(p.owner_id))
+      .map((p) => ({ ...p, owner_id: canonicalId }));
 
     const familyUnits = Array.from(this.familyUnits.values())
-      .filter((fu) => fu.owner_id === familyId)
-      .map((fu) => ({ ...fu }));
+      .filter((fu) => validIds.has(fu.owner_id))
+      .map((fu) => ({ ...fu, owner_id: canonicalId }));
 
     const unitIdSet = new Set(familyUnits.map((fu) => fu.id));
     const familyChildren = Array.from(this.familyChildren.values())
       .filter((fc) => unitIdSet.has(fc.family_unit_id))
       .map((fc) => ({ ...fc }));
 
-    let list = this.treeSnapshots.get(familyId);
-    if (!list) {
-      list = [];
-      this.treeSnapshots.set(familyId, list);
-    }
-
+    const list = this.getMergedSnapshotsForFamily(canonicalId);
     const nextVersion = list.length > 0 ? Math.max(...list.map((s) => s.version)) + 1 : 1;
 
     const snapshot: TreeSnapshot = {
       id: crypto.randomUUID(),
-      family_id: familyId,
+      family_id: canonicalId,
       version: nextVersion,
       created_at: new Date().toISOString(),
       actor_id: actor.id,
@@ -3824,6 +3971,7 @@ export class MemoryStore {
       action,
       description,
       people_count: familyPeople.length,
+      root_person_id: fam?.root_person_id || null,
       people: familyPeople,
       family_units: familyUnits,
       family_children: familyChildren,
@@ -3833,7 +3981,9 @@ export class MemoryStore {
     if (list.length > 50) {
       list.length = 50; // keep last 50 revisions
     }
+    this.treeSnapshots.set(canonicalId, list);
 
+    this.trackDbWrite(dbSaveTreeSnapshot(snapshot));
     this.scheduleDiskSave();
     return snapshot;
   }
@@ -3848,33 +3998,77 @@ export class MemoryStore {
     action: string;
     description: string;
     people_count: number;
+    relationships_count: number;
+    people_names: string[];
+    added_names: string[];
+    removed_names: string[];
+    will_restore_names: string[];
+    will_remove_names: string[];
     is_current: boolean;
   }[] {
-    let list = this.treeSnapshots.get(familyId);
+    const canonicalId = this.resolveCanonicalFamilyId(familyId);
+    const validIds = this.getValidOwnerIds(canonicalId);
+    let list = this.getMergedSnapshotsForFamily(canonicalId);
+
+    const currentPeople = Array.from(this.people.values()).filter((p) => validIds.has(p.owner_id));
+    const currentIdSet = new Set(currentPeople.map((p) => p.id));
+
     if (!list || list.length === 0) {
-      const fam = this.families.get(familyId);
+      const fam = this.families.get(canonicalId);
       const owner = fam ? this.users.get(fam.owner_id) : null;
       const initialSnapshot = this.createTreeSnapshot(
-        familyId,
-        { id: owner?.id || "system", name: owner?.name || "Tree Starter" },
+        canonicalId,
+        { id: owner?.id || "system", name: owner?.name || "Tree Owner" },
         "BASELINE",
-        "Initial tree state"
+        `Current tree state (${currentPeople.length} ${currentPeople.length === 1 ? "person" : "people"})`
       );
       list = [initialSnapshot];
     }
 
-    return list.map((s, idx) => ({
-      id: s.id,
-      family_id: s.family_id,
-      version: s.version,
-      created_at: s.created_at,
-      actor_id: s.actor_id,
-      actor_name: s.actor_name,
-      action: s.action,
-      description: s.description,
-      people_count: s.people_count,
-      is_current: idx === 0,
-    }));
+    return list.map((s, idx) => {
+      const snapPeople = Array.isArray(s.people) ? s.people : [];
+      const snapUnits = Array.isArray(s.family_units) ? s.family_units : [];
+      const snapIdSet = new Set(snapPeople.map((p) => p.id));
+
+      // Compare with the immediately older snapshot (idx + 1) to show what this revision changed
+      const olderSnap = list[idx + 1];
+      const olderPeople = olderSnap && Array.isArray(olderSnap.people) ? olderSnap.people : null;
+      const olderIdSet = olderPeople ? new Set(olderPeople.map((p) => p.id)) : null;
+
+      const added_names = olderIdSet
+        ? snapPeople.filter((p) => !olderIdSet.has(p.id)).map((p) => p.name)
+        : [];
+      const removed_names = olderPeople
+        ? olderPeople.filter((p) => !snapIdSet.has(p.id)).map((p) => p.name)
+        : [];
+
+      // Compare with current live tree state to show what restoring this revision will do
+      const will_restore_names = snapPeople
+        .filter((p) => !currentIdSet.has(p.id))
+        .map((p) => p.name);
+      const will_remove_names = currentPeople
+        .filter((p) => !snapIdSet.has(p.id))
+        .map((p) => p.name);
+
+      return {
+        id: s.id,
+        family_id: canonicalId,
+        version: s.version,
+        created_at: s.created_at,
+        actor_id: s.actor_id,
+        actor_name: s.actor_name,
+        action: s.action,
+        description: s.description,
+        people_count: snapPeople.length,
+        relationships_count: snapUnits.length,
+        people_names: snapPeople.map((p) => p.name),
+        added_names,
+        removed_names,
+        will_restore_names,
+        will_remove_names,
+        is_current: idx === 0,
+      };
+    });
   }
 
   restoreTreeSnapshot(
@@ -3883,8 +4077,10 @@ export class MemoryStore {
     actor: { id: string; name: string },
     customReason?: string
   ): { success: boolean; version: number; message: string; people_count: number } {
-    const list = this.treeSnapshots.get(familyId);
-    if (!list) {
+    const canonicalId = this.resolveCanonicalFamilyId(familyId);
+    const validIds = this.getValidOwnerIds(canonicalId);
+    const list = this.getMergedSnapshotsForFamily(canonicalId);
+    if (!list || list.length === 0) {
       throw new Error("No revisions found for this tree");
     }
     const target = list.find((s) => s.id === snapshotId);
@@ -3892,66 +4088,82 @@ export class MemoryStore {
       throw new Error("Selected revision not found");
     }
 
-    // 1. Remove all current people, units, children for this family
-    const peopleToDelete = Array.from(this.people.values()).filter((p) => p.owner_id === familyId);
+    // 1. Remove all current people, units, children for this family (across all validOwnerIds)
+    const peopleToDelete = Array.from(this.people.values()).filter((p) => validIds.has(p.owner_id));
+    const deletedPersonIdSet = new Set(peopleToDelete.map((p) => p.id));
     for (const p of peopleToDelete) {
       this.people.delete(p.id);
-      dbDeletePerson(p.id).catch((e) => logger.error("dbDeletePerson error during restore:", e));
+      this.trackDbWrite(dbDeletePerson(p.id));
     }
 
-    const unitsToDelete = Array.from(this.familyUnits.values()).filter((fu) => fu.owner_id === familyId);
+    const unitsToDelete = Array.from(this.familyUnits.values()).filter((fu) => validIds.has(fu.owner_id));
     for (const fu of unitsToDelete) {
       this.familyUnits.delete(fu.id);
-      dbDeleteFamilyUnit(fu.id).catch((e) => logger.error("dbDeleteFamilyUnit error during restore:", e));
+      this.trackDbWrite(dbDeleteFamilyUnit(fu.id));
     }
 
     const unitIdsToDelete = new Set(unitsToDelete.map((fu) => fu.id));
     for (const [fcId, fc] of this.familyChildren.entries()) {
-      if (unitIdsToDelete.has(fc.family_unit_id)) {
+      if (unitIdsToDelete.has(fc.family_unit_id) || deletedPersonIdSet.has(fc.person_id)) {
         this.familyChildren.delete(fcId);
-        dbDeleteFamilyChild(fcId).catch((e) => logger.error("dbDeleteFamilyChild error during restore:", e));
+        this.trackDbWrite(dbDeleteFamilyChild(fcId));
       }
     }
 
     // 2. Restore people from snapshot
-    for (const p of target.people) {
-      const cloned = { ...p, owner_id: familyId };
+    const restoredPeople = Array.isArray(target.people) ? target.people : [];
+    for (const p of restoredPeople) {
+      const cloned = { ...p, owner_id: canonicalId };
       this.people.set(cloned.id, cloned);
-      dbSavePerson(cloned).catch((e) => logger.error("dbSavePerson error during restore:", e));
+      this.trackDbWrite(dbSavePerson(cloned));
     }
 
     // 3. Restore family units from snapshot
-    for (const fu of target.family_units) {
-      const cloned = { ...fu, owner_id: familyId };
+    const restoredUnits = Array.isArray(target.family_units) ? target.family_units : [];
+    for (const fu of restoredUnits) {
+      const cloned = { ...fu, owner_id: canonicalId };
       this.familyUnits.set(cloned.id, cloned);
-      dbSaveFamilyUnit(cloned).catch((e) => logger.error("dbSaveFamilyUnit error during restore:", e));
+      this.trackDbWrite(dbSaveFamilyUnit(cloned));
     }
 
     // 4. Restore family children from snapshot
-    for (const fc of target.family_children) {
+    const restoredChildren = Array.isArray(target.family_children) ? target.family_children : [];
+    for (const fc of restoredChildren) {
       const cloned = { ...fc };
       this.familyChildren.set(cloned.id, cloned);
-      dbSaveFamilyChild(cloned).catch((e) => logger.error("dbSaveFamilyChild error during restore:", e));
+      this.trackDbWrite(dbSaveFamilyChild(cloned));
     }
 
-    // 5. Log activity
-    const restoreDesc = `${actor.name} restored tree to version v${target.version} (${new Date(target.created_at).toLocaleString()})`;
+    // 5. Restore root_person_id if applicable
+    const fam = this.families.get(canonicalId);
+    if (fam) {
+      if (target.root_person_id && this.people.has(target.root_person_id)) {
+        fam.root_person_id = target.root_person_id;
+        this.trackDbWrite(dbSaveFamily(fam));
+      } else if (!fam.root_person_id || !this.people.has(fam.root_person_id)) {
+        fam.root_person_id = restoredPeople[0]?.id || null;
+        this.trackDbWrite(dbSaveFamily(fam));
+      }
+    }
+
+    // 6. Log activity
+    const restoreDesc = customReason || `${actor.name} restored tree to version v${target.version} (${restoredPeople.length} ${restoredPeople.length === 1 ? "person" : "people"})`;
     this.logActivity({
-      family_id: familyId,
+      family_id: canonicalId,
       actor_id: actor.id,
       actor_name: actor.name,
       action: "TREE_RESTORED",
       target_type: "family",
-      target_id: familyId,
+      target_id: canonicalId,
       description: restoreDesc,
     });
 
-    // 6. Record a new snapshot for this restored state
+    // 7. Record a new snapshot for this restored state
     const newSnapshot = this.createTreeSnapshot(
-      familyId,
+      canonicalId,
       actor,
       "TREE_RESTORED",
-      `Restored tree to version v${target.version}`
+      `Restored tree to version v${target.version} (${restoredPeople.length} ${restoredPeople.length === 1 ? "person" : "people"})`
     );
 
     this.scheduleDiskSave();
@@ -3959,8 +4171,8 @@ export class MemoryStore {
     return {
       success: true,
       version: newSnapshot.version,
-      message: `Successfully restored tree to version v${target.version}`,
-      people_count: target.people.length,
+      message: `Successfully restored tree to version v${target.version} (${restoredPeople.length} ${restoredPeople.length === 1 ? "person" : "people"})`,
+      people_count: restoredPeople.length,
     };
   }
 

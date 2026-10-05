@@ -11,6 +11,7 @@ import type {
   FamilyMember,
   TreeShare,
   ActivityLog,
+  TreeSnapshot,
   ChatMessage,
   FamilyInvitation,
 } from "./store.js";
@@ -299,7 +300,7 @@ async function initSchema(client: pg.PoolClient) {
 
     CREATE TABLE IF NOT EXISTS activity_logs (
       id VARCHAR(64) PRIMARY KEY,
-      family_id VARCHAR(64) NOT NULL,
+      family_id VARCHAR(255) NOT NULL,
       actor_id VARCHAR(64) NOT NULL,
       actor_name TEXT NOT NULL,
       action VARCHAR(64) NOT NULL,
@@ -309,6 +310,22 @@ async function initSchema(client: pg.PoolClient) {
       description TEXT NOT NULL,
       details JSONB,
       created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS tree_snapshots (
+      id VARCHAR(64) PRIMARY KEY,
+      family_id VARCHAR(255) NOT NULL,
+      version INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      actor_id VARCHAR(64) NOT NULL,
+      actor_name TEXT NOT NULL,
+      action VARCHAR(64) NOT NULL,
+      description TEXT NOT NULL,
+      people_count INTEGER NOT NULL DEFAULT 0,
+      root_person_id VARCHAR(64),
+      people JSONB NOT NULL DEFAULT '[]'::jsonb,
+      family_units JSONB NOT NULL DEFAULT '[]'::jsonb,
+      family_children JSONB NOT NULL DEFAULT '[]'::jsonb
     );
 
     CREATE TABLE IF NOT EXISTS chat_messages (
@@ -335,6 +352,7 @@ async function initSchema(client: pg.PoolClient) {
     CREATE INDEX IF NOT EXISTS idx_units_owner ON family_units(owner_id);
     CREATE INDEX IF NOT EXISTS idx_children_unit ON family_children(family_unit_id);
     CREATE INDEX IF NOT EXISTS idx_activity_family ON activity_logs(family_id);
+    CREATE INDEX IF NOT EXISTS idx_snapshots_family ON tree_snapshots(family_id);
     CREATE INDEX IF NOT EXISTS idx_chat_family_user ON chat_messages(family_id, user_id);
     CREATE INDEX IF NOT EXISTS idx_reset_otps_email ON password_reset_otps(email);
     CREATE INDEX IF NOT EXISTS idx_reset_otps_user ON password_reset_otps(user_id);
@@ -381,6 +399,7 @@ export async function loadInitialData() {
       treeSharesRes,
       invitationsRes,
       activitiesRes,
+      snapshotsRes,
       chatsRes,
       otpsRes,
       deletedAccountsRes,
@@ -394,7 +413,8 @@ export async function loadInitialData() {
       pool.query<FamilyChild>("SELECT * FROM family_children"),
       pool.query<TreeShare>("SELECT * FROM tree_shares"),
       pool.query<FamilyInvitation>("SELECT * FROM family_invitations"),
-      pool.query<ActivityLog>("SELECT * FROM activity_logs ORDER BY created_at ASC"),
+      pool.query<ActivityLog>("SELECT * FROM activity_logs ORDER BY created_at DESC LIMIT 500"),
+      pool.query<any>("SELECT * FROM tree_snapshots ORDER BY version DESC").catch(() => ({ rows: [] as any[] })),
       pool.query<any>("SELECT * FROM chat_messages ORDER BY timestamp ASC"),
       pool.query<PasswordResetOtp>("SELECT * FROM password_reset_otps").catch(() => ({ rows: [] as PasswordResetOtp[] })),
       pool.query<DeletedAccountRecord>("SELECT * FROM deleted_accounts WHERE cooldown_until > $1", [new Date().toISOString()]).catch(() => ({ rows: [] as DeletedAccountRecord[] })),
@@ -450,6 +470,13 @@ export async function loadInitialData() {
       activityLogs: activitiesRes.rows.map((a: any) => ({
         ...a,
         created_at: toIso(a.created_at),
+      })),
+      treeSnapshots: (snapshotsRes?.rows || []).map((s: any) => ({
+        ...s,
+        created_at: toIso(s.created_at),
+        people: Array.isArray(s.people) ? s.people : [],
+        family_units: Array.isArray(s.family_units) ? s.family_units : [],
+        family_children: Array.isArray(s.family_children) ? s.family_children : [],
       })),
       chatMessages: chatsRes.rows.map((m: any) => ({
         ...m,
@@ -997,6 +1024,41 @@ export async function dbSaveActivityLog(log: ActivityLog): Promise<void> {
     );
   } catch (err) {
     logger.error("dbSaveActivityLog error:", err);
+  }
+}
+
+export async function dbSaveTreeSnapshot(snapshot: TreeSnapshot): Promise<void> {
+  if (!pool || !isPostgresActive) return;
+  try {
+    await pool.query(
+      `INSERT INTO tree_snapshots (id, family_id, version, created_at, actor_id, actor_name, action, description, people_count, root_person_id, people, family_units, family_children)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       ON CONFLICT (id) DO UPDATE SET
+         version = EXCLUDED.version,
+         description = EXCLUDED.description,
+         people_count = EXCLUDED.people_count,
+         root_person_id = EXCLUDED.root_person_id,
+         people = EXCLUDED.people,
+         family_units = EXCLUDED.family_units,
+         family_children = EXCLUDED.family_children`,
+      [
+        snapshot.id,
+        snapshot.family_id,
+        snapshot.version,
+        snapshot.created_at,
+        snapshot.actor_id,
+        snapshot.actor_name,
+        snapshot.action,
+        snapshot.description,
+        snapshot.people_count,
+        snapshot.root_person_id || null,
+        JSON.stringify(snapshot.people || []),
+        JSON.stringify(snapshot.family_units || []),
+        JSON.stringify(snapshot.family_children || []),
+      ]
+    );
+  } catch (err) {
+    logger.error("dbSaveTreeSnapshot error:", err);
   }
 }
 

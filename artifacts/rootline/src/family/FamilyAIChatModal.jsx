@@ -33,6 +33,20 @@ const SUGGESTED_PROMPTS = [
   "Explain double first cousins vs regular cousins",
 ];
 
+function cleanChatText(raw) {
+  if (!raw || typeof raw !== "string") return "";
+  return raw
+    .replace(/\r\n/g, "\n")
+    .replace(/^\s*[*_-]{3,}\s*$/gm, "")
+    .replace(/\*{1,3}([^*\n]+)\*{1,3}/g, "$1")
+    .replace(/\*{2,}/g, "")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^\s*[\*\-]\s+/gm, "• ")
+    .replace(/`([^`\n]+)`/g, "$1")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export default function FamilyAIChatModal({
   isOpen,
   onClose,
@@ -98,9 +112,9 @@ export default function FamilyAIChatModal({
             {
               id: "welcome-init",
               role: "assistant",
-              content: `Hello! I am your **Rootline Kinship & Family AI Assistant** for the **${
+              content: `Hello! I am your Rootline Kinship & Family AI Assistant for the ${
                 activeFamily?.name || "Active"
-              }** family tree.\n\nI can help you:\n• **Understand Relationships**: Ask how any two relatives are connected.\n• **Trace Lineage Paths**: Discover parents, children, and generational steps.\n• **General Kinship Knowledge**: Learn about cousins, granduncles, consanguinity, or oral history tips.\n\nEverything in our chat is strictly isolated to this family tree. What would you like to explore?`,
+              } family tree.\n\nI can help you:\n• Understand Relationships: Ask how any two relatives are connected.\n• Trace Lineage Paths: Discover parents, children, and generational steps.\n• General Kinship Knowledge: Learn about cousins, granduncles, consanguinity, or oral history tips.\n\nEverything in our chat is strictly isolated to this family tree. What would you like to explore?`,
               provider: "rule_based_fallback",
               model: "local-kinship-engine",
               timestamp: new Date().toISOString(),
@@ -140,6 +154,7 @@ export default function FamilyAIChatModal({
         message: text,
         family_id: activeFamilyId,
         preferred_provider: providerPreference,
+        root_person_id: rootPersonId || null,
         person1_id: explicitP1 || (showPairSelector ? pairAId : null),
         person2_id: explicitP2 || (showPairSelector ? pairBId : null),
       };
@@ -178,9 +193,9 @@ export default function FamilyAIChatModal({
         {
           id: `welcome-${Date.now()}`,
           role: "assistant",
-          content: `Chat history cleared. How can I help you explore relationships in the **${
+          content: `Chat history cleared. How can I help you explore relationships in the ${
             activeFamily?.name || "Active"
-          }** family tree?`,
+          } family tree?`,
           timestamp: new Date().toISOString(),
         },
       ]);
@@ -236,7 +251,7 @@ export default function FamilyAIChatModal({
                 title="AI Engine Preference with Automatic Failover"
               >
                 <option value="auto">Auto Failover (Gemini + Groq)</option>
-                <option value="gemini">Prefer Gemini 3.8 Flash</option>
+                <option value="gemini">Prefer Gemini 2.5 Flash</option>
                 <option value="groq">Prefer Groq Llama 3.3</option>
               </select>
             </div>
@@ -380,7 +395,7 @@ export default function FamilyAIChatModal({
                 >
                   {/* Rich Formatted Content */}
                   <div className="space-y-2 whitespace-pre-wrap break-words">
-                    {msg.content}
+                    {cleanChatText(msg.content)}
                   </div>
 
                   {/* Provider / Failover Meta Footer for Assistant */}
@@ -390,10 +405,10 @@ export default function FamilyAIChatModal({
                         <Zap className="w-3 h-3 text-amber-600" />
                         <span>
                           {msg.provider === "gemini"
-                            ? `Gemini (${msg.model || "3.8 Flash"})`
+                            ? `Gemini (${msg.model || "2.5 Flash"})`
                             : msg.provider === "groq"
                             ? `Groq (${msg.model || "Llama 3.3"})`
-                            : "Offline Kinship Engine"}
+                            : "Rootline Kinship Engine"}
                         </span>
                       </span>
                       {msg.failoverOccurred && (

@@ -1987,12 +1987,12 @@ export default function TreeView() {
                 <span>{isSavingTree || isSaving ? "Saving…" : "Save"}</span>
               </button>
 
-              {/* Right Corner: History & Restore (Owner and Editor collaborators) */}
-              {(myRole === "owner" || myRole === "editor") && (
+              {/* Right Corner: History & Restore (Tree Owner only) */}
+              {myRole === "owner" && (
                 <button
                   type="button"
                   onClick={() => setActivityModalOpen(true)}
-                  title="View collaborator changes & restore previous revisions"
+                  title="View tree history & restore previous revisions"
                   className="flex items-center gap-1.5 text-xs font-semibold text-[#1C4B3C] border border-[#1C4B3C]/35 bg-emerald-50/60 hover:bg-emerald-100/70 rounded-lg px-2.5 sm:px-3 py-1.5 shadow-2xs transition-colors shrink-0"
                 >
                   <History className="w-3.5 h-3.5" />
@@ -2045,7 +2045,7 @@ export default function TreeView() {
                     >
                       <Maximize2 className="w-3.5 h-3.5 text-[#374151]" /> Fit to screen
                     </button>
-                    {(myRole === "owner" || myRole === "editor") && (
+                    {myRole === "owner" && (
                       <button
                         type="button"
                         onClick={() => {

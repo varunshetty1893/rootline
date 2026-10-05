@@ -22,13 +22,13 @@ import fs from "fs";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import nodemailer from "nodemailer";
-import { store, User, type FamilyRole } from "./rootline/store.js";
+import { store, User, type Family, type FamilyRole } from "./rootline/store.js";
 import { checkDbHealth, initDatabase, isDatabaseConnected, dbSaveUser } from "./rootline/db.js";
 import { createRateLimiter } from "./rootline/rateLimiter.js";
 import { logger } from "./rootline/logger.js";
 import { GoogleGenAI } from "@google/genai";
 import { determineKinship } from "./rootline/kinship.js";
-import { processFamilyChat } from "./rootline/aiChatService.js";
+import { processFamilyChat, cleanChatbotText } from "./rootline/aiChatService.js";
 
 let aiClient: GoogleGenAI | null = null;
 function getGenAI(): GoogleGenAI | null {
@@ -1633,7 +1633,7 @@ export async function createExpressApp() {
   app.patch(["/people/:id", "/api/people/:id"], requireAuth, handleUpdatePerson);
   app.put(["/people/:id", "/api/people/:id"], requireAuth, handleUpdatePerson);
 
-  app.delete(["/people/:id", "/api/people/:id"], requireAuth, (req: AuthRequest, res) => {
+  app.delete(["/people/:id", "/api/people/:id"], requireAuth, async (req: AuthRequest, res) => {
     try {
       const rawId = req.params.id;
       const personId = Array.isArray(rawId) ? rawId[0] : rawId;
@@ -1650,10 +1650,11 @@ export async function createExpressApp() {
         return res.status(403).json({ detail: "Viewers have read-only access and cannot edit this family tree." });
       }
 
-      const result = store.deletePerson(personId, rawPerson.owner_id, {
+      const result = store.deletePerson(personId, access.family.id, {
         id: req.user!.id,
         name: req.user!.name,
       });
+      await store.flushPendingWrites();
       return res.json(result);
     } catch (err: any) {
       const status = err.message === "Person not found" ? 404 : 400;
@@ -2168,7 +2169,7 @@ export async function createExpressApp() {
         }
         updated = store.renameFamily(req.user!.id, familyId, name.trim());
       }
-      if (root_person_id !== undefined) {
+      if (root_person_id !== undefined && (typeof root_person_id === "string" || root_person_id === null)) {
         updated = store.setRootPerson(req.user!.id, familyId, root_person_id);
       }
       if (!updated) {
@@ -2269,7 +2270,7 @@ export async function createExpressApp() {
   // Tree Persistence, Version History & Restore API
   // =========================================================================
 
-  app.post(["/api/family/save", "/api/tree/save"], requireAuth, (req: AuthRequest, res) => {
+  app.post(["/api/family/save", "/api/tree/save"], requireAuth, async (req: AuthRequest, res) => {
     try {
       const rawFamilyId = (
         (req.body?.family_id as string) ||
@@ -2296,11 +2297,11 @@ export async function createExpressApp() {
       }
 
       const rootPersonId = req.body?.root_person_id || req.body?.rootPersonId;
-      if (rootPersonId !== undefined) {
+      if (rootPersonId !== undefined && (typeof rootPersonId === "string" || rootPersonId === null)) {
         store.setRootPerson(req.user!.id, familyId, rootPersonId);
       }
 
-      const description = req.body?.description || `${req.user!.name} saved the family tree`;
+      const description = req.body?.description || `${req.user!.name} saved a checkpoint of the family tree`;
       const snapshot = store.createTreeSnapshot(
         familyId,
         { id: req.user!.id, name: req.user!.name },
@@ -2318,6 +2319,8 @@ export async function createExpressApp() {
         description,
       });
 
+      await store.flushPendingWrites();
+
       return res.json({
         success: true,
         message: "Family tree saved successfully.",
@@ -2333,7 +2336,7 @@ export async function createExpressApp() {
     }
   });
 
-  app.get(["/api/family/revisions", "/api/tree/revisions"], requireAuth, (req: AuthRequest, res) => {
+  app.get(["/api/family/revisions", "/api/tree/revisions"], requireAuth, async (req: AuthRequest, res) => {
     try {
       const rawFamilyId = (
         (req.query?.family_id as string) ||
@@ -2355,18 +2358,19 @@ export async function createExpressApp() {
       if (!access) {
         return res.status(403).json({ detail: "Access denied to this family tree revisions." });
       }
-      if (access.role !== "owner" && access.role !== "editor") {
-        return res.status(403).json({ detail: "Only tree owners and editors can access version history and revisions." });
+      if (access.role !== "owner") {
+        return res.status(403).json({ detail: "Only the tree owner can access version history and restore revisions." });
       }
 
       const revisions = store.getTreeRevisions(familyId);
+      await store.flushPendingWrites();
       return res.json({ revisions });
     } catch (err: any) {
       return res.status(500).json({ detail: err.message || "Failed to get tree revisions." });
     }
   });
 
-  app.post(["/api/family/restore", "/api/tree/restore"], requireAuth, (req: AuthRequest, res) => {
+  app.post(["/api/family/restore", "/api/tree/restore"], requireAuth, async (req: AuthRequest, res) => {
     try {
       const { revision_id } = req.body || {};
       if (!revision_id) {
@@ -2393,14 +2397,15 @@ export async function createExpressApp() {
       if (!access) {
         return res.status(403).json({ detail: "Access denied to this family tree." });
       }
-      if (access.role !== "owner" && access.role !== "editor") {
-        return res.status(403).json({ detail: "Only tree owners and editors can restore previous versions of this family tree." });
+      if (access.role !== "owner") {
+        return res.status(403).json({ detail: "Only the tree owner can restore previous versions of this family tree." });
       }
 
       const result = store.restoreTreeSnapshot(familyId, revision_id, {
         id: req.user!.id,
         name: req.user!.name,
       });
+      await store.flushPendingWrites();
 
       return res.json(result);
     } catch (err: any) {
@@ -2548,17 +2553,15 @@ Respond with a warm, conversational 2-3 sentence explanation. Do not use Markdow
           const configuredModel = process.env.GEMINI_MODEL;
           if (
             configuredModel &&
-            !configuredModel.includes("2.5") &&
             !configuredModel.includes("1.5") &&
             !configuredModel.includes("2.0")
           ) {
             candidateModels.push(configuredModel);
           }
-          if (!candidateModels.includes("gemini-3.6-flash")) {
-            candidateModels.push("gemini-3.6-flash");
-          }
-          if (!candidateModels.includes("gemini-3.8-flash")) {
-            candidateModels.push("gemini-3.8-flash");
+          for (const m of ["gemini-3-flash-preview", "gemini-2.5-flash"]) {
+            if (!candidateModels.includes(m)) {
+              candidateModels.push(m);
+            }
           }
 
           for (const modelName of candidateModels) {
@@ -2569,7 +2572,7 @@ Respond with a warm, conversational 2-3 sentence explanation. Do not use Markdow
               });
 
               if (response.text && response.text.trim().length > 0) {
-                aiExplanation = response.text.trim();
+                aiExplanation = cleanChatbotText(response.text.trim());
                 break;
               }
             } catch (modelErr: any) {
@@ -2618,21 +2621,43 @@ Respond with a warm, conversational 2-3 sentence explanation. Do not use Markdow
       const body = isRecord(req.body) ? req.body : {};
       const rawMessage = body.message;
       const message = typeof rawMessage === "string" ? rawMessage.trim() : "";
-      const targetFamilyId = body.family_id || req.user!.id;
+      const rawFamilyId = (
+        (body.family_id as string) ||
+        (body.tree_id as string) ||
+        (req.query?.family_id as string) ||
+        (req.query?.tree_id as string) ||
+        ""
+      ).trim();
+
+      let targetFamilyId = rawFamilyId;
+      let access = targetFamilyId ? store.checkFamilyAccess(req.user!.id, targetFamilyId) : null;
+      if (!access) {
+        const userTrees = store.getUserTrees(req.user!.id, req.user);
+        targetFamilyId = userTrees.owned.family.id;
+        access = store.checkFamilyAccess(req.user!.id, targetFamilyId);
+      } else {
+        targetFamilyId = access.family.id;
+      }
+
       const preferredProvider = body.preferred_provider || "auto";
       const person1Id = body.person1_id || body.person_a_id || null;
       const person2Id = body.person2_id || body.person_b_id || null;
+      const rootPersonId = typeof body.root_person_id === "string" && isId(body.root_person_id) ? body.root_person_id : null;
+      const selectedPersonId = typeof body.selected_person_id === "string" && isId(body.selected_person_id) ? body.selected_person_id : null;
+      const rootPersonName = typeof body.root_person_name === "string" ? body.root_person_name.trim() : null;
+      const selectedPersonName = typeof body.selected_person_name === "string" ? body.selected_person_name.trim() : null;
+      const selectedRelationship = typeof body.selected_relationship === "string" ? body.selected_relationship.trim() : null;
 
-      if (!isText(message, 4000, 1) || !isId(targetFamilyId) || !["auto", "gemini", "groq"].includes(String(preferredProvider)) ||
-          (person1Id !== null && !isId(person1Id)) || (person2Id !== null && !isId(person2Id))) {
+      if (!isText(message, 4000, 1) || !["auto", "gemini", "groq"].includes(String(preferredProvider)) ||
+          (person1Id !== null && person1Id !== "" && !isId(person1Id)) ||
+          (person2Id !== null && person2Id !== "" && !isId(person2Id))) {
         return res.status(400).json({ detail: "Message text is required." });
       }
       const safeProvider = preferredProvider as "auto" | "gemini" | "groq";
-      const safePerson1Id = person1Id as string | null;
-      const safePerson2Id = person2Id as string | null;
+      const safePerson1Id = (person1Id && isId(person1Id)) ? (person1Id as string) : null;
+      const safePerson2Id = (person2Id && isId(person2Id)) ? (person2Id as string) : null;
 
       // Strict family access check
-      const access = store.checkFamilyAccess(req.user!.id, targetFamilyId);
       if (!access) {
         return res.status(403).json({ detail: "Access denied: You do not have permission to view or query this family tree." });
       }
@@ -2659,6 +2684,11 @@ Respond with a warm, conversational 2-3 sentence explanation. Do not use Markdow
         preferredProvider: safeProvider,
         person1Id: safePerson1Id,
         person2Id: safePerson2Id,
+        rootPersonId,
+        selectedPersonId,
+        rootPersonName,
+        selectedPersonName,
+        selectedRelationship,
       });
 
       // Record assistant's response in persistent isolated thread
