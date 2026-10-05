@@ -235,14 +235,19 @@ export function FamilyProvider({ children }) {
       return;
     }
     try {
-      // Hydrate from localStorage cache immediately if state is empty
+      // Hydrate from localStorage cache immediately ONLY if state is currently empty
       if (typeof window !== "undefined") {
         try {
           const cached = localStorage.getItem(treeListStorageKey(user.id));
           if (cached) {
             const parsed = JSON.parse(cached);
             if (parsed && (parsed.owned_trees?.length > 0 || parsed.shared_trees?.length > 0)) {
-              setTreeList(normalizeTreeList(parsed, user.id));
+              setTreeList((prev) => {
+                if (!prev || (prev.owned_trees?.length === 0 && prev.shared_trees?.length === 0)) {
+                  return normalizeTreeList(parsed, user.id);
+                }
+                return prev;
+              });
               setTreesLoading(false);
             }
           }
@@ -457,15 +462,13 @@ export function FamilyProvider({ children }) {
     if (!user?.id) return;
 
     const syncLatest = () => {
-      // Do NOT overwrite user's work with background polling if there are unsaved changes
-      if (hasUnsavedChanges) return;
       if (typeof document !== "undefined" && document.visibilityState === "visible") {
         refresh(true);
         refreshTreeList();
       }
     };
 
-    const intervalId = setInterval(syncLatest, 5000);
+    const intervalId = setInterval(syncLatest, 4000);
     window.addEventListener("focus", syncLatest);
     window.addEventListener("visibilitychange", syncLatest);
 
@@ -474,7 +477,7 @@ export function FamilyProvider({ children }) {
       window.removeEventListener("focus", syncLatest);
       window.removeEventListener("visibilitychange", syncLatest);
     };
-  }, [user?.id, refresh, refreshTreeList, hasUnsavedChanges]);
+  }, [user?.id, refresh, refreshTreeList]);
 
   // Load the saved root person for this account and tree once loaded.
   // Restore active tree root person:
@@ -499,16 +502,21 @@ export function FamilyProvider({ children }) {
       return;
     }
 
-    // 2. Person matching the current logged-in user
-    if (user?.name && people.length > 0) {
-      const normalize = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").replace(/h/g, "");
-      const normUserName = normalize(user.name);
-      const matchUser = people.find((p) => {
-        const normP = normalize(p?.name);
-        return normP && (normP === normUserName || normUserName.includes(normP) || normP.includes(normUserName));
-      });
-      if (matchUser) {
-        setRootPersonIdState(matchUser.id);
+    // 2. Person matching the tree owner (for shared trees) or current user (for owned trees)
+    const isSharedTree = Boolean(activeTree && activeTree.isOwned === false);
+    const targetOwnerName = isSharedTree ? activeTree?.owner_name : user?.name;
+    if (targetOwnerName && people.length > 0) {
+      const normalize = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+      const normTarget = normalize(targetOwnerName);
+      const exactMatch = people.find((p) => normalize(p?.name) === normTarget);
+      const fuzzyMatch =
+        exactMatch ||
+        people.find((p) => {
+          const normP = normalize(p?.name);
+          return normP && normP.length >= 3 && (normTarget.includes(normP) || normP.includes(normTarget));
+        });
+      if (fuzzyMatch) {
+        setRootPersonIdState(fuzzyMatch.id);
         return;
       }
     }

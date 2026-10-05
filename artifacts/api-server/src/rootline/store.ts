@@ -342,7 +342,35 @@ export class MemoryStore {
   chatHistories: Map<string, ChatMessage[]> = new Map(); // key: `${userId}:${familyId}`
   deletedAccounts: Map<string, DeletedAccountRecord> = new Map(); // key: lowercase email
   isDatabaseSynced = false;
+  lastDbSyncAt = 0;
+  private pendingDbWrites: Set<Promise<any>> = new Set();
   private diskSaveTimer: NodeJS.Timeout | null = null;
+
+  trackDbWrite(promise: Promise<any>): void {
+    const tracked = promise.catch((e) => {
+      logger.error("Background DB write error:", e);
+    });
+    this.pendingDbWrites.add(tracked);
+    tracked.finally(() => {
+      this.pendingDbWrites.delete(tracked);
+    });
+  }
+
+  async flushPendingWrites(): Promise<void> {
+    while (this.pendingDbWrites.size > 0) {
+      await Promise.all(Array.from(this.pendingDbWrites));
+    }
+  }
+
+  async syncFromDatabase(force = false): Promise<void> {
+    if (!isDatabaseConnected()) return;
+    await this.flushPendingWrites();
+    const now = Date.now();
+    if (!force && this.isDatabaseSynced && now - this.lastDbSyncAt < 1000) {
+      return;
+    }
+    await this.initFromDatabase();
+  }
 
   constructor() {
     const isProduction = process.env.NODE_ENV === "production";
@@ -429,6 +457,7 @@ export class MemoryStore {
       this.treeSnapshots = new Map(parsed.treeSnapshots || []);
       this.chatHistories = new Map(parsed.chatHistories || []);
       this.deletedAccounts = new Map(parsed.deletedAccounts || []);
+      this.reconcileCollaboratorRoles();
       return true;
     } catch (err) {
       logger.error("Failed to load store state from disk backup:", err);
@@ -506,6 +535,8 @@ export class MemoryStore {
       }
     }
     this.isDatabaseSynced = true;
+    this.lastDbSyncAt = Date.now();
+    this.reconcileCollaboratorRoles();
 
     // Only if database is completely brand new and empty AND not production, allow optional demo seed
     if (this.users.size === 0 && process.env.NODE_ENV !== "production" && process.env.SEED_DEMO_DATA === "true") {
@@ -966,7 +997,7 @@ export class MemoryStore {
 
   saveFamilyUnit(fu: FamilyUnit): FamilyUnit {
     this.familyUnits.set(fu.id, fu);
-    dbSaveFamilyUnit(fu).catch((e) => logger.error("dbSaveFamilyUnit error:", e));
+    this.trackDbWrite(dbSaveFamilyUnit(fu));
     return fu;
   }
 
@@ -984,7 +1015,7 @@ export class MemoryStore {
     if (existing) {
       if (relationshipType) {
         existing.relationship_type = relationshipType;
-        dbSaveFamilyChild(existing).catch((e) => logger.error("dbSaveFamilyChild error:", e));
+        this.trackDbWrite(dbSaveFamilyChild(existing));
       }
       return existing;
     }
@@ -1009,7 +1040,7 @@ export class MemoryStore {
       relationship_type: relationshipType || "unknown",
     };
     this.familyChildren.set(row.id, row);
-    dbSaveFamilyChild(row).catch((e) => logger.error("dbSaveFamilyChild error:", e));
+    this.trackDbWrite(dbSaveFamilyChild(row));
     return row;
   }
 
@@ -1059,10 +1090,24 @@ export class MemoryStore {
     };
   }
 
+  getValidOwnerIds(ownerId: string): Set<string> {
+    const validOwnerIds = new Set<string>([ownerId]);
+    const family = this.families.get(ownerId) || this.families.get(`family-${ownerId}`);
+    if (family) {
+      validOwnerIds.add(family.id);
+      if (family.owner_id) {
+        validOwnerIds.add(family.owner_id);
+        validOwnerIds.add(`family-${family.owner_id}`);
+      }
+    }
+    return validOwnerIds;
+  }
+
   // Serializes person with optimized lightweight photo URL (Fixes Issues 5 & 6)
   serializePerson(person: Person, options?: { fullPhoto?: boolean }): PersonOut {
+    const validOwnerIds = this.getValidOwnerIds(person.owner_id);
     const ownerUnits = Array.from(this.familyUnits.values()).filter(
-      (fu) => fu.owner_id === person.owner_id
+      (fu) => validOwnerIds.has(fu.owner_id)
     );
     const spouseUnitsByPartner = new Map<string, FamilyUnit[]>();
     for (const fu of ownerUnits) {
@@ -1132,12 +1177,7 @@ export class MemoryStore {
   }
 
   getPeopleForOwner(ownerId: string, options?: { fullPhoto?: boolean }): PersonOut[] {
-    const family = this.families.get(ownerId);
-    const validOwnerIds = new Set<string>([ownerId]);
-    if (family) {
-      validOwnerIds.add(family.id);
-      if (family.owner_id) validOwnerIds.add(family.owner_id);
-    }
+    const validOwnerIds = this.getValidOwnerIds(ownerId);
     const ownerPeople = Array.from(this.people.values()).filter((p) => validOwnerIds.has(p.owner_id));
     ownerPeople.sort((a, b) => normalizeToIsoString(a.created_at).localeCompare(normalizeToIsoString(b.created_at)));
 
@@ -1145,12 +1185,7 @@ export class MemoryStore {
   }
 
   getPeopleCount(ownerId: string): number {
-    const family = this.families.get(ownerId);
-    const validOwnerIds = new Set<string>([ownerId]);
-    if (family) {
-      validOwnerIds.add(family.id);
-      if (family.owner_id) validOwnerIds.add(family.owner_id);
-    }
+    const validOwnerIds = this.getValidOwnerIds(ownerId);
     let count = 0;
     for (const p of this.people.values()) {
       if (validOwnerIds.has(p.owner_id)) count++;
@@ -1161,12 +1196,7 @@ export class MemoryStore {
   getPerson(id: string, ownerId: string): Person | null {
     const p = this.people.get(id);
     if (!p) return null;
-    const family = this.families.get(ownerId);
-    const validOwnerIds = new Set<string>([ownerId]);
-    if (family) {
-      validOwnerIds.add(family.id);
-      if (family.owner_id) validOwnerIds.add(family.owner_id);
-    }
+    const validOwnerIds = this.getValidOwnerIds(ownerId);
     if (!validOwnerIds.has(p.owner_id)) return null;
     return p;
   }
@@ -1220,7 +1250,14 @@ export class MemoryStore {
       created_at: new Date().toISOString(),
     };
     this.people.set(person.id, person);
-    dbSavePerson(person).catch((e) => logger.error("dbSavePerson error:", e));
+    this.trackDbWrite(dbSavePerson(person));
+
+    // If the target family does not yet have a root_person_id, set this first person as root_person_id
+    const targetFamily = this.families.get(ownerId) || this.families.get(`family-${ownerId}`);
+    if (targetFamily && (!targetFamily.root_person_id || !this.people.has(targetFamily.root_person_id))) {
+      targetFamily.root_person_id = person.id;
+      this.trackDbWrite(dbSaveFamily(targetFamily));
+    }
 
     if (relation?.relation_type && relation?.related_to_id) {
       this.applyRelation(person, relation, ownerId);
@@ -1256,6 +1293,7 @@ export class MemoryStore {
     },
     ownerId: string
   ) {
+    const validOwnerIds = this.getValidOwnerIds(ownerId);
     const related = this.getPerson(relation.related_to_id!, ownerId);
     if (!related) {
       throw new Error("The person you're relating to wasn't found");
@@ -1264,7 +1302,7 @@ export class MemoryStore {
     let selectedFamily: FamilyUnit | null = null;
     if (relation.family_id) {
       selectedFamily = this.familyUnits.get(relation.family_id) || null;
-      if (!selectedFamily || selectedFamily.owner_id !== ownerId) {
+      if (!selectedFamily || !validOwnerIds.has(selectedFamily.owner_id)) {
         throw new Error("The selected family was not found");
       }
     }
@@ -1366,7 +1404,7 @@ export class MemoryStore {
       // Prevent duplicate spouse family units (Fixes Issue 9)
       const existingSpouseUnit = Array.from(this.familyUnits.values()).find(
         (fu) =>
-          fu.owner_id === ownerId &&
+          validOwnerIds.has(fu.owner_id) &&
           ((fu.partner1_id === related.id && fu.partner2_id === newPerson.id) ||
             (fu.partner1_id === newPerson.id && fu.partner2_id === related.id))
       );
@@ -1382,7 +1420,7 @@ export class MemoryStore {
       // Check if related has a single-partner unit that can be completed
       const singleUnit = Array.from(this.familyUnits.values()).find(
         (fu) =>
-          fu.owner_id === ownerId &&
+          validOwnerIds.has(fu.owner_id) &&
           ((fu.partner1_id === related.id && fu.partner2_id === null) ||
             (fu.partner2_id === related.id && fu.partner1_id === null))
       );
@@ -1433,7 +1471,7 @@ export class MemoryStore {
       if (!fu) {
         const partnerFamilies = Array.from(this.familyUnits.values()).filter(
           (f) =>
-            f.owner_id === ownerId &&
+            validOwnerIds.has(f.owner_id) &&
             (f.partner1_id === related.id || f.partner2_id === related.id)
         );
         partnerFamilies.sort((a, b) => normalizeToIsoString(a.created_at).localeCompare(normalizeToIsoString(b.created_at)));
@@ -1526,9 +1564,10 @@ export class MemoryStore {
       throw new Error("Cannot link people: direct ancestor and descendant cannot be linked as partners");
     }
 
+    const validOwnerIds = this.getValidOwnerIds(ownerId);
     const existing = Array.from(this.familyUnits.values()).find(
       (fu) =>
-        fu.owner_id === ownerId &&
+        validOwnerIds.has(fu.owner_id) &&
         ((fu.partner1_id === firstPersonId && fu.partner2_id === secondPersonId) ||
           (fu.partner1_id === secondPersonId && fu.partner2_id === firstPersonId))
     );
@@ -1540,7 +1579,7 @@ export class MemoryStore {
 
     const candidateUnits = Array.from(this.familyUnits.values()).filter(
       (fu) =>
-        fu.owner_id === ownerId &&
+        validOwnerIds.has(fu.owner_id) &&
         (fu.partner1_id === firstPersonId ||
           fu.partner1_id === secondPersonId ||
           fu.partner2_id === firstPersonId ||
@@ -1695,7 +1734,7 @@ export class MemoryStore {
     if (updates.phone !== undefined) person.phone = updates.phone;
     if (updates.photo_url !== undefined) person.photo_url = updates.photo_url;
 
-    dbSavePerson(person).catch((e) => logger.error("dbSavePerson error:", e));
+    this.trackDbWrite(dbSavePerson(person));
 
     if (actor) {
       this.logActivity({
@@ -1727,33 +1766,34 @@ export class MemoryStore {
     for (const [fcId, fc] of this.familyChildren.entries()) {
       if (fc.person_id === id) {
         this.familyChildren.delete(fcId);
-        dbDeleteFamilyChild(fcId).catch((e) => logger.error("dbDeleteFamilyChild error:", e));
+        this.trackDbWrite(dbDeleteFamilyChild(fcId));
       }
     }
 
+    const validOwnerIds = this.getValidOwnerIds(ownerId);
     for (const fu of this.familyUnits.values()) {
-      if (fu.owner_id === ownerId) {
+      if (validOwnerIds.has(fu.owner_id)) {
         let changed = false;
         if (fu.partner1_id === id) { fu.partner1_id = null; changed = true; }
         if (fu.partner2_id === id) { fu.partner2_id = null; changed = true; }
         if (changed) {
-          dbSaveFamilyUnit(fu).catch((e) => logger.error("dbSaveFamilyUnit error:", e));
+          this.trackDbWrite(dbSaveFamilyUnit(fu));
         }
       }
     }
 
     this.people.delete(id);
-    dbDeletePerson(id).catch((e) => logger.error("dbDeletePerson error:", e));
+    this.trackDbWrite(dbDeletePerson(id));
 
     // Clean up empty orphaned family units
     for (const [fuId, fu] of this.familyUnits.entries()) {
-      if (fu.owner_id === ownerId && fu.partner1_id === null && fu.partner2_id === null) {
+      if (validOwnerIds.has(fu.owner_id) && fu.partner1_id === null && fu.partner2_id === null) {
         const hasChildren = Array.from(this.familyChildren.values()).some(
           (c) => c.family_unit_id === fuId
         );
         if (!hasChildren) {
           this.familyUnits.delete(fuId);
-          dbDeleteFamilyUnit(fuId).catch((e) => logger.error("dbDeleteFamilyUnit error:", e));
+          this.trackDbWrite(dbDeleteFamilyUnit(fuId));
         }
       }
     }
@@ -1895,6 +1935,138 @@ export class MemoryStore {
     }
 
     return list;
+  }
+
+  reconcileCollaboratorRoles(): void {
+    // Ensure treeShares, familyMembers, and accepted familyInvitations have consistent permissions
+    for (const s of Array.from(this.treeShares.values())) {
+      const u = this.users.get(s.user_id) || (s.user_id.includes("@") ? this.findUserByEmail(s.user_id) : undefined);
+      const uid = u?.id || s.user_id;
+      const email = (u?.email || (s.user_id.includes("@") ? s.user_id : "")).toLowerCase().trim();
+      if (u && s.user_id !== u.id) {
+        s.user_id = u.id;
+      }
+      if (uid && !uid.includes("@")) {
+        const memberKey = `${s.family_id}-${uid}`;
+        const existingMember = this.familyMembers.get(memberKey);
+        if (existingMember && existingMember.role !== "owner" && existingMember.role !== s.permission) {
+          existingMember.role = s.permission;
+        }
+      }
+      if (email) {
+        for (const inv of this.familyInvitations.values()) {
+          if (
+            inv.family_id === s.family_id &&
+            inv.status === "accepted" &&
+            email &&
+            inv.invitee_email &&
+            inv.invitee_email.toLowerCase().trim() === email &&
+            inv.permission !== s.permission
+          ) {
+            inv.permission = s.permission;
+          }
+        }
+      }
+    }
+
+    // Also ensure every family that has people has a canonical root_person_id
+    for (const fam of this.families.values()) {
+      if (fam.root_person_id && this.people.has(fam.root_person_id)) continue;
+      const validIds = this.getValidOwnerIds(fam.id);
+      const famPeople = Array.from(this.people.values()).filter((p) => validIds.has(p.owner_id));
+      if (famPeople.length === 0) continue;
+      famPeople.sort((a, b) => normalizeToIsoString(a.created_at).localeCompare(normalizeToIsoString(b.created_at)));
+      const ownerUser = this.users.get(fam.owner_id);
+      const ownerName = (ownerUser?.name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+      const matchOwner =
+        (ownerName &&
+          famPeople.find((p) => {
+            const pName = (p.name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+            return pName && (pName === ownerName || pName.includes(ownerName) || ownerName.includes(pName));
+          })) ||
+        famPeople.find((p) => {
+          const b = (p.bio || "").toLowerCase();
+          return b.includes("tree starter") || b.includes("owner") || b === "you";
+        }) ||
+        famPeople[0];
+      if (matchOwner) {
+        fam.root_person_id = matchOwner.id;
+      }
+    }
+  }
+
+  private syncCollaboratorRole(
+    familyId: string,
+    targetUserId: string | null,
+    targetEmail: string | null,
+    permission: SharePermission
+  ): void {
+    const cleanEmail = targetEmail ? targetEmail.toLowerCase().trim() : "";
+    const resolvedUser =
+      (targetUserId ? this.users.get(targetUserId) : undefined) ||
+      (cleanEmail ? this.findUserByEmail(cleanEmail) : undefined);
+    const uid = resolvedUser?.id || targetUserId || "";
+    const email = (resolvedUser?.email || cleanEmail || "").toLowerCase().trim();
+    const now = new Date().toISOString();
+
+    for (const s of this.treeShares.values()) {
+      const shareUser = this.users.get(s.user_id);
+      const shareEmail = (shareUser?.email || (s.user_id.includes("@") ? s.user_id : "")).toLowerCase().trim();
+      const matchesUser =
+        (uid && s.user_id === uid) ||
+        (email && s.user_id.toLowerCase().trim() === email) ||
+        (email && shareEmail === email);
+      if (s.family_id === familyId && matchesUser) {
+        if (uid && !uid.includes("@")) {
+          s.user_id = uid;
+        }
+        s.permission = permission;
+        s.updated_at = now;
+        this.trackDbWrite(dbSaveTreeShare(s));
+      }
+    }
+
+    if (uid && !uid.includes("@")) {
+      let foundMember = false;
+      for (const m of this.familyMembers.values()) {
+        if (m.family_id === familyId && m.user_id === uid) {
+          foundMember = true;
+          if (m.role !== "owner" && m.role !== permission) {
+            m.role = permission;
+            this.trackDbWrite(dbSaveFamilyMember(m));
+          }
+        }
+      }
+      if (!foundMember) {
+        const family = this.families.get(familyId);
+        if (family && family.owner_id !== uid) {
+          const memberId = `${familyId}-${uid}`;
+          const newMember: FamilyMember = {
+            id: memberId,
+            family_id: familyId,
+            user_id: uid,
+            role: permission,
+            joined_at: now,
+          };
+          this.familyMembers.set(memberId, newMember);
+          this.trackDbWrite(dbSaveFamilyMember(newMember));
+        }
+      }
+    }
+
+    for (const inv of this.familyInvitations.values()) {
+      const matchesInvUser =
+        (uid && inv.accepted_by_user_id === uid) ||
+        (email && inv.invitee_email && inv.invitee_email.toLowerCase().trim() === email);
+      if (inv.family_id === familyId && matchesInvUser && inv.status === "accepted") {
+        if (inv.permission !== permission) {
+          inv.permission = permission;
+          this.trackDbWrite(dbSaveInvitation(inv));
+        }
+      }
+    }
+
+    this.scheduleDiskSave();
   }
 
   checkFamilyAccess(userId: string, familyId: string): { family: Family; role: FamilyRole } | null {
@@ -2336,7 +2508,7 @@ export class MemoryStore {
     }
 
     family.name = trimmedName;
-    dbSaveFamily(family).catch((e) => logger.error("dbSaveFamily error:", e));
+    this.trackDbWrite(dbSaveFamily(family));
 
     this.logActivity({
       family_id: family.id,
@@ -2382,7 +2554,7 @@ export class MemoryStore {
       this.families.set(familyId, aliasFamily);
     }
     this.scheduleDiskSave();
-    dbSaveFamily(family).catch((e) => logger.error("dbSaveFamily error:", e));
+    this.trackDbWrite(dbSaveFamily(family));
 
     const user = this.users.get(userId);
     this.logActivity({
@@ -2730,6 +2902,7 @@ export class MemoryStore {
       existing.permission = params.permission;
       existing.updated_at = now;
       await dbSaveTreeShare(existing).catch((e) => logger.error("dbSaveTreeShare error:", e));
+      this.syncCollaboratorRole(params.familyId, recipient.id, normalizedEmail, params.permission);
 
       // Mark any pending invitations for this user and family as accepted
       for (const inv of this.familyInvitations.values()) {
@@ -2777,6 +2950,7 @@ export class MemoryStore {
 
     this.treeShares.set(newShare.id, newShare);
     await dbSaveTreeShare(newShare).catch((e) => logger.error("dbSaveTreeShare error:", e));
+    this.syncCollaboratorRole(params.familyId, recipient.id, normalizedEmail, params.permission);
 
     // Also mark any pending invitations for this user on this family as accepted
     for (const inv of this.familyInvitations.values()) {
@@ -2952,10 +3126,17 @@ export class MemoryStore {
 
     share.permission = permission;
     share.updated_at = new Date().toISOString();
-    dbSaveTreeShare(share).catch((e) => logger.error("dbSaveTreeShare error:", e));
+    this.trackDbWrite(dbSaveTreeShare(share));
+
+    const recipient = this.users.get(share.user_id);
+    this.syncCollaboratorRole(
+      familyId,
+      recipient?.id || (share.user_id.includes("@") ? null : share.user_id),
+      recipient?.email || (share.user_id.includes("@") ? share.user_id : null),
+      permission
+    );
 
     const owner = this.users.get(ownerId);
-    const recipient = this.users.get(share.user_id);
 
     this.logActivity({
       family_id: familyId,
@@ -3199,6 +3380,9 @@ export class MemoryStore {
     }
 
     await dbSaveInvitation(invitation);
+    if (isAlreadyCollaborator && recipientUser) {
+      this.syncCollaboratorRole(params.familyId, recipientUser.id, normalizedEmail, params.permission);
+    }
 
     this.logActivity({
       family_id: params.familyId,

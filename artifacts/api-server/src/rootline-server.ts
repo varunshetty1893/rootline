@@ -154,9 +154,16 @@ async function authMiddleware(req: AuthRequest, res: Response, next: NextFunctio
   next();
 }
 
-function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
+async function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
   if (!req.user) {
     return res.status(401).json({ detail: "Not authenticated" });
+  }
+  if (isDatabaseConnected()) {
+    try {
+      await store.syncFromDatabase();
+    } catch (err) {
+      logger.warn("requireAuth syncFromDatabase error:", err);
+    }
   }
   return next();
 }
@@ -1427,7 +1434,7 @@ export async function createExpressApp() {
     return res.status(404).send("Photo format not recognized");
   });
 
-  app.post(["/people", "/api/people"], requireAuth, (req: AuthRequest, res) => {
+  app.post(["/people", "/api/people"], requireAuth, async (req: AuthRequest, res) => {
     try {
       if (!isRecord(req.body)) return res.status(422).json({ detail: "Invalid person payload" });
       const body = req.body as Record<string, any>;
@@ -1475,7 +1482,8 @@ export async function createExpressApp() {
       if (related_to_id) {
         const relatedPerson = store.people.get(related_to_id);
         if (relatedPerson) {
-          targetFamilyId = relatedPerson.owner_id;
+          const canonFam = store.families.get(relatedPerson.owner_id) || store.families.get(`family-${relatedPerson.owner_id}`);
+          targetFamilyId = canonFam ? canonFam.id : relatedPerson.owner_id;
         }
       }
       if (!targetFamilyId && body.family_id && store.families.has(body.family_id)) {
@@ -1493,6 +1501,7 @@ export async function createExpressApp() {
       if (access.role === "viewer") {
         return res.status(403).json({ detail: "Viewers have read-only access and cannot edit this family tree." });
       }
+      targetFamilyId = access.family.id;
 
       const person = store.createPerson(
         targetFamilyId,
@@ -1519,6 +1528,7 @@ export async function createExpressApp() {
         },
         { id: req.user!.id, name: req.user!.name }
       );
+      await store.flushPendingWrites();
 
       return res.status(201).json(person);
     } catch (err: any) {
@@ -1526,7 +1536,7 @@ export async function createExpressApp() {
     }
   });
 
-  app.post(["/people/link", "/api/people/link"], requireAuth, (req: AuthRequest, res) => {
+  app.post(["/people/link", "/api/people/link"], requireAuth, async (req: AuthRequest, res) => {
     try {
       const { first_person_id, second_person_id, relationship_status } = req.body;
       if (!isId(first_person_id) || !isId(second_person_id) || (relationship_status !== undefined && relationship_status !== null && !isText(relationship_status, 64, 1))) {
@@ -1546,12 +1556,13 @@ export async function createExpressApp() {
       }
 
       const result = store.linkPeople(
-        targetFamilyId,
+        access.family.id,
         first_person_id,
         second_person_id,
         relationship_status,
         { id: req.user!.id, name: req.user!.name }
       );
+      await store.flushPendingWrites();
       return res.json(result);
     } catch (err: any) {
       return res.status(400).json({ detail: err.message || "Failed to link people" });
@@ -1578,7 +1589,7 @@ export async function createExpressApp() {
     return res.json(store.serializePerson(person, { fullPhoto: true }));
   });
 
-  const handleUpdatePerson = (req: AuthRequest, res: any) => {
+  const handleUpdatePerson = async (req: AuthRequest, res: any) => {
     try {
       const rawId = req.params.id;
       const personId = Array.isArray(rawId) ? rawId[0] : rawId;
@@ -1611,6 +1622,7 @@ export async function createExpressApp() {
         id: req.user!.id,
         name: req.user!.name,
       });
+      await store.flushPendingWrites();
       return res.json(updated);
     } catch (err: any) {
       const status = err.message === "Person not found" ? 404 : 400;
@@ -2044,7 +2056,7 @@ export async function createExpressApp() {
     }
   });
 
-  const handleUpdateShare = (req: AuthRequest, res: any) => {
+  const handleUpdateShare = async (req: AuthRequest, res: any) => {
     try {
       const rawFamilyId = req.params.id;
       const familyId = Array.isArray(rawFamilyId) ? rawFamilyId[0] : rawFamilyId;
@@ -2061,6 +2073,7 @@ export async function createExpressApp() {
       }
 
       const updated = store.updateTreeShare(req.user!.id, familyId, shareId, permission);
+      await store.flushPendingWrites();
       return res.json({
         message: "Share permission updated successfully.",
         share: updated,
@@ -2143,7 +2156,7 @@ export async function createExpressApp() {
   app.post("/api/families", requireAuth, handleCreateFamily);
   app.post("/families", requireAuth, handleCreateFamily);
 
-  const handleUpdateFamily = (req: AuthRequest, res: any) => {
+  const handleUpdateFamily = async (req: AuthRequest, res: any) => {
     try {
       const rawFamilyId = req.params.id;
       const familyId = Array.isArray(rawFamilyId) ? rawFamilyId[0] : rawFamilyId;
@@ -2161,6 +2174,7 @@ export async function createExpressApp() {
       if (!updated) {
         return res.status(400).json({ detail: "No valid update parameters provided." });
       }
+      await store.flushPendingWrites();
       return res.json(updated);
     } catch (err: any) {
       const status = err.message.includes("owner") || err.message.includes("editors") ? 403 : err.message.includes("not found") ? 404 : 400;
@@ -2170,12 +2184,13 @@ export async function createExpressApp() {
   app.patch("/api/families/:id", requireAuth, handleUpdateFamily);
   app.patch("/families/:id", requireAuth, handleUpdateFamily);
 
-  const handleSetRootPerson = (req: AuthRequest, res: any) => {
+  const handleSetRootPerson = async (req: AuthRequest, res: any) => {
     try {
       const rawFamilyId = req.params.id;
       const familyId = Array.isArray(rawFamilyId) ? rawFamilyId[0] : rawFamilyId;
       const rootPersonId = req.body?.root_person_id || req.body?.rootPersonId || null;
       const updated = store.setRootPerson(req.user!.id, familyId, rootPersonId);
+      await store.flushPendingWrites();
       return res.json({
         success: true,
         family: updated,

@@ -132,7 +132,7 @@ export function getShortFamily(allPeople, focusId) {
   const myParents = getParents(focus);
   for (const pid of myParents) resultIds.add(pid);
 
-  // 2. Siblings of focus and their partners
+  // 2. Siblings of focus, their partners, and their children (nieces/nephews)
   if (myParents.length > 0) {
     for (const p of allPeople) {
       if (p.id === focusId) continue;
@@ -140,9 +140,11 @@ export function getShortFamily(allPeople, focusId) {
       const isSibling = pParents.some((pid) => myParents.includes(pid));
       if (isSibling) {
         resultIds.add(p.id);
-        // Sibling's partners ("simply her sibling and their partners")
         for (const partnerId of getPartners(p)) {
           resultIds.add(partnerId);
+        }
+        for (const sibChildId of getChildren(p)) {
+          resultIds.add(sibChildId);
         }
       }
     }
@@ -155,7 +157,6 @@ export function getShortFamily(allPeople, focusId) {
     const partner = byId.get(partnerId);
     if (partner) {
       // 4. In-laws: Father-in-law & Mother-in-law (parents of partner)
-      // ("her partner n her partners parents")
       const inLawParents = getParents(partner);
       for (const inLawId of inLawParents) {
         resultIds.add(inLawId);
@@ -163,26 +164,38 @@ export function getShortFamily(allPeople, focusId) {
     }
   }
 
-  // 5. Children of focus (and partner's shared children)
+  // 5. Children of focus (and partner's shared children + children's partners + grandchildren)
   const myChildren = getChildren(focus);
-  for (const childId of myChildren) {
-    resultIds.add(childId);
-  }
+  const allChildIds = new Set(myChildren);
   for (const partnerId of myPartners) {
     const partner = byId.get(partnerId);
     if (partner) {
       for (const partnerChildId of getChildren(partner)) {
-        resultIds.add(partnerChildId);
+        allChildIds.add(partnerChildId);
+      }
+    }
+  }
+  for (const childId of allChildIds) {
+    resultIds.add(childId);
+    const child = byId.get(childId);
+    if (child) {
+      for (const cpId of getPartners(child)) {
+        resultIds.add(cpId);
+      }
+      for (const gcId of getChildren(child)) {
+        resultIds.add(gcId);
       }
     }
   }
 
-  // 6. Grandparents: If focus person is in the latest generation (has no children),
-  // show their parents AND their grandparents (mother's parents and father's parents).
-  if (myChildren.length === 0 && myParents.length > 0) {
+  // 6. Grandparents and Aunts/Uncles
+  if (myParents.length > 0) {
     for (const parentId of myParents) {
       const parent = byId.get(parentId);
       if (!parent) continue;
+      for (const pPartnerId of getPartners(parent)) {
+        resultIds.add(pPartnerId);
+      }
       const grandParents = getParents(parent);
       for (const gpId of grandParents) {
         resultIds.add(gpId);
@@ -190,6 +203,9 @@ export function getShortFamily(allPeople, focusId) {
         if (gp) {
           for (const spId of getPartners(gp)) {
             resultIds.add(spId);
+          }
+          for (const auntUncleId of getChildren(gp)) {
+            resultIds.add(auntUncleId);
           }
         }
       }
@@ -473,7 +489,19 @@ function PersonCard({
           {person.dob ? person.dob.slice(0, 4) : "Birth unknown"}
           {person.dod ? ` – ${person.dod.slice(0, 4)}` : ""}
         </p>
-        <p className="text-[8px] text-white/75 leading-tight line-clamp-2 mt-1">{person.notes || "Family member"}</p>
+        <p className="text-[8px] text-white/75 leading-tight line-clamp-2 mt-1">
+          {(() => {
+            const rawNotes = (person.notes || "").trim();
+            const lowerNotes = rawNotes.toLowerCase();
+            if (lowerNotes === "you" || lowerNotes === "self") {
+              return isRoot ? "Tree Starter" : "Family member";
+            }
+            if (lowerNotes === "tree starter (owner)" && !isOwner) {
+              return "Tree Starter";
+            }
+            return rawNotes || (isRoot ? "Tree Starter" : "Family member");
+          })()}
+        </p>
       </div>
 
       {/* Branch controls are rendered at the connector junction, not under
@@ -564,7 +592,7 @@ export default function TreeView() {
   const [confirmSetMePerson, setConfirmSetMePerson] = useState(null);
   const [isPanning, setIsPanning] = useState(false);
   const [collapseControls, setCollapseControls] = useState([]);
-  const [focusedView, setFocusedView] = useState(true);
+  const [focusedView, setFocusedView] = useState(false);
   const [smartAccordion, setSmartAccordion] = useState(true);
   const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
   const [mobileSheetMinimized, setMobileSheetMinimized] = useState(false);
@@ -664,18 +692,14 @@ export default function TreeView() {
     [scopedPeople, focusedView, collapsedFamilyKeys, focusId]
   );
 
-  // Initialize recommended collapsed branches on first load or when the root person changes,
-  // so the tree opens focused on closely related family with "+" buttons on collateral branches.
+  // Keep all branches expanded by default when switching roots so collaborators see all added relatives
   useEffect(() => {
     if (!people.length) return;
     const focus = rootPersonId || people[0]?.id;
     if (!focus) return;
     if (lastRootRef.current !== focus) {
       lastRootRef.current = focus;
-      const recommended = recommendedCollapsedFamilyKeys(people, new Set([focus]));
-      if (recommended.size > 0) {
-        setCollapsedFamilyKeys(recommended);
-      }
+      setCollapsedFamilyKeys(new Set());
     }
   }, [people, rootPersonId]);
 
@@ -705,6 +729,43 @@ export default function TreeView() {
 
   const selectedPerson = selectedId ? people.find((p) => p.id === selectedId) : null;
   const rootPerson = useMemo(() => people.find((p) => p.id === rootPersonId) || null, [people, rootPersonId]);
+
+  // Identify at most ONE person card in the tree that represents the currently logged-in user ("You")
+  const currentUserPersonId = useMemo(() => {
+    if (!user || !people.length) return null;
+    const norm = (s) => (s || "").toLowerCase().trim().replace(/[^a-z0-9]/g, "");
+    const userFull = norm(user.name);
+    if (!userFull) return myRole === "owner" ? rootPersonId : null;
+
+    // 1. Exact normalized full name match (prefer rootPersonId if multiple match and user is owner)
+    const exactMatches = people.filter((p) => norm(p?.name) === userFull);
+    if (exactMatches.length > 0) {
+      if (myRole === "owner" && rootPersonId && exactMatches.some((p) => p.id === rootPersonId)) {
+        return rootPersonId;
+      }
+      return exactMatches[0].id;
+    }
+
+    // 2. If user is the tree owner, their own tree starter card is "You"
+    if (myRole === "owner" && rootPersonId) {
+      return rootPersonId;
+    }
+
+    // 3. First-word match only if unique and at least 3 chars, and NOT matching the tree owner's card on a shared tree
+    const userFirst = norm((user.name || "").trim().split(/\s+/)[0]);
+    if (userFirst.length >= 3) {
+      const firstMatches = people.filter((p) => {
+        if (myRole !== "owner" && p.id === rootPersonId) return false;
+        const pFirst = norm((p?.name || "").trim().split(/\s+/)[0]);
+        return pFirst === userFirst;
+      });
+      if (firstMatches.length === 1) {
+        return firstMatches[0].id;
+      }
+    }
+
+    return null;
+  }, [user, people, myRole, rootPersonId]);
 
   useEffect(() => {
     if (people.length && !people.some((p) => p.id === selectedId)) {
@@ -2200,17 +2261,7 @@ export default function TreeView() {
                               onPath={pathIdSet.has(person.id)}
                               isRoot={rootPersonId === person.id}
                               isOwner={myRole === "owner"}
-                              isCurrentUser={
-                                Boolean(
-                                  user?.name &&
-                                  person?.name &&
-                                  (
-                                    person.name.toLowerCase().trim() === user.name.toLowerCase().trim() ||
-                                    person.name.toLowerCase().replace(/[^a-z0-9]/g, "").includes(user.name.toLowerCase().replace(/[^a-z0-9]/g, "")) ||
-                                    user.name.toLowerCase().replace(/[^a-z0-9]/g, "").includes(person.name.toLowerCase().replace(/[^a-z0-9]/g, ""))
-                                  )
-                                )
-                              }
+                              isCurrentUser={currentUserPersonId === person.id}
                               isSelected={selectedId === person.id}
                               onSelect={handleSelectPerson}
                             />

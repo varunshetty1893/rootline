@@ -24,6 +24,32 @@
         "created_at": "2026-09-26T09:54:45.828Z",
         "password_version": 1
       }
+    ],
+    [
+      "46fbdfce-39db-411c-b843-e6f78df2230e",
+      {
+        "id": "46fbdfce-39db-411c-b843-e6f78df2230e",
+        "name": "Varun Shetty",
+        "email": "owner@test.com",
+        "hashed_password": "$2b$12$vulgytWUVI4cSg2EhLWzC.kK/BdALqkL32RLIlVwQpcmcguS5qG1i",
+        "google_id": null,
+        "is_active": true,
+        "created_at": "2026-10-05T21:15:25.157Z",
+        "password_version": 1
+      }
+    ],
+    [
+      "3af3e9e8-2326-4e60-83e4-bcb3bb3f2b37",
+      {
+        "id": "3af3e9e8-2326-4e60-83e4-bcb3bb3f2b37",
+        "name": "Collaborator User",
+        "email": "collab@test.com",
+        "hashed_password": "$2b$12$eY3HGMFSzRtFbdWzjdlyX.wKFVv5e9D7TVLBLezhRMEbDfC84H6gy",
+        "google_id": null,
+        "is_active": true,
+        "created_at": "2026-10-05T21:15:25.513Z",
+        "password_version": 1
+      }
     ]
   ],
   "resetTokens": [],
@@ -1684,6 +1710,42 @@
         "photo_url": null,
         "created_at": "2026-09-26T09:54:46.476Z"
       }
+    ],
+    [
+      "9eb10df9-7573-4a52-99b7-ecca1e0ef700",
+      {
+        "id": "9eb10df9-7573-4a52-99b7-ecca1e0ef700",
+        "owner_id": "97d0df6f-d3bc-4c7a-8f2c-d7c2f1cec25c",
+        "name": "Varun Shetty",
+        "gender": "male",
+        "date_of_birth": null,
+        "date_of_death": null,
+        "place_of_birth": null,
+        "occupation": null,
+        "bio": "You",
+        "address": null,
+        "phone": null,
+        "photo_url": null,
+        "created_at": "2026-10-05T21:15:25.514Z"
+      }
+    ],
+    [
+      "523fc58b-e5a4-47d7-964b-8e9fd2e107e4",
+      {
+        "id": "523fc58b-e5a4-47d7-964b-8e9fd2e107e4",
+        "owner_id": "97d0df6f-d3bc-4c7a-8f2c-d7c2f1cec25c",
+        "name": "xx",
+        "gender": "male",
+        "date_of_birth": null,
+        "date_of_death": null,
+        "place_of_birth": null,
+        "occupation": null,
+        "bio": null,
+        "address": null,
+        "phone": null,
+        "photo_url": null,
+        "created_at": "2026-10-05T21:15:25.520Z"
+      }
     ]
   ],
   "familyUnits": [
@@ -2037,6 +2099,17 @@
         "partner2_id": "0bd69771-0309-492a-9313-8f458aae655d",
         "relationship_status": "partner",
         "created_at": "2026-09-26T09:54:46.476Z"
+      }
+    ],
+    [
+      "ae4ae5a3-19c2-4e22-be5d-6805b6919395",
+      {
+        "id": "ae4ae5a3-19c2-4e22-be5d-6805b6919395",
+        "owner_id": "97d0df6f-d3bc-4c7a-8f2c-d7c2f1cec25c",
+        "partner1_id": "9eb10df9-7573-4a52-99b7-ecca1e0ef700",
+        "partner2_id": null,
+        "relationship_status": "partner",
+        "created_at": "2026-10-05T21:15:25.521Z"
       }
     ]
   ],
@@ -2562,6 +2635,15 @@
         "person_id": "54ab9ae2-e772-4050-8479-0d0bdab02b39",
         "relationship_type": "unknown"
       }
+    ],
+    [
+      "9b73f24f-e810-4a4b-ab6a-98b74b8fefe9",
+      {
+        "id": "9b73f24f-e810-4a4b-ab6a-98b74b8fefe9",
+        "family_unit_id": "ae4ae5a3-19c2-4e22-be5d-6805b6919395",
+        "person_id": "523fc58b-e5a4-47d7-964b-8e9fd2e107e4",
+        "relationship_type": "unknown"
+      }
     ]
   ],
   "families": [
@@ -2571,7 +2653,8 @@
         "id": "c29e18e7-70a6-47b7-88c6-087734313977",
         "owner_id": "c29e18e7-70a6-47b7-88c6-087734313977",
         "name": "Varun Shetty's Family",
-        "created_at": "2026-09-26T09:54:45.768Z"
+        "created_at": "2026-09-26T09:54:45.768Z",
+        "root_person_id": "7bfa4d03-1eb1-4ac6-9d41-ead8538cf526"
       }
     ],
     [
@@ -2580,7 +2663,36 @@
         "id": "pachhu-family-id",
         "owner_id": "pachhu-user-id",
         "name": "Pachhu's Family Tree",
-        "created_at": "2026-09-26T09:54:45.828Z"
+        "created_at": "2026-09-26T09:54:45.828Z",
+        "root_person_id": "44d1f17e-9113-48d0-baa2-5c2ed230bd94"
+      }
+    ],
+    [
+      "46fbdfce-39db-411c-b843-e6f78df2230e",
+      {
+        "id": "46fbdfce-39db-411c-b843-e6f78df2230e",
+        "owner_id": "46fbdfce-39db-411c-b843-e6f78df2230e",
+        "name": "Varun Shetty's Family",
+        "created_at": "2026-10-05T21:15:25.157Z"
+      }
+    ],
+    [
+      "3af3e9e8-2326-4e60-83e4-bcb3bb3f2b37",
+      {
+        "id": "3af3e9e8-2326-4e60-83e4-bcb3bb3f2b37",
+        "owner_id": "3af3e9e8-2326-4e60-83e4-bcb3bb3f2b37",
+        "name": "Collaborator User's Family",
+        "created_at": "2026-10-05T21:15:25.513Z"
+      }
+    ],
+    [
+      "97d0df6f-d3bc-4c7a-8f2c-d7c2f1cec25c",
+      {
+        "id": "97d0df6f-d3bc-4c7a-8f2c-d7c2f1cec25c",
+        "owner_id": "46fbdfce-39db-411c-b843-e6f78df2230e",
+        "name": "Shetty Family",
+        "created_at": "2026-10-05T21:15:25.513Z",
+        "root_person_id": "9eb10df9-7573-4a52-99b7-ecca1e0ef700"
       }
     ]
   ],
@@ -2603,6 +2715,46 @@
         "user_id": "pachhu-user-id",
         "role": "owner",
         "joined_at": "2026-09-26T09:54:45.828Z"
+      }
+    ],
+    [
+      "46fbdfce-39db-411c-b843-e6f78df2230e-46fbdfce-39db-411c-b843-e6f78df2230e",
+      {
+        "id": "46fbdfce-39db-411c-b843-e6f78df2230e-46fbdfce-39db-411c-b843-e6f78df2230e",
+        "family_id": "46fbdfce-39db-411c-b843-e6f78df2230e",
+        "user_id": "46fbdfce-39db-411c-b843-e6f78df2230e",
+        "role": "owner",
+        "joined_at": "2026-10-05T21:15:25.157Z"
+      }
+    ],
+    [
+      "3af3e9e8-2326-4e60-83e4-bcb3bb3f2b37-3af3e9e8-2326-4e60-83e4-bcb3bb3f2b37",
+      {
+        "id": "3af3e9e8-2326-4e60-83e4-bcb3bb3f2b37-3af3e9e8-2326-4e60-83e4-bcb3bb3f2b37",
+        "family_id": "3af3e9e8-2326-4e60-83e4-bcb3bb3f2b37",
+        "user_id": "3af3e9e8-2326-4e60-83e4-bcb3bb3f2b37",
+        "role": "owner",
+        "joined_at": "2026-10-05T21:15:25.513Z"
+      }
+    ],
+    [
+      "97d0df6f-d3bc-4c7a-8f2c-d7c2f1cec25c-46fbdfce-39db-411c-b843-e6f78df2230e",
+      {
+        "id": "97d0df6f-d3bc-4c7a-8f2c-d7c2f1cec25c-46fbdfce-39db-411c-b843-e6f78df2230e",
+        "family_id": "97d0df6f-d3bc-4c7a-8f2c-d7c2f1cec25c",
+        "user_id": "46fbdfce-39db-411c-b843-e6f78df2230e",
+        "role": "owner",
+        "joined_at": "2026-10-05T21:15:25.513Z"
+      }
+    ],
+    [
+      "97d0df6f-d3bc-4c7a-8f2c-d7c2f1cec25c-3af3e9e8-2326-4e60-83e4-bcb3bb3f2b37",
+      {
+        "id": "97d0df6f-d3bc-4c7a-8f2c-d7c2f1cec25c-3af3e9e8-2326-4e60-83e4-bcb3bb3f2b37",
+        "family_id": "97d0df6f-d3bc-4c7a-8f2c-d7c2f1cec25c",
+        "user_id": "3af3e9e8-2326-4e60-83e4-bcb3bb3f2b37",
+        "role": "editor",
+        "joined_at": "2026-10-05T21:15:25.516Z"
       }
     ]
   ],
@@ -2653,6 +2805,30 @@
         "permission": "editor",
         "created_at": "2026-09-26T10:06:21.014Z",
         "updated_at": "2026-09-26T10:06:21.014Z"
+      }
+    ],
+    [
+      "dc05b243-3220-48db-ad44-ebd272db126b",
+      {
+        "id": "dc05b243-3220-48db-ad44-ebd272db126b",
+        "family_id": "97d0df6f-d3bc-4c7a-8f2c-d7c2f1cec25c",
+        "owner_id": "46fbdfce-39db-411c-b843-e6f78df2230e",
+        "user_id": "3af3e9e8-2326-4e60-83e4-bcb3bb3f2b37",
+        "permission": "editor",
+        "created_at": "2026-10-05T21:15:25.516Z",
+        "updated_at": "2026-10-05T21:15:25.519Z"
+      }
+    ],
+    [
+      "share-pachhu-3af3e9e8-2326-4e60-83e4-bcb3bb3f2b37",
+      {
+        "id": "share-pachhu-3af3e9e8-2326-4e60-83e4-bcb3bb3f2b37",
+        "family_id": "pachhu-family-id",
+        "owner_id": "pachhu-user-id",
+        "user_id": "3af3e9e8-2326-4e60-83e4-bcb3bb3f2b37",
+        "permission": "editor",
+        "created_at": "2026-10-05T21:15:25.520Z",
+        "updated_at": "2026-10-05T21:15:25.520Z"
       }
     ]
   ],
@@ -2713,6 +2889,97 @@
     ]
   ],
   "activityLogs": [
+    {
+      "id": "a77e8dbc-f3cb-4cf8-8641-3092b0f1a624",
+      "family_id": "97d0df6f-d3bc-4c7a-8f2c-d7c2f1cec25c",
+      "actor_id": "3af3e9e8-2326-4e60-83e4-bcb3bb3f2b37",
+      "actor_name": "Collaborator User",
+      "action": "PERSON_ADDED",
+      "target_type": "person",
+      "target_id": "523fc58b-e5a4-47d7-964b-8e9fd2e107e4",
+      "target_name": "xx",
+      "description": "Collaborator User added xx to the family tree",
+      "details": null,
+      "created_at": "2026-10-05T21:15:25.521Z"
+    },
+    {
+      "id": "f8cce8dd-05e8-4b6a-a6bb-ea0e0946f901",
+      "family_id": "97d0df6f-d3bc-4c7a-8f2c-d7c2f1cec25c",
+      "actor_id": "46fbdfce-39db-411c-b843-e6f78df2230e",
+      "actor_name": "Varun Shetty",
+      "action": "SHARE_PERMISSION_CHANGED",
+      "target_type": "share",
+      "target_id": "dc05b243-3220-48db-ad44-ebd272db126b",
+      "target_name": "Collaborator User",
+      "description": "Varun Shetty changed Collaborator User's permission to editor",
+      "details": null,
+      "created_at": "2026-10-05T21:15:25.519Z"
+    },
+    {
+      "id": "3ad2ce6c-dbae-48cc-9bde-37c39d88e7c1",
+      "family_id": "97d0df6f-d3bc-4c7a-8f2c-d7c2f1cec25c",
+      "actor_id": "46fbdfce-39db-411c-b843-e6f78df2230e",
+      "actor_name": "Varun Shetty",
+      "action": "TREE_SHARED",
+      "target_type": "share",
+      "target_id": "dc05b243-3220-48db-ad44-ebd272db126b",
+      "target_name": "Collaborator User",
+      "description": "Varun Shetty shared the tree with Collaborator User as viewer",
+      "details": null,
+      "created_at": "2026-10-05T21:15:25.519Z"
+    },
+    {
+      "id": "ee80fc62-80d5-4cf3-9a22-7b6d4bb7287f",
+      "family_id": "97d0df6f-d3bc-4c7a-8f2c-d7c2f1cec25c",
+      "actor_id": "46fbdfce-39db-411c-b843-e6f78df2230e",
+      "actor_name": "Varun Shetty",
+      "action": "FAMILY_CREATED",
+      "target_type": "family",
+      "target_id": "97d0df6f-d3bc-4c7a-8f2c-d7c2f1cec25c",
+      "target_name": "Shetty Family",
+      "description": "Varun Shetty created family tree \"Shetty Family\" with starting person \"Varun Shetty\"",
+      "details": null,
+      "created_at": "2026-10-05T21:15:25.515Z"
+    },
+    {
+      "id": "48ad0c26-12a3-4366-b226-031863aded4f",
+      "family_id": "97d0df6f-d3bc-4c7a-8f2c-d7c2f1cec25c",
+      "actor_id": "46fbdfce-39db-411c-b843-e6f78df2230e",
+      "actor_name": "Varun Shetty",
+      "action": "PERSON_ADDED",
+      "target_type": "person",
+      "target_id": "9eb10df9-7573-4a52-99b7-ecca1e0ef700",
+      "target_name": "Varun Shetty",
+      "description": "Varun Shetty added Varun Shetty to the family tree",
+      "details": null,
+      "created_at": "2026-10-05T21:15:25.514Z"
+    },
+    {
+      "id": "5238db5e-589f-4f65-abbe-ca3b6f007e3e",
+      "family_id": "3af3e9e8-2326-4e60-83e4-bcb3bb3f2b37",
+      "actor_id": "3af3e9e8-2326-4e60-83e4-bcb3bb3f2b37",
+      "actor_name": "Collaborator User",
+      "action": "FAMILY_CREATED",
+      "target_type": "family",
+      "target_id": "3af3e9e8-2326-4e60-83e4-bcb3bb3f2b37",
+      "target_name": "Collaborator User's Family",
+      "description": "Collaborator User created Collaborator User's Family",
+      "details": null,
+      "created_at": "2026-10-05T21:15:25.513Z"
+    },
+    {
+      "id": "6fb89440-524d-4f27-9921-e07a8ad18889",
+      "family_id": "46fbdfce-39db-411c-b843-e6f78df2230e",
+      "actor_id": "46fbdfce-39db-411c-b843-e6f78df2230e",
+      "actor_name": "Varun Shetty",
+      "action": "FAMILY_CREATED",
+      "target_type": "family",
+      "target_id": "46fbdfce-39db-411c-b843-e6f78df2230e",
+      "target_name": "Varun Shetty's Family",
+      "description": "Varun Shetty created Varun Shetty's Family",
+      "details": null,
+      "created_at": "2026-10-05T21:15:25.157Z"
+    },
     {
       "id": "0528850a-6d00-4b90-ac16-8226bf1ae413",
       "family_id": "pachhu-family-id",
@@ -2985,9 +3252,105 @@
           ]
         }
       ]
+    ],
+    [
+      "97d0df6f-d3bc-4c7a-8f2c-d7c2f1cec25c",
+      [
+        {
+          "id": "e30062ba-3361-4743-827b-d06b65e467c9",
+          "family_id": "97d0df6f-d3bc-4c7a-8f2c-d7c2f1cec25c",
+          "version": 2,
+          "created_at": "2026-10-05T21:15:25.521Z",
+          "actor_id": "3af3e9e8-2326-4e60-83e4-bcb3bb3f2b37",
+          "actor_name": "Collaborator User",
+          "action": "PERSON_ADDED",
+          "description": "Collaborator User added xx",
+          "people_count": 2,
+          "people": [
+            {
+              "id": "9eb10df9-7573-4a52-99b7-ecca1e0ef700",
+              "owner_id": "97d0df6f-d3bc-4c7a-8f2c-d7c2f1cec25c",
+              "name": "Varun Shetty",
+              "gender": "male",
+              "date_of_birth": null,
+              "date_of_death": null,
+              "place_of_birth": null,
+              "occupation": null,
+              "bio": "You",
+              "address": null,
+              "phone": null,
+              "photo_url": null,
+              "created_at": "2026-10-05T21:15:25.514Z"
+            },
+            {
+              "id": "523fc58b-e5a4-47d7-964b-8e9fd2e107e4",
+              "owner_id": "97d0df6f-d3bc-4c7a-8f2c-d7c2f1cec25c",
+              "name": "xx",
+              "gender": "male",
+              "date_of_birth": null,
+              "date_of_death": null,
+              "place_of_birth": null,
+              "occupation": null,
+              "bio": null,
+              "address": null,
+              "phone": null,
+              "photo_url": null,
+              "created_at": "2026-10-05T21:15:25.520Z"
+            }
+          ],
+          "family_units": [
+            {
+              "id": "ae4ae5a3-19c2-4e22-be5d-6805b6919395",
+              "owner_id": "97d0df6f-d3bc-4c7a-8f2c-d7c2f1cec25c",
+              "partner1_id": "9eb10df9-7573-4a52-99b7-ecca1e0ef700",
+              "partner2_id": null,
+              "relationship_status": "partner",
+              "created_at": "2026-10-05T21:15:25.521Z"
+            }
+          ],
+          "family_children": [
+            {
+              "id": "9b73f24f-e810-4a4b-ab6a-98b74b8fefe9",
+              "family_unit_id": "ae4ae5a3-19c2-4e22-be5d-6805b6919395",
+              "person_id": "523fc58b-e5a4-47d7-964b-8e9fd2e107e4",
+              "relationship_type": "unknown"
+            }
+          ]
+        },
+        {
+          "id": "2ed304ba-d7d8-4978-bc12-61bfca8517d0",
+          "family_id": "97d0df6f-d3bc-4c7a-8f2c-d7c2f1cec25c",
+          "version": 1,
+          "created_at": "2026-10-05T21:15:25.514Z",
+          "actor_id": "46fbdfce-39db-411c-b843-e6f78df2230e",
+          "actor_name": "Varun Shetty",
+          "action": "PERSON_ADDED",
+          "description": "Varun Shetty added Varun Shetty",
+          "people_count": 1,
+          "people": [
+            {
+              "id": "9eb10df9-7573-4a52-99b7-ecca1e0ef700",
+              "owner_id": "97d0df6f-d3bc-4c7a-8f2c-d7c2f1cec25c",
+              "name": "Varun Shetty",
+              "gender": "male",
+              "date_of_birth": null,
+              "date_of_death": null,
+              "place_of_birth": null,
+              "occupation": null,
+              "bio": "You",
+              "address": null,
+              "phone": null,
+              "photo_url": null,
+              "created_at": "2026-10-05T21:15:25.514Z"
+            }
+          ],
+          "family_units": [],
+          "family_children": []
+        }
+      ]
     ]
   ],
   "chatHistories": [],
   "deletedAccounts": [],
-  "saved_at": "2026-09-26T10:06:34.545Z"
+  "saved_at": "2026-10-05T21:15:25.722Z"
 }

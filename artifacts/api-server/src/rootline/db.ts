@@ -354,6 +354,12 @@ async function initSchema(client: pg.PoolClient) {
     ALTER TABLE families ADD COLUMN IF NOT EXISTS root_person_id VARCHAR(64);
     ALTER TABLE family_members ALTER COLUMN id TYPE VARCHAR(255);
     ALTER TABLE family_invitations ALTER COLUMN id TYPE VARCHAR(255);
+    ALTER TABLE tree_shares ALTER COLUMN id TYPE VARCHAR(255);
+    ALTER TABLE tree_shares ALTER COLUMN family_id TYPE VARCHAR(255);
+    ALTER TABLE tree_shares ALTER COLUMN user_id TYPE VARCHAR(255);
+    ALTER TABLE people ALTER COLUMN owner_id TYPE VARCHAR(255);
+    ALTER TABLE family_units ALTER COLUMN owner_id TYPE VARCHAR(255);
+    ALTER TABLE families ALTER COLUMN id TYPE VARCHAR(255);
   `);
 
   logger.info("PostgreSQL database tables and indexes verified.");
@@ -433,6 +439,7 @@ export async function loadInitialData() {
       treeShares: treeSharesRes.rows.map((s: any) => ({
         ...s,
         created_at: toIso(s.created_at),
+        updated_at: toIso(s.updated_at || s.created_at),
       })),
       invitations: invitationsRes.rows.map((inv: any) => ({
         ...inv,
