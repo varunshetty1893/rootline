@@ -35,12 +35,42 @@ export interface AIChatResponse {
   };
 }
 
+const COMMON_STOP_WORDS = new Set([
+  "a", "an", "the", "and", "or", "but", "if", "in", "on", "at", "to", "of", "for",
+  "with", "by", "from", "about", "as", "into", "like", "through", "after", "over",
+  "between", "out", "against", "during", "without", "before", "under", "around",
+  "among", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
+  "do", "does", "did", "can", "could", "will", "would", "should", "may", "might",
+  "must", "who", "what", "when", "where", "why", "how", "which", "whom", "whose",
+  "i", "me", "my", "mine", "myself", "you", "your", "yours", "yourself", "u", "ur",
+  "he", "him", "his", "she", "her", "hers", "it", "its", "we", "us", "our", "ours",
+  "they", "them", "their", "theirs", "this", "that", "these", "those", "all", "any",
+  "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor", "not",
+  "only", "own", "same", "so", "than", "too", "very", "tell", "show", "explain",
+  "compare", "family", "tree", "member", "members", "person", "people", "relative",
+  "relatives", "related", "relation", "relationship", "relationships", "connection",
+  "connections", "parent", "parents", "father", "mother", "dad", "mom", "child",
+  "children", "son", "daughter", "kids", "sibling", "siblings", "brother", "sister",
+  "spouse", "partner", "husband", "wife", "married", "cousin", "cousins", "uncle",
+  "aunt", "nephew", "niece", "grandparent", "grandparents", "grandfather", "grandmother",
+  "grandchild", "grandchildren", "ancestor", "ancestors", "descendant", "descendants",
+  "oldest", "youngest", "earliest", "according", "mean", "means", "meaning", "define",
+  "hi", "hello", "hey", "thanks", "thank", "help", "know", "list", "everyone",
+]);
+
 let geminiClient: GoogleGenAI | null = null;
 function getGeminiClient(): GoogleGenAI | null {
   const key = process.env.GEMINI_API_KEY;
   if (!key) return null;
   if (!geminiClient) {
-    geminiClient = new GoogleGenAI({ apiKey: key });
+    geminiClient = new GoogleGenAI({
+      apiKey: key,
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build",
+        },
+      },
+    });
   }
   return geminiClient;
 }
@@ -52,19 +82,12 @@ function getGeminiClient(): GoogleGenAI | null {
 export function cleanChatbotText(rawText: string): string {
   if (!rawText) return "";
   return rawText
-    // Remove horizontal rule lines like *** or --- or ___
     .replace(/^[ \t]*(?:\*{3,}|-{3,}|_{3,})[ \t]*$/gm, "")
-    // Replace inline ***text*** with text
     .replace(/\*{3}([^*]+)\*{3}/g, "$1")
-    // Replace inline **text** with text
     .replace(/\*{2}([^*]+)\*{2}/g, "$1")
-    // Remove any remaining stray ** or *** sequences
     .replace(/\*{2,}/g, "")
-    // Convert markdown bullet "* item" at start of line to "• item"
     .replace(/^[ \t]*\*[ \t]+/gm, "• ")
-    // Convert markdown headings "### Title" to clean Title
     .replace(/^[ \t]*#{1,6}[ \t]+(.+)$/gm, "$1")
-    // Collapse 3+ consecutive newlines into 2
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -93,45 +116,112 @@ export function formatPersonSummary(person: PersonOut, byId: Map<string, PersonO
     .map((m) => m.name)
     .filter(Boolean);
 
+  const siblings = Array.from(byId.values())
+    .filter(
+      (m) =>
+        m.id !== person.id &&
+        (m.parent_ids || []).length > 0 &&
+        (m.parent_ids || []).some((pid) => (person.parent_ids || []).includes(pid))
+    )
+    .map((m) => m.name)
+    .filter(Boolean);
+
   const details: string[] = [];
   if (person.gender) details.push(`Gender: ${person.gender}`);
   if (dates) details.push(`Dates: ${dates}`);
   if (parents.length) details.push(`Parents: ${parents.join(", ")}`);
   if (spouses.length) details.push(`Spouse(s): ${spouses.join(", ")}`);
+  if (siblings.length) details.push(`Siblings: ${siblings.join(", ")}`);
   if (children.length) details.push(`Children: ${children.join(", ")}`);
   if (person.occupation) details.push(`Occupation: ${person.occupation}`);
   if (person.place_of_birth) details.push(`Born in: ${person.place_of_birth}`);
   if (person.address) details.push(`Location: ${person.address}`);
-  if (person.bio) details.push(`Bio: ${person.bio}`);
+  if (person.bio && person.bio !== "You") details.push(`Bio: ${person.bio}`);
 
-  return `- ${person.name} (ID: ${person.id}): ${details.join(" | ")}`;
+  return `- ${person.name} (ID: ${person.id}): ${details.join(" | ") || "No extra details"}`;
+}
+
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /**
- * Scans the user message for mentioned family members to enhance kinship understanding
+ * Scans the user message for mentioned family members using strict word boundaries
+ * and span claiming so shorter names (e.g. "x", "Sh") never match inside longer names ("xf", "Babu Shetty").
  */
-function findMentionedPeople(
-  text: string,
-  people: PersonOut[]
-): PersonOut[] {
-  const normalizedText = text.toLowerCase();
-  const matched: { person: PersonOut; index: number }[] = [];
+export function findMentionedPeople(text: string, people: PersonOut[]): PersonOut[] {
+  if (!text || !people.length) return [];
 
-  for (const person of people) {
-    if (!person.name) continue;
-    const nameLower = person.name.toLowerCase().trim();
-    const firstName = nameLower.split(/\s+/)[0];
+  const claimedSpans: Array<{ start: number; end: number }> = [];
+  const matched: Array<{ person: PersonOut; index: number }> = [];
 
-    let matchIdx = normalizedText.indexOf(nameLower);
-    if (matchIdx === -1 && firstName.length >= 2) {
-      const escaped = firstName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const re = new RegExp(`\\b${escaped}\\b`, "i");
-      const m = re.exec(text);
-      if (m) matchIdx = m.index;
+  const isSpanFree = (start: number, end: number) =>
+    !claimedSpans.some((s) => start < s.end && end > s.start);
+
+  // Sort people by full name length descending so longer names claim their character spans first
+  const sortedByFullName = [...people]
+    .filter((p) => p.name && p.name.trim().length > 0)
+    .sort((a, b) => b.name.trim().length - a.name.trim().length);
+
+  // Pass 1: Match full names with strict non-alphanumeric word boundaries
+  for (const person of sortedByFullName) {
+    const cleanName = person.name.trim();
+    const lowerName = cleanName.toLowerCase();
+
+    // If a person's full name happens to be a common English stop word, only match if capitalized or quoted
+    if (COMMON_STOP_WORDS.has(lowerName)) {
+      const capRe = new RegExp(`(?<![a-zA-Z0-9])(?:["']${escapeRegExp(cleanName)}["']|${escapeRegExp(cleanName)})(?![a-zA-Z0-9])`, "g");
+      let m: RegExpExecArray | null;
+      while ((m = capRe.exec(text)) !== null) {
+        if (m[0] === cleanName || m[0].startsWith('"') || m[0].startsWith("'")) {
+          const start = m.index;
+          const end = start + m[0].length;
+          if (isSpanFree(start, end)) {
+            claimedSpans.push({ start, end });
+            matched.push({ person, index: start });
+            break;
+          }
+        }
+      }
+      continue;
     }
 
-    if (matchIdx !== -1 && !matched.some((item) => item.person.id === person.id)) {
-      matched.push({ person, index: matchIdx });
+    const re = new RegExp(`(?<![a-zA-Z0-9])${escapeRegExp(cleanName)}(?![a-zA-Z0-9])`, "gi");
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+      const start = m.index;
+      const end = start + m[0].length;
+      if (isSpanFree(start, end)) {
+        claimedSpans.push({ start, end });
+        matched.push({ person, index: start });
+        break;
+      }
+    }
+  }
+
+  // Pass 2: Match distinct first/middle/last name tokens (length >= 2, non-stopword) for multi-word names
+  for (const person of sortedByFullName) {
+    if (matched.some((item) => item.person.id === person.id)) continue;
+    const tokens = person.name
+      .trim()
+      .split(/\s+/)
+      .filter((t) => t.length >= 2 && !COMMON_STOP_WORDS.has(t.toLowerCase()));
+
+    for (const token of tokens) {
+      const re = new RegExp(`(?<![a-zA-Z0-9])${escapeRegExp(token)}(?![a-zA-Z0-9])`, "gi");
+      let m: RegExpExecArray | null;
+      let matchedToken = false;
+      while ((m = re.exec(text)) !== null) {
+        const start = m.index;
+        const end = start + m[0].length;
+        if (isSpanFree(start, end)) {
+          claimedSpans.push({ start, end });
+          matched.push({ person, index: start });
+          matchedToken = true;
+          break;
+        }
+      }
+      if (matchedToken) break;
     }
   }
 
@@ -139,163 +229,414 @@ function findMentionedPeople(
   return matched.map((m) => m.person);
 }
 
-function buildPersonProfileLines(p: PersonOut, people: PersonOut[]): string {
+function getExtendedRelatives(p: PersonOut, people: PersonOut[]) {
   const byId = new Map(people.map((m) => [m.id, m]));
-  const parents = (p.parent_ids || []).map((id) => byId.get(id)?.name).filter(Boolean);
-  const spouses = (p.spouse_ids || []).map((id) => byId.get(id)?.name).filter(Boolean);
-  const children = people.filter((m) => (m.parent_ids || []).includes(p.id)).map((m) => m.name);
-  const siblings = people
-    .filter(
-      (m) =>
-        m.id !== p.id &&
-        (m.parent_ids || []).length > 0 &&
-        (m.parent_ids || []).some((pid) => (p.parent_ids || []).includes(pid))
-    )
-    .map((m) => m.name);
+  const parents = (p.parent_ids || []).map((id) => byId.get(id)).filter((x): x is PersonOut => Boolean(x));
+  const spouses = (p.spouse_ids || []).map((id) => byId.get(id)).filter((x): x is PersonOut => Boolean(x));
+  const children = people.filter((m) => (m.parent_ids || []).includes(p.id));
+  const siblings = people.filter(
+    (m) =>
+      m.id !== p.id &&
+      (m.parent_ids || []).length > 0 &&
+      (m.parent_ids || []).some((pid) => (p.parent_ids || []).includes(pid))
+  );
 
+  const grandparents = Array.from(
+    new Set(parents.flatMap((par) => par.parent_ids || []))
+  )
+    .map((id) => byId.get(id))
+    .filter((x): x is PersonOut => Boolean(x));
+
+  const grandchildren = Array.from(
+    new Set(children.flatMap((ch) => people.filter((m) => (m.parent_ids || []).includes(ch.id)).map((m) => m.id)))
+  )
+    .map((id) => byId.get(id))
+    .filter((x): x is PersonOut => Boolean(x));
+
+  const auntsUncles = Array.from(
+    new Set(
+      parents.flatMap((par) =>
+        people
+          .filter(
+            (m) =>
+              m.id !== par.id &&
+              (m.parent_ids || []).length > 0 &&
+              (m.parent_ids || []).some((gpid) => (par.parent_ids || []).includes(gpid))
+          )
+          .map((m) => m.id)
+      )
+    )
+  )
+    .map((id) => byId.get(id))
+    .filter((x): x is PersonOut => Boolean(x));
+
+  const niecesNephews = Array.from(
+    new Set(
+      siblings.flatMap((sib) =>
+        people.filter((m) => (m.parent_ids || []).includes(sib.id)).map((m) => m.id)
+      )
+    )
+  )
+    .map((id) => byId.get(id))
+    .filter((x): x is PersonOut => Boolean(x));
+
+  const cousins = Array.from(
+    new Set(
+      auntsUncles.flatMap((au) =>
+        people.filter((m) => (m.parent_ids || []).includes(au.id)).map((m) => m.id)
+      )
+    )
+  )
+    .map((id) => byId.get(id))
+    .filter((x): x is PersonOut => Boolean(x));
+
+  return {
+    parents,
+    spouses,
+    children,
+    siblings,
+    grandparents,
+    grandchildren,
+    auntsUncles,
+    niecesNephews,
+    cousins,
+  };
+}
+
+function buildPersonProfileLines(p: PersonOut, people: PersonOut[]): string {
+  const rels = getExtendedRelatives(p, people);
   const lines: string[] = [];
+
   if (p.date_of_birth || p.date_of_death) {
-    lines.push(`• Lifespan: ${p.date_of_birth || "Unknown birth date"} ${p.date_of_death ? `to ${p.date_of_death}` : "(Living)"}`);
+    lines.push(
+      `• Lifespan: ${p.date_of_birth || "Birth date unrecorded"} ${
+        p.date_of_death ? `to ${p.date_of_death}` : "(Living)"
+      }`
+    );
   }
-  if (parents.length > 0) lines.push(`• Parents: ${parents.join(" & ")}`);
-  if (spouses.length > 0) lines.push(`• Partner / Spouse: ${spouses.join(", ")}`);
-  if (siblings.length > 0) lines.push(`• Siblings: ${siblings.join(", ")}`);
-  if (children.length > 0) lines.push(`• Children: ${children.join(", ")}`);
+  if (rels.parents.length > 0) lines.push(`• Parents: ${rels.parents.map((x) => x.name).join(" & ")}`);
+  if (rels.grandparents.length > 0) lines.push(`• Grandparents: ${rels.grandparents.map((x) => x.name).join(", ")}`);
+  if (rels.spouses.length > 0) lines.push(`• Partner / Spouse: ${rels.spouses.map((x) => x.name).join(", ")}`);
+  if (rels.siblings.length > 0) lines.push(`• Siblings: ${rels.siblings.map((x) => x.name).join(", ")}`);
+  if (rels.children.length > 0) lines.push(`• Children: ${rels.children.map((x) => x.name).join(", ")}`);
+  if (rels.grandchildren.length > 0) lines.push(`• Grandchildren: ${rels.grandchildren.map((x) => x.name).join(", ")}`);
+  if (rels.auntsUncles.length > 0) lines.push(`• Aunts / Uncles: ${rels.auntsUncles.map((x) => x.name).join(", ")}`);
+  if (rels.niecesNephews.length > 0) lines.push(`• Nieces / Nephews: ${rels.niecesNephews.map((x) => x.name).join(", ")}`);
+  if (rels.cousins.length > 0) lines.push(`• First Cousins: ${rels.cousins.map((x) => x.name).join(", ")}`);
+  if (p.occupation) lines.push(`• Occupation: ${p.occupation}`);
+  if (p.place_of_birth) lines.push(`• Place of Birth: ${p.place_of_birth}`);
   if (p.address) lines.push(`• Location: ${p.address}`);
   if (p.bio && p.bio !== "You") lines.push(`• Notes: ${p.bio}`);
   return lines.join("\n");
 }
 
 /**
- * Built-in Rule-Based Genealogy & Kinship Engine
- * Seamlessly provides instant, accurate answers if external AI APIs are unconfigured or fail.
+ * Checks if the question is a general knowledge / conceptual / genealogy education question
+ */
+function answerGeneralKnowledgeQuestion(
+  message: string,
+  family: Family,
+  people: PersonOut[],
+  rootPerson?: PersonOut | null
+): string | null {
+  const q = message.toLowerCase().trim();
+
+  // 1. "What is family according to you" / philosophy & meaning of family
+  if (
+    /\b(what is family|what's family|meaning of family|define family|family according to|importance of family|why is family important|concept of family|about family)\b/.test(q)
+  ) {
+    return cleanChatbotText(
+      `What Family Means\n\nFamily is both a living story and a circle of belonging that connects across time:\n\n• Emotional & Human Bond: At its heart, family is made of the people who nurture, support, and stand by one another through life's milestones—united by love, shared values, and mutual care.\n• Living Bridge Across Generations: Genealogically, a family links the ancestors whose sacrifices and stories shaped the past with the present generation and the children who carry that legacy forward.\n• Bloodlines & Chosen Bonds: In genealogy, family weaves together both consanguinity (shared blood and ancestry) and affinity (bonds formed through marriage, partnership, and adoption).\n• Cultural Identity & Memory: Every family preserves unique traditions, values, lessons, and stories that give each member a sense of roots and identity.\n\nIn your ${family.name} tree (${people.length} recorded members), every card and connection line preserves a piece of that shared human story.`
+    );
+  }
+
+  // 2. "What is a family tree" / "What is genealogy" / "What is ancestry" / "What is lineage"
+  if (
+    /\b(what is genealogy|what is a family tree|what is ancestry|what is lineage|what is a pedigree|purpose of a family tree|why build a family tree)\b/.test(q)
+  ) {
+    return cleanChatbotText(
+      `Understanding Genealogy & Family Trees\n\n• Genealogy: The study and tracing of family lineages, history, and kinship connections across generations using oral history, vital records, and genetic relationships.\n• Family Tree (Pedigree & Descendancy): A visual map showing how individuals are connected through parentage (vertical lines) and partnerships/marriages (horizontal links).\n• Lineage vs. Ancestry: A "lineage" traces a direct line of descent from a specific ancestor (such as a paternal or maternal line), whereas "ancestry" encompasses all of your biological and familial forebears.\n\nYour ${family.name} tree currently documents ${people.length} members.`
+    );
+  }
+
+  // 3. First Cousin Once Removed / Removed Cousins
+  if (q.includes("once removed") || q.includes("twice removed") || q.includes("cousin removed")) {
+    return cleanChatbotText(
+      `What Does "Once Removed" Mean?\n\nIn genealogy, "removed" measures how many generations apart two cousins are:\n\n• First Cousins: Share the same grandparents and sit in the same generation.\n• First Cousin Once Removed: Separated by 1 generation. This is either your parent's first cousin (1 generation older than you) or your first cousin's child (1 generation younger than you).\n• First Cousin Twice Removed: Separated by 2 generations (your grandparent's first cousin, or your first cousin's grandchild).\n\nQuick Rule: The cousin number (1st, 2nd, 3rd) tells you which ancestor you share (grandparents, great-grandparents, great-great-grandparents), while "removed" tells you the generation gap between the two cousins.`
+    );
+  }
+
+  // 4. First vs Second vs Third Cousins / Cousin Chart
+  if (/\b(second cousin|2nd cousin|third cousin|3rd cousin|how do cousins work|types of cousins|what is a cousin)\b/.test(q)) {
+    return cleanChatbotText(
+      `How Cousin Relationships Work\n\nCousins are relatives who share a common ancestor at least two generations back (grandparents or earlier):\n\n• Siblings: Share the same parents (1 step up to common ancestor)\n• First Cousins: Share the same grandparents (2 steps up)\n• Second Cousins: Share the same great-grandparents, meaning your parents are first cousins (3 steps up)\n• Third Cousins: Share the same great-great-grandparents, meaning your grandparents were first cousins (4 steps up)\n\nIf two cousins are in different generations, we add "once removed" (1 generation apart) or "twice removed" (2 generations apart).`
+    );
+  }
+
+  // 5. Double First Cousins & Parallel vs Cross Cousins
+  if (q.includes("double cousin") || q.includes("double first cousin") || q.includes("parallel cousin") || q.includes("cross cousin")) {
+    return cleanChatbotText(
+      `Special Cousin Relationships\n\n• Double First Cousins: Occur when two siblings from one family marry/partner with two siblings from another family. Their children share all four grandparents instead of two, sharing ~25% of their DNA (similar to half-siblings) rather than the standard 12.5% for first cousins.\n• Parallel Cousins: Cousins from same-gender parent siblings (your father's brother's child, or your mother's sister's child).\n• Cross Cousins: Cousins from opposite-gender parent siblings (your father's sister's child, or your mother's brother's child).`
+    );
+  }
+
+  // 6. Consanguinity vs Affinity
+  if (q.includes("consanguinity") || q.includes("affinity") || q.includes("blood relative vs")) {
+    return cleanChatbotText(
+      `Consanguinity vs. Affinity\n\n• Consanguinity (Blood Kinship): Relationships by genetic descent from a shared ancestor—such as parents, children, siblings, grandparents, aunts, uncles, nieces, nephews, and cousins.\n• Affinity (Kinship by Marriage): Relationships formed through marriage or partnership—such as a spouse, mother-in-law, father-in-law, brother-in-law, sister-in-law, son/daughter-in-law, or co-in-laws.\n\nRootline automatically traces both bloodlines and marital links across your tree.`
+    );
+  }
+
+  // 7. Maternal vs Paternal / Patrilineal vs Matrilineal
+  if (/\b(maternal|paternal|patrilineal|matrilineal)\b/.test(q)) {
+    return cleanChatbotText(
+      `Maternal vs. Paternal Lineage\n\n• Maternal Line: Relatives connected through your mother's side of the family. A matrilineal line traces strictly from mother to mother.\n• Paternal Line: Relatives connected through your father's side of the family. A patrilineal line traces strictly from father to father.\n• Bilateral (Cognatic) Kinship: Tracing family equally through both mother's and father's branches, which is how Rootline maps your complete tree.`
+    );
+  }
+
+  // 8. Granduncle / Great-Uncle / Grandaunt / Great-Aunt / Grandnephew / Grandniece
+  if (/\b(granduncle|great uncle|great-uncle|grandaunt|great aunt|great-aunt|grandnephew|grandniece|great nephew|great niece)\b/.test(q)) {
+    return cleanChatbotText(
+      `Granduncle / Great-Uncle & Grandnephew / Grandniece\n\n• Granduncle (or Great-Uncle): The brother of your grandparent (your parent's uncle).\n• Grandaunt (or Great-Aunt): The sister of your grandparent (your parent's aunt).\n• Grandnephew / Grandniece: The grandchild of your brother or sister (your niece's or nephew's child).`
+    );
+  }
+
+  // 9. Half-sibling vs Stepsibling / Nuclear vs Joint Family
+  if (/\b(half sibling|half-sibling|half brother|half sister|step sibling|stepsibling|stepbrother|stepsister|nuclear family|joint family|extended family)\b/.test(q)) {
+    return cleanChatbotText(
+      `Family Structure & Sibling Terms\n\n• Full Siblings: Share both biological parents.\n• Half-Siblings: Share one biological parent (either the same mother or the same father).\n• Stepsiblings: Connected by the marriage of their parents, without sharing a biological parent.\n• Nuclear Family: Parents and their immediate children living or grouped together.\n• Extended / Joint Family: Multiple generations and branches—including grandparents, aunts, uncles, cousins, and in-laws—connected as a broader family network.`
+    );
+  }
+
+  // 10. Shared DNA & Genetics in Genealogy
+  if (/\b(dna|shared dna|genetic|centimorgan|heredity|chromosome)\b/.test(q)) {
+    return cleanChatbotText(
+      `Average Shared DNA Between Relatives\n\nIn genetic genealogy, relatives share predictable average percentages of autosomal DNA:\n\n• Parent / Child / Full Sibling: ~50% shared DNA\n• Grandparent / Grandchild / Aunt / Uncle / Niece / Nephew / Half-Sibling: ~25% shared DNA\n• First Cousin / Great-Grandparent / Granduncle / Grandaunt: ~12.5% shared DNA\n• First Cousin Once Removed: ~6.25% shared DNA\n• Second Cousin: ~3.125% shared DNA\n• Third Cousin: ~0.78% shared DNA`
+    );
+  }
+
+  // 11. Indian & South Asian Kinship Terms (Mama, Chacha, Bua, Mausi, Atte, Mava, Doddappa, Chikkappa, etc.)
+  if (
+    /\b(indian kinship|mama|mami|chacha|chachi|tau|tai|bua|fufa|mausi|mausa|nana|nani|dada|dadi|bhabhi|jija|sala|sali|samdhi|samdhan|devar|nanad|atte|mava|doddappa|chikkappa|doddamme|chikkamma|bhava|maiduna)\b/.test(q)
+  ) {
+    return cleanChatbotText(
+      `Indian Kinship Terms & English Equivalents\n\nIndian languages use precise titles that distinguish maternal, paternal, elder, and younger relatives:\n\n• Paternal Grandparents: Dada / Ajja (Grandfather) & Dadi / Ajji (Grandmother)\n• Maternal Grandparents: Nana / Ajja (Grandfather) & Nani / Ajji (Grandmother)\n• Father's Brother: Tau / Doddappa (Elder Uncle) & Chacha / Chikkappa / Kaka (Younger Uncle)\n• Father's Sister: Bua / Atte (Paternal Aunt) & Fufa / Mava (Paternal Aunt's Husband)\n• Mother's Brother: Mama / Mava (Maternal Uncle) & Mami / Atte (Maternal Uncle's Wife)\n• Mother's Sister: Mausi / Doddamme / Chikkamma (Maternal Aunt)\n• In-Laws: Bhabhi / Anni (Brother's Wife), Jija / Bhava (Sister's Husband), Sala / Maiduna (Wife's Brother), Samdhi / Samdhan (Child's Parents-in-law).`
+    );
+  }
+
+  // 12. Oral History & Interviewing Elders
+  if (q.includes("interview") || q.includes("oral") || q.includes("elders") || q.includes("questions should i ask") || q.includes("preserve family history")) {
+    return cleanChatbotText(
+      `Questions to Ask Elders for Oral Family History\n\n• What are your earliest childhood memories and what was your family home like?\n• How did your parents and grandparents meet, and what were their occupations?\n• What family traditions, festival customs, or recipes were passed down to you?\n• Where did our family live generations ago, and what stories were told about our ancestors?\n• What is the story behind our family surname or ancestral hometown?\n• Are there old photographs, letters, or heirlooms we should document in our family tree?`
+    );
+  }
+
+  // 13. Greetings / Capabilities / Help
+  if (/^(hi|hello|hey|good morning|good afternoon|good evening|namaste|greetings|who are you|what can you do|help|how do you work)\b/.test(q)) {
+    return cleanChatbotText(
+      `Hello! I am your Rootline Kinship & Family Guide for the ${family.name} tree (${people.length} recorded members).\n\nHere is what I can help you with:\n• Relationship Finder: Ask how any two people in your tree are related (e.g., "How is [Person A] related to [Person B]?"), including bloodlines and multi-step marriage/in-law connections.\n• Member Profiles: Ask "Tell me about [Name]" or ask who someone's parents, spouse, siblings, children, grandchildren, or nieces/nephews are.\n• Tree Directory & Stats: Ask "Who is in this family tree?", "Who are the couples?", or "Who is the oldest ancestor?"\n• General Family & Genealogy Knowledge: Ask about what family means, how cousins and removals work, Indian/cultural kinship terms, shared DNA percentages, or tips for oral family history!`
+    );
+  }
+
+  if (/^(thanks|thank you|thx|awesome|great|nice|ok|okay)\b/.test(q)) {
+    return cleanChatbotText(
+      `You're very welcome! Feel free to ask anytime if you want to explore another relationship in the ${family.name} tree or learn more about family history and kinship.`
+    );
+  }
+
+  return null;
+}
+
+/**
+ * Built-in Rule-Based Genealogy, Kinship & General Knowledge Engine
+ * Seamlessly provides accurate answers about relationships, tree members, and general knowledge.
  */
 function runRuleBasedEngine(
   message: string,
   people: PersonOut[],
   family: Family,
   kinship: KinshipResult | null,
-  detectedPeople: PersonOut[],
+  refPerson: PersonOut | undefined,
+  subjectPerson: PersonOut | undefined,
+  mentionedPeople: PersonOut[],
   rootPerson?: PersonOut | null
 ): string {
-  const q = message.toLowerCase();
+  const q = message.toLowerCase().trim();
   const byId = new Map(people.map((m) => [m.id, m]));
 
-  // Check if user is asking a specific question about one person's parents, children, siblings, spouse, etc.
-  const subjectPerson =
-    detectedPeople.length === 1
-      ? detectedPeople[0]
-      : detectedPeople.length === 2 && rootPerson && detectedPeople[0].id === rootPerson.id
-      ? detectedPeople[1]
-      : null;
-
-  if (subjectPerson) {
-    const parents = (subjectPerson.parent_ids || []).map((id) => byId.get(id)?.name).filter(Boolean);
-    const spouses = (subjectPerson.spouse_ids || []).map((id) => byId.get(id)?.name).filter(Boolean);
-    const children = people.filter((m) => (m.parent_ids || []).includes(subjectPerson.id)).map((m) => m.name);
-    const siblings = people
-      .filter(
-        (m) =>
-          m.id !== subjectPerson.id &&
-          (m.parent_ids || []).length > 0 &&
-          (m.parent_ids || []).some((pid) => (subjectPerson.parent_ids || []).includes(pid))
-      )
-      .map((m) => m.name);
-
-    if (/\b(parent|parents|father|mother|mom|dad)\b/.test(q) && !q.includes("related")) {
-      return parents.length > 0
-        ? `${subjectPerson.name}'s recorded parents are ${parents.join(" and ")}.`
-        : `No parents are recorded yet for ${subjectPerson.name} in the ${family.name} tree.`;
-    }
-    if (/\b(child|children|kids|son|daughter)\b/.test(q) && !q.includes("related")) {
-      return children.length > 0
-        ? `${subjectPerson.name} has ${children.length} recorded ${children.length === 1 ? "child" : "children"}: ${children.join(", ")}.`
-        : `No children are recorded yet for ${subjectPerson.name} in the ${family.name} tree.`;
-    }
-    if (/\b(sibling|siblings|brother|brothers|sister|sisters)\b/.test(q) && !q.includes("related")) {
-      return siblings.length > 0
-        ? `${subjectPerson.name}'s siblings are ${siblings.join(", ")}.`
-        : `No siblings are recorded for ${subjectPerson.name} in the ${family.name} tree.`;
-    }
-    if (/\b(spouse|spouses|partner|husband|wife|married)\b/.test(q) && !q.includes("related")) {
-      return spouses.length > 0
-        ? `${subjectPerson.name} is partnered/married with ${spouses.join(", ")}.`
-        : `No spouse or partner is recorded for ${subjectPerson.name} in the ${family.name} tree.`;
-    }
-  }
-
-  // If specific kinship was calculated between two people
-  if (kinship && detectedPeople.length >= 2) {
-    const p1 = detectedPeople[0];
-    const p2 = detectedPeople[1];
-    const isP1Root = rootPerson && p1.id === rootPerson.id;
-    const p1Label = isP1Root ? `You (${p1.name})` : p1.name;
-    const p1Dates = p1?.date_of_birth ? ` (b. ${p1.date_of_birth})` : "";
-    const p2Dates = p2?.date_of_birth ? ` (b. ${p2.date_of_birth})` : "";
+  // 1. If two people are being compared (either 2 people mentioned, or 1 person compared to "me"/"you")
+  if (kinship && refPerson && subjectPerson && refPerson.id !== subjectPerson.id) {
+    const isRefRoot = rootPerson && refPerson.id === rootPerson.id;
+    const isSubjRoot = rootPerson && subjectPerson.id === rootPerson.id;
+    const refLabel = isRefRoot ? `${refPerson.name} (You)` : refPerson.name;
+    const subjLabel = isSubjRoot ? `${subjectPerson.name} (You)` : subjectPerson.name;
+    const refDates = refPerson.date_of_birth ? ` (b. ${refPerson.date_of_birth})` : "";
+    const subjDates = subjectPerson.date_of_birth ? ` (b. ${subjectPerson.date_of_birth})` : "";
 
     if (kinship.related) {
-      let text = `${p2.name}${p2Dates} is the ${kinship.title} of ${p1Label}${p1Dates}.\n\n`;
-      text += `• Relationship: ${kinship.title}\n`;
+      let text = `${subjLabel}${subjDates} is the ${kinship.title} of ${refLabel}${refDates}.\n`;
+      if (kinship.reverseTitle && kinship.reverseTitle !== "Same Person") {
+        text += `(Conversely, ${refPerson.name} is the ${kinship.reverseTitle} of ${subjectPerson.name}.)\n`;
+      }
+      text += `\n• Relationship (${subjectPerson.name} to ${refPerson.name}): ${kinship.title}\n`;
+      if (kinship.reverseTitle) {
+        text += `• Reverse Relationship (${refPerson.name} to ${subjectPerson.name}): ${kinship.reverseTitle}\n`;
+      }
       text += `• Generational Step: ${
         kinship.generationDiff === 0
           ? "Same generation"
           : kinship.generationDiff > 0
-          ? `${kinship.generationDiff} generation(s) younger`
-          : `${Math.abs(kinship.generationDiff)} generation(s) older`
+          ? `${kinship.generationDiff} generation(s) younger than ${refPerson.name}`
+          : `${Math.abs(kinship.generationDiff)} generation(s) older than ${refPerson.name}`
       }\n`;
       if (kinship.steps && kinship.steps.length > 0) {
-        text += `• Lineage Path: ${kinship.steps.join(" → ")}\n`;
+        text += `• Lineage / Connection Path: ${kinship.steps.join(" → ")}\n`;
       }
       if (kinship.commonAncestors && kinship.commonAncestors.length > 0) {
         text += `• Shared Ancestor(s): ${kinship.commonAncestors.join(", ")}\n`;
       }
-      if (kinship.explanation) {
-        text += `\n${kinship.explanation}`;
+      if (kinship.stepDescriptions && kinship.stepDescriptions.length > 0) {
+        text += `\nStep-by-Step Connection:\n`;
+        kinship.stepDescriptions.forEach((step, idx) => {
+          text += `${idx + 1}. ${step}\n`;
+        });
+      } else if (kinship.explanation) {
+        text += `\n${kinship.explanation}\n`;
       }
-      const profileInfo = buildPersonProfileLines(p2, people);
+
+      const profileInfo = buildPersonProfileLines(subjectPerson, people);
       if (profileInfo) {
-        text += `\n\nAbout ${p2.name}:\n${profileInfo}`;
+        text += `\nAbout ${subjectPerson.name}:\n${profileInfo}`;
       }
       return cleanChatbotText(text);
     } else {
       return cleanChatbotText(
-        `No direct ancestral, descendant, or marital relationship path was found between ${p1Label} and ${p2.name} in the ${family.name} tree. They may belong to separate branches that have not been linked yet.`
+        `No direct ancestral, descendant, or marital relationship path was found between ${subjLabel} and ${refLabel} in the ${family.name} tree. They may belong to separate branches that have not been linked yet.`
       );
     }
   }
 
-  // General kinship terminology inquiries
-  if (q.includes("first cousin once removed") || q.includes("once removed")) {
+  // 2. If 2 people were mentioned, but no connection path exists between them
+  if (refPerson && subjectPerson && refPerson.id !== subjectPerson.id && !kinship) {
     return cleanChatbotText(
-      `What Does "Once Removed" Mean?\n\nIn genealogy, "removed" indicates a generational difference between cousins:\n\n• First Cousins: Share the same grandparents and are in the same generation as you.\n• First Cousin Once Removed: One generation away from being first cousins. This can mean either your parent's first cousin (one generation above you) or your first cousin's child (one generation below you).\n• Twice Removed: Two generations apart (for example, your grandparent's first cousin, or your first cousin's grandchild).\n\nIn your ${family.name} family tree, the kinship engine computes these generational offsets automatically.`
+      `No direct ancestral, descendant, or marital relationship path was found between ${subjectPerson.name} and ${refPerson.name} in the ${family.name} tree. Make sure their connecting parents or spouse links are recorded on the tree.`
     );
   }
 
-  if (q.includes("second cousin") || q.includes("2nd cousin")) {
-    return cleanChatbotText(
-      `Understanding Second Cousins\n\nSecond cousins share the same great-grandparents, but have different grandparents.\n\n• Siblings: Share parents (1 generation to common ancestor)\n• 1st Cousins: Share grandparents (2 generations to common ancestor)\n• 2nd Cousins: Share great-grandparents (3 generations to common ancestor)\n• 3rd Cousins: Share great-great-grandparents (4 generations to common ancestor)\n\nAsk me about any two family members to check if they are cousins!`
-    );
+  // 3. Check if user is asking about a single specific person (either mentioned by name or via pronoun)
+  const singleTarget = mentionedPeople.length === 1 ? mentionedPeople[0] : subjectPerson || null;
+  if (singleTarget) {
+    const rels = getExtendedRelatives(singleTarget, people);
+
+    if (/\b(grandparent|grandparents|grandfather|grandmother|grandpa|grandma)\b/.test(q) && !q.includes("related")) {
+      return rels.grandparents.length > 0
+        ? cleanChatbotText(`${singleTarget.name}'s recorded grandparents are ${rels.grandparents.map((x) => x.name).join(", ")}.`)
+        : cleanChatbotText(`No grandparents are recorded yet for ${singleTarget.name} in the ${family.name} tree.`);
+    }
+    if (/\b(parent|parents|father|mother|mom|dad)\b/.test(q) && !q.includes("related")) {
+      return rels.parents.length > 0
+        ? cleanChatbotText(`${singleTarget.name}'s recorded parents are ${rels.parents.map((x) => x.name).join(" and ")}.`)
+        : cleanChatbotText(`No parents are recorded yet for ${singleTarget.name} in the ${family.name} tree.`);
+    }
+    if (/\b(grandchild|grandchildren|grandson|granddaughter|grandkids)\b/.test(q) && !q.includes("related")) {
+      return rels.grandchildren.length > 0
+        ? cleanChatbotText(`${singleTarget.name}'s recorded grandchildren are ${rels.grandchildren.map((x) => x.name).join(", ")}.`)
+        : cleanChatbotText(`No grandchildren are recorded yet for ${singleTarget.name} in the ${family.name} tree.`);
+    }
+    if (/\b(child|children|kids|son|daughter)\b/.test(q) && !q.includes("related")) {
+      return rels.children.length > 0
+        ? cleanChatbotText(
+            `${singleTarget.name} has ${rels.children.length} recorded ${
+              rels.children.length === 1 ? "child" : "children"
+            }: ${rels.children.map((x) => x.name).join(", ")}.`
+          )
+        : cleanChatbotText(`No children are recorded yet for ${singleTarget.name} in the ${family.name} tree.`);
+    }
+    if (/\b(sibling|siblings|brother|brothers|sister|sisters)\b/.test(q) && !q.includes("related")) {
+      return rels.siblings.length > 0
+        ? cleanChatbotText(`${singleTarget.name}'s recorded siblings are ${rels.siblings.map((x) => x.name).join(", ")}.`)
+        : cleanChatbotText(`No siblings are recorded for ${singleTarget.name} in the ${family.name} tree.`);
+    }
+    if (/\b(spouse|spouses|partner|husband|wife|married)\b/.test(q) && !q.includes("related")) {
+      return rels.spouses.length > 0
+        ? cleanChatbotText(`${singleTarget.name} is partnered/married with ${rels.spouses.map((x) => x.name).join(", ")}.`)
+        : cleanChatbotText(`No spouse or partner is recorded for ${singleTarget.name} in the ${family.name} tree.`);
+    }
+    if (/\b(uncle|uncles|aunt|aunts)\b/.test(q) && !q.includes("related")) {
+      return rels.auntsUncles.length > 0
+        ? cleanChatbotText(`${singleTarget.name}'s aunts/uncles are ${rels.auntsUncles.map((x) => x.name).join(", ")}.`)
+        : cleanChatbotText(`No aunts or uncles are recorded for ${singleTarget.name} in the ${family.name} tree.`);
+    }
+    if (/\b(niece|nieces|nephew|nephews)\b/.test(q) && !q.includes("related")) {
+      return rels.niecesNephews.length > 0
+        ? cleanChatbotText(`${singleTarget.name}'s nieces/nephews are ${rels.niecesNephews.map((x) => x.name).join(", ")}.`)
+        : cleanChatbotText(`No nieces or nephews are recorded for ${singleTarget.name} in the ${family.name} tree.`);
+    }
+    if (/\b(cousin|cousins)\b/.test(q) && !q.includes("related")) {
+      return rels.cousins.length > 0
+        ? cleanChatbotText(`${singleTarget.name}'s first cousins are ${rels.cousins.map((x) => x.name).join(", ")}.`)
+        : cleanChatbotText(`No first cousins are recorded for ${singleTarget.name} in the ${family.name} tree.`);
+    }
+
+    const profileLines = buildPersonProfileLines(singleTarget, people);
+    let text = `${singleTarget.name}'s Family Connections\n\n${profileLines || "• No additional connections recorded yet."}`;
+    if (rootPerson && rootPerson.id !== singleTarget.id) {
+      const relToRoot = determineKinship(rootPerson.id, singleTarget.id, people);
+      if (relToRoot && relToRoot.related) {
+        text = `${singleTarget.name} is your ${relToRoot.title} (relative to ${rootPerson.name}).\n• Lineage Path: ${relToRoot.steps.join(" → ")}\n\n${text}`;
+      }
+    } else if (rootPerson && rootPerson.id === singleTarget.id) {
+      text = `${singleTarget.name} is the Tree Starter ("You") of the ${family.name} tree.\n\n${text}`;
+    }
+    return cleanChatbotText(text);
   }
 
-  if (q.includes("double cousin") || q.includes("double first cousin")) {
-    return cleanChatbotText(
-      `Double First Cousins\n\nDouble first cousins occur when two siblings from one family have children with two siblings from another family (for example, two brothers marry two sisters).\n\nBecause they share all four grandparents rather than just two, double first cousins share approximately 25% of their DNA (the same as half-siblings) instead of the usual 12.5% for regular first cousins.`
-    );
+  // 4. Whole-Tree Directory & Overview Queries ("Who is in this family tree?", "List all members", "How many people", etc.)
+  if (
+    /\b(who is in|who all are in|who are in|everyone in|people in this|members in this|list all|show all|family tree|how many|summary|overview|members|related in our family|all relatives|directory)\b/.test(
+      q
+    ) &&
+    !/\b(what is a family tree|what is family)\b/.test(q)
+  ) {
+    if (people.length === 0) {
+      return cleanChatbotText(`The ${family.name} tree does not have any members recorded yet.`);
+    }
+    const living = people.filter((p) => !p.date_of_death).length;
+    const deceased = people.length - living;
+    const withParents = people.filter((p) => (p.parent_ids || []).length > 0).length;
+    const withSpouses = people.filter((p) => (p.spouse_ids || []).length > 0).length;
+
+    const memberLines = people.slice(0, 35).map((p) => {
+      const pNames = (p.parent_ids || []).map((id) => byId.get(id)?.name).filter(Boolean);
+      const sNames = (p.spouse_ids || []).map((id) => byId.get(id)?.name).filter(Boolean);
+      const cNames = people.filter((m) => (m.parent_ids || []).includes(p.id)).map((m) => m.name);
+      const tags: string[] = [];
+      if (rootPerson && p.id === rootPerson.id) tags.push("Tree Starter / You");
+      else if (rootPerson) {
+        const rel = determineKinship(rootPerson.id, p.id, people);
+        if (rel?.related) tags.push(rel.title);
+      }
+      if (pNames.length) tags.push(`Parents: ${pNames.join(" & ")}`);
+      if (sNames.length) tags.push(`Spouse: ${sNames.join(", ")}`);
+      if (cNames.length) tags.push(`Children: ${cNames.join(", ")}`);
+      return `• ${p.name}${tags.length ? ` — ${tags.join(" | ")}` : ""}`;
+    });
+
+    let resp = `${family.name} Family Tree Members (${people.length} total)\n\n`;
+    resp += `Tree Summary:\n• Total Members: ${people.length} (${living} living${deceased > 0 ? `, ${deceased} deceased` : ""})\n`;
+    resp += `• Linked to Parents: ${withParents} | Partnered/Married: ${withSpouses}\n`;
+    if (rootPerson) {
+      resp += `• Tree Starter (You): ${rootPerson.name}\n`;
+    }
+    resp += `\nRecorded Family Members:\n${memberLines.join("\n")}`;
+    if (people.length > 35) {
+      resp += `\n• ...and ${people.length - 35} more members.`;
+    }
+    return cleanChatbotText(resp);
   }
 
-  if (q.includes("consanguinity") || q.includes("affinity")) {
-    return cleanChatbotText(
-      `Consanguinity vs. Affinity\n\n• Consanguinity: Kinship by blood or genetic descent from a common ancestor (such as parents, children, siblings, aunts, uncles, and cousins).\n• Affinity: Kinship created through marriage (such as spouses, mothers-in-law, brothers-in-law, and step-relatives).\n\nRootline tracks both bloodlines and marriage links to explain how any two relatives are connected.`
-    );
-  }
-
-  if (q.includes("granduncle") || q.includes("great uncle") || q.includes("great-uncle")) {
-    return cleanChatbotText(
-      `Granduncle vs. Great-Uncle\n\nBoth terms refer to the brother of your grandparent. Genealogists often use "granduncle" because it parallels "grandfather", while "great-uncle" is common in everyday conversation. Similarly, a grandaunt (or great-aunt) is the sister of your grandparent.`
-    );
-  }
-
-  if (q.includes("oldest") || q.includes("earliest ancestor")) {
+  // 5. Oldest / Youngest / Couples in the tree
+  if (q.includes("oldest") || q.includes("earliest ancestor") || q.includes("forefather") || q.includes("root ancestor")) {
     const withBirth = people
       .filter((p) => p.date_of_birth && !isNaN(new Date(p.date_of_birth).getTime()))
       .sort((a, b) => new Date(a.date_of_birth!).getTime() - new Date(b.date_of_birth!).getTime());
@@ -306,7 +647,7 @@ function runRuleBasedEngine(
       resp += `• Earliest Birth Date: ${oldest.name} (born ${oldest.date_of_birth})\n`;
     }
     if (rootAncestors.length > 0) {
-      resp += `• Top-Level Branch Ancestors (${rootAncestors.length}): ${rootAncestors.slice(0, 10).map((p) => p.name).join(", ")}\n`;
+      resp += `• Top-Generation Ancestors (${rootAncestors.length}): ${rootAncestors.slice(0, 12).map((p) => p.name).join(", ")}\n`;
     }
     return cleanChatbotText(resp);
   }
@@ -317,41 +658,51 @@ function runRuleBasedEngine(
       .sort((a, b) => new Date(b.date_of_birth!).getTime() - new Date(a.date_of_birth!).getTime());
     if (withBirth.length > 0) {
       const youngest = withBirth[0];
-      return cleanChatbotText(`The youngest person with a recorded birth date in ${family.name} is ${youngest.name} (born ${youngest.date_of_birth}).`);
+      return cleanChatbotText(
+        `The youngest person with a recorded birth date in ${family.name} is ${youngest.name} (born ${youngest.date_of_birth}).`
+      );
     }
-  }
-
-  if (q.includes("interview") || q.includes("oral") || q.includes("elders") || q.includes("questions should i ask")) {
+    const leafMembers = people.filter(
+      (p) => !people.some((m) => (m.parent_ids || []).includes(p.id))
+    );
     return cleanChatbotText(
-      `Questions to Ask Elders for Oral Family History\n\n• What are your earliest childhood memories and what was your home like?\n• How did your parents and grandparents meet, and what were their occupations?\n• What family traditions, recipes, or sayings were passed down to you?\n• Where did our family live before moving here, and what stories were told about our ancestors?\n• Are there any old photographs, letters, or heirlooms whose stories we should record in the tree?`
+      `Birth dates are not recorded for all members yet, but the youngest-generation members (with no recorded children yet) in ${family.name} include: ${leafMembers
+        .slice(0, 10)
+        .map((p) => p.name)
+        .join(", ")}.`
     );
   }
 
-  if (q.includes("how many") || q.includes("summary") || q.includes("overview") || q.includes("members") || q.includes("related in our family")) {
-    const living = people.filter((p) => !p.date_of_death).length;
-    const deceased = people.length - living;
-    const withParents = people.filter((p) => (p.parent_ids || []).length > 0).length;
-    const withSpouses = people.filter((p) => (p.spouse_ids || []).length > 0).length;
-    return cleanChatbotText(
-      `${family.name} Family Tree Summary\n\nYour tree currently has ${people.length} recorded members:\n• Living Members: ${living}\n• Deceased / Remembered Ancestors: ${deceased}\n• Members Linked to Parents: ${withParents}\n• Members with Recorded Partners: ${withSpouses}\n${rootPerson ? `• Tree Starter (You): ${rootPerson.name}\n` : ""}\nAsk me how any two relatives are connected (for example, "How is ${people[Math.min(1, people.length - 1)]?.name || "Person A"} related to ${rootPerson?.name || people[0]?.name || "me"}?") or ask about anyone's parents, spouse, or children!`
-    );
-  }
-
-  if (detectedPeople.length >= 1) {
-    const p = detectedPeople[0];
-    const profileLines = buildPersonProfileLines(p, people);
-    let text = `${p.name}'s Family Connections\n\n${profileLines || "• No additional details recorded yet."}`;
-    if (rootPerson && rootPerson.id !== p.id) {
-      const relToRoot = determineKinship(rootPerson.id, p.id, people);
-      if (relToRoot && relToRoot.related) {
-        text = `${p.name} is your ${relToRoot.title} (relative to ${rootPerson.name}).\n• Lineage Path: ${relToRoot.steps.join(" → ")}\n\n${text}`;
+  if (/\b(couples|marriages|married couples|spouses in this tree)\b/.test(q)) {
+    const seenPairs = new Set<string>();
+    const coupleList: string[] = [];
+    for (const p of people) {
+      for (const sid of p.spouse_ids || []) {
+        const sp = byId.get(sid);
+        if (!sp) continue;
+        const key = [p.id, sp.id].sort().join("|");
+        if (!seenPairs.has(key)) {
+          seenPairs.add(key);
+          coupleList.push(`• ${p.name} & ${sp.name}`);
+        }
       }
     }
-    return cleanChatbotText(text);
+    return coupleList.length > 0
+      ? cleanChatbotText(`Recorded Couples in ${family.name} (${coupleList.length}):\n\n${coupleList.join("\n")}`)
+      : cleanChatbotText(`No married or partnered couples are recorded yet in the ${family.name} tree.`);
   }
 
+  // 6. General Knowledge & Genealogy Concepts
+  const generalAnswer = answerGeneralKnowledgeQuestion(message, family, people, rootPerson);
+  if (generalAnswer) {
+    return generalAnswer;
+  }
+
+  // 7. Thoughtful Fallback that answers open-ended questions without dumping an unrelated person's card
+  const sampleP1 = people[0]?.name || "Person A";
+  const sampleP2 = people[Math.min(1, people.length - 1)]?.name || "Person B";
   return cleanChatbotText(
-    `Hello! I am your Family Guide for the ${family.name} tree (${people.length} members).\n\nYou can ask me:\n• How is [Name] related to me?\n• How is [Person A] related to [Person B]?\n• Who are [Name]'s parents, children, or siblings?\n• Who is the oldest ancestor in this tree?\n• What does "first cousin once removed" mean?`
+    `I am your Family & Kinship Guide for the ${family.name} tree (${people.length} recorded members).\n\nHere are some ways I can help you right now:\n• Compare Any Two Relatives: Try asking "How is ${sampleP1} related to ${sampleP2}?"\n• Explore a Family Member: Try asking "Tell me about ${sampleP1}" or "Who are ${sampleP1}'s parents and children?"\n• See the Full Tree Directory: Ask "Who is in this family tree?" or "Who are the couples in this tree?"\n• General Family & Kinship Knowledge: Ask "What is family according to you?", "How do first and second cousins work?", "What does once removed mean?", or "Explain Indian kinship terms."`
   );
 }
 
@@ -368,7 +719,6 @@ async function callGemini(
     throw new Error("GEMINI_API_KEY environment variable is not configured.");
   }
 
-  // Construct contents with chat history
   const contents: any[] = [];
   for (const m of messages.slice(-8)) {
     contents.push({
@@ -381,13 +731,12 @@ async function callGemini(
     parts: [{ text: latestMessage }],
   });
 
-  // Candidate models: prioritize official Gemini 3 Flash and 2.5 Flash models
   const candidateModels: string[] = [];
   const configuredModel = process.env.GEMINI_MODEL;
   if (configuredModel && !configuredModel.includes("1.5") && !configuredModel.includes("2.0")) {
     candidateModels.push(configuredModel);
   }
-  for (const m of ["gemini-3-flash-preview", "gemini-2.5-flash"]) {
+  for (const m of ["gemini-3.8-flash", "gemini-flash-latest", "gemini-3-flash-preview", "gemini-2.5-flash"]) {
     if (!candidateModels.includes(m)) {
       candidateModels.push(m);
     }
@@ -406,9 +755,7 @@ async function callGemini(
           model: modelName,
           contents,
           config: {
-            systemInstruction: {
-              parts: [{ text: systemInstruction }],
-            },
+            systemInstruction,
             temperature: 0.35,
           },
         }),
@@ -531,48 +878,56 @@ export async function processFamilyChat(
   const byId = new Map(people.map((p) => [p.id, p]));
 
   // Resolve Root Person ("You" / Tree Starter)
-  let rootPerson: PersonOut | undefined =
+  const rootPerson: PersonOut | undefined =
     (rootPersonId ? byId.get(rootPersonId) : undefined) ||
     (family.root_person_id ? byId.get(family.root_person_id) : undefined) ||
     (rootPersonName ? people.find((p) => p.name.toLowerCase() === rootPersonName.toLowerCase()) : undefined) ||
     people[0];
 
   // Resolve Selected Person from UI if provided
-  let selectedPerson: PersonOut | undefined =
+  const selectedPerson: PersonOut | undefined =
     (selectedPersonId ? byId.get(selectedPersonId) : undefined) ||
     (selectedPersonName ? people.find((p) => p.name.toLowerCase() === selectedPersonName.toLowerCase()) : undefined);
 
-  // Disambiguation & Kinship Detection
+  const lowerMsg = message.toLowerCase();
+  const mentioned = findMentionedPeople(message, people);
+
+  // Check whether user is asking a relationship comparison or referring to themselves / selected person
+  const refersToSelf = /\b(me|my|myself|i)\b/.test(lowerMsg) && !/\b(tell me about|show me|give me|explain to me)\b/.test(lowerMsg);
+  const asksHowRelated = /\b(related|relation|relationship|connect|connected|connection|who is .+ to|what is .+ to)\b/.test(lowerMsg);
+  const refersToSelectedPronoun =
+    mentioned.length === 0 &&
+    /\b(this person|selected person|he|him|his|she|her|hers)\b/.test(lowerMsg) &&
+    !answerGeneralKnowledgeQuestion(message, family, people, rootPerson);
+
+  // Determine Reference Person (targetP1) and Subject Person (targetP2, where we answer "targetP2 is the [Title] of targetP1")
   let detectedKinship: KinshipResult | null = null;
   let targetP1: PersonOut | undefined;
   let targetP2: PersonOut | undefined;
 
   if (person1Id && person2Id && person1Id !== person2Id) {
+    // Explicit pair selector: person1Id is Reference, person2Id is Subject
     targetP1 = byId.get(person1Id);
     targetP2 = byId.get(person2Id);
-  } else {
-    const mentioned = findMentionedPeople(message, people);
-    if (mentioned.length >= 2) {
-      targetP1 = mentioned[0];
-      targetP2 = mentioned[1];
-    } else if (mentioned.length === 1) {
-      const mPerson = mentioned[0];
-      if (rootPerson && rootPerson.id !== mPerson.id) {
-        targetP1 = rootPerson;
-        targetP2 = mPerson;
-      } else if (selectedPerson && selectedPerson.id !== mPerson.id) {
-        targetP1 = selectedPerson;
-        targetP2 = mPerson;
-      } else {
-        targetP1 = mPerson;
-      }
-    } else if (selectedPerson) {
-      if (rootPerson && rootPerson.id !== selectedPerson.id) {
-        targetP1 = rootPerson;
-        targetP2 = selectedPerson;
-      } else {
-        targetP1 = selectedPerson;
-      }
+  } else if (mentioned.length >= 2) {
+    // In natural English ("How is A related to B?"), the first mentioned person (A) is the subject
+    // and the second mentioned person (B) is the reference person ("of B").
+    targetP2 = mentioned[0];
+    targetP1 = mentioned[1];
+  } else if (mentioned.length === 1) {
+    const mPerson = mentioned[0];
+    if ((refersToSelf || asksHowRelated) && rootPerson && rootPerson.id !== mPerson.id) {
+      targetP1 = rootPerson;
+      targetP2 = mPerson;
+    } else {
+      targetP2 = mPerson;
+    }
+  } else if (refersToSelectedPronoun && selectedPerson) {
+    if (asksHowRelated && rootPerson && rootPerson.id !== selectedPerson.id) {
+      targetP1 = rootPerson;
+      targetP2 = selectedPerson;
+    } else {
+      targetP2 = selectedPerson;
     }
   }
 
@@ -590,24 +945,26 @@ export async function processFamilyChat(
     kinshipContext += `\nTREE STARTER / REFERENCE PERSON ("You" / "Me"): ${rootPerson.name} (ID: ${rootPerson.id})`;
   }
   if (selectedPerson) {
-    kinshipContext += `\nCURRENTLY SELECTED PERSON IN UI: ${selectedPerson.name} (ID: ${selectedPerson.id})`;
+    kinshipContext += `\nCURRENTLY SELECTED PERSON IN UI (only use if user's question is about them): ${selectedPerson.name} (ID: ${selectedPerson.id})`;
   }
   if (targetP1 && targetP2 && detectedKinship) {
     const p1Dates = [targetP1.date_of_birth ? `b. ${targetP1.date_of_birth}` : "", targetP1.date_of_death ? `d. ${targetP1.date_of_death}` : ""].filter(Boolean).join(" - ");
     const p2Dates = [targetP2.date_of_birth ? `b. ${targetP2.date_of_birth}` : "", targetP2.date_of_death ? `d. ${targetP2.date_of_death}` : ""].filter(Boolean).join(" - ");
 
     kinshipContext += `\nPRE-VERIFIED RELATIONSHIP FACT FOR THIS QUERY:
-Reference Person 1: ${targetP1.name} (${p1Dates || "dates unrecorded"})
-Relative Person 2: ${targetP2.name} (${p2Dates || "dates unrecorded"})
-Verified Kinship Title: ${detectedKinship.title}
-Generational Difference: ${detectedKinship.generationDiff} (${detectedKinship.generationDiff === 0 ? "same generation" : detectedKinship.generationDiff > 0 ? `${detectedKinship.generationDiff} generation(s) down` : `${Math.abs(detectedKinship.generationDiff)} generation(s) up`})
+Reference Person: ${targetP1.name} (${p1Dates || "dates unrecorded"})
+Subject Relative: ${targetP2.name} (${p2Dates || "dates unrecorded"})
+Verified Kinship (${targetP2.name} to ${targetP1.name}): ${targetP2.name} is the ${detectedKinship.title} of ${targetP1.name}
+${detectedKinship.reverseTitle ? `Reverse Kinship (${targetP1.name} to ${targetP2.name}): ${targetP1.name} is the ${detectedKinship.reverseTitle} of ${targetP2.name}` : ""}
+Generational Difference: ${detectedKinship.generationDiff} (${detectedKinship.generationDiff === 0 ? "same generation" : detectedKinship.generationDiff > 0 ? `${detectedKinship.generationDiff} generation(s) younger than ${targetP1.name}` : `${Math.abs(detectedKinship.generationDiff)} generation(s) older than ${targetP1.name}`})
 Exact Chain of Lineage: ${detectedKinship.steps.join(" → ")}
+${detectedKinship.stepDescriptions?.length ? `Step-by-Step Breakdown: ${detectedKinship.stepDescriptions.join(" -> ")}` : ""}
 ${detectedKinship.commonAncestors.length ? `Common Ancestor(s): ${detectedKinship.commonAncestors.join(", ")}` : ""}
 Mathematical Explanation: ${detectedKinship.explanation}
-CRITICAL MANDATE: You MUST use these exact verified mathematical facts when answering. If individuals share the same first/last name, use their birth or death years to clearly disambiguate who is who.`;
+CRITICAL MANDATE: You MUST use these exact verified mathematical facts when answering how ${targetP2.name} and ${targetP1.name} are related.`;
   }
 
-  const systemInstruction = `You are Rootline's Kinship & Family Guide, a warm, clear, and accurate genealogy assistant.
+  const systemInstruction = `You are Rootline's Kinship & Family Guide, an intelligent, warm, and articulate genealogy and general knowledge assistant.
 
 ACTIVE FAMILY TREE CONTEXT (STRICT TENANT ISOLATION):
 - Family Name: "${family.name}" (ID: ${family.id})
@@ -617,20 +974,19 @@ ${peopleSummaries}
 ${kinshipContext}
 
 CORE CAPABILITIES & RULES:
-1. UNDERSTAND RELATIONSHIPS:
+1. ACCURATE FAMILY RELATIONSHIPS & TREE QUERIES:
    - When the user says "me", "my", or "I", they refer to the Tree Starter (${rootPerson ? rootPerson.name : "the tree starter"}).
-   - When asked about relationships between people in this family tree, explain their connection clearly, warmly, and accurately based ONLY on the verified records above.
-   - Trace lineage paths step by step (e.g. "Babu is the father of Varun...").
-   - If two people share the same name, cite their birth years or spouses/parents to clearly disambiguate who is who.
-   - If no connection exists in the recorded records, politely state that no direct path has been recorded yet in this tree.
+   - When asked how Person A is related to Person B, state clearly what Person A is to Person B AND what Person B is to Person A, then trace the exact step-by-step lineage/marriage path using the verified records above.
+   - When asked "Who is in this family tree?", list the members of the ${family.name} tree and their relationships clearly.
+   - Do NOT answer with a single person's connections unless the user actually asked about that specific person.
 
-2. GENERAL FAMILY & KINSHIP KNOWLEDGE:
-   - Answer general genealogy questions clearly (e.g. "What does first cousin once removed mean?", "What is a double first cousin?", "Consanguinity vs affinity", "Questions to ask elders").
+2. BROAD GENERAL KNOWLEDGE & GENEALOGY EXPERTISE:
+   - You have full general knowledge! If the user asks philosophical, cultural, historical, scientific, or general questions (such as "What is family according to you?", "What is genealogy?", "How do cousins and removals work?", "Indian kinship terms", "Shared DNA", or any general knowledge question), answer thoughtfully, accurately, and naturally.
 
 3. STRICT FORMATTING RULE (NO ASTERISKS):
    - NEVER use "***" or "**" or Markdown asterisks anywhere in your response.
    - Use plain text and simple "•" bullet points when listing items.
-   - Keep answers concise, warm, and easy to read.`;
+   - Keep answers clear, warm, and well-structured.`;
 
   // DUAL-PROVIDER FAILOVER LOGIC
   let primaryProvider: "gemini" | "groq" = "gemini";
@@ -667,7 +1023,6 @@ CORE CAPABILITIES & RULES:
   } catch (primaryErr: any) {
     logger.warn(`Primary provider (${primaryProvider}) failed: ${primaryErr.message}. Attempting failover to ${secondaryProvider}...`);
 
-    // Attempt Secondary Provider
     try {
       if (secondaryProvider === "groq" && process.env.GROQ_API_KEY) {
         const res = await callGroq(systemInstruction, history, message);
@@ -693,11 +1048,11 @@ CORE CAPABILITIES & RULES:
         };
       }
     } catch (secondaryErr: any) {
-      logger.warn(`Secondary provider (${secondaryProvider}) also failed: ${secondaryErr.message}. Falling back to rule-based engine.`);
+      logger.warn(`Secondary provider (${secondaryProvider}) also failed: ${secondaryErr.message}. Falling back to built-in knowledge engine.`);
     }
   }
 
-  // If primary didn't run (e.g. key missing), try the other if its key is present
+  // If primary didn't run because its key was missing, try secondary if its key is present
   if (secondaryProvider === "groq" && process.env.GROQ_API_KEY && !process.env.GEMINI_API_KEY) {
     try {
       const res = await callGroq(systemInstruction, history, message);
@@ -728,16 +1083,24 @@ CORE CAPABILITIES & RULES:
     }
   }
 
-  // Built-in intelligent rule-based engine fallback
-  const detectedPeople = [targetP1, targetP2].filter(Boolean) as PersonOut[];
-  const ruleBasedText = runRuleBasedEngine(message, people, family, detectedKinship, detectedPeople, rootPerson);
+  // Built-in intelligent rule-based & general knowledge engine fallback
+  const ruleBasedText = runRuleBasedEngine(
+    message,
+    people,
+    family,
+    detectedKinship,
+    targetP1,
+    targetP2,
+    mentioned,
+    rootPerson
+  );
 
   return {
     message: ruleBasedText,
     provider: "rule_based_fallback",
     model: "local-kinship-engine",
     failoverOccurred: true,
-    failoverDetails: "Running on built-in offline kinship & genealogy knowledge engine.",
+    failoverDetails: "Running on built-in kinship & general knowledge engine.",
     detectedKinship,
     familySummary: { id: family.id, name: family.name, memberCount: people.length },
   };

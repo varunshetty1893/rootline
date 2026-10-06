@@ -34,7 +34,14 @@ let aiClient: GoogleGenAI | null = null;
 function getGenAI(): GoogleGenAI | null {
   if (!process.env.GEMINI_API_KEY) return null;
   if (!aiClient) {
-    aiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    aiClient = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build",
+        },
+      },
+    });
   }
   return aiClient;
 }
@@ -2584,7 +2591,7 @@ Respond with a warm, conversational 2-3 sentence explanation. Do not use Markdow
           ) {
             candidateModels.push(configuredModel);
           }
-          for (const m of ["gemini-3-flash-preview", "gemini-2.5-flash"]) {
+          for (const m of ["gemini-3.8-flash", "gemini-flash-latest", "gemini-3-flash-preview", "gemini-2.5-flash"]) {
             if (!candidateModels.includes(m)) {
               candidateModels.push(m);
             }

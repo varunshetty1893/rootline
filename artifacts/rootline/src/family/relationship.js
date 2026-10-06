@@ -222,6 +222,41 @@ export function findRelationship(rootId, targetId, people) {
     };
   }
 
+  // Two-marriage-hop in-law: root's spouse is blood-related to target's spouse
+  let bestTwoMarriage = null;
+  for (const spouseOfRoot of root.spouseIds || []) {
+    for (const spouseOfTarget of target.spouseIds || []) {
+      const rel = bloodRelation(spouseOfRoot, spouseOfTarget, people, byId);
+      if (rel && (!bestTwoMarriage || rel.up + rel.down < bestTwoMarriage.rel.up + bestTwoMarriage.rel.down)) {
+        bestTwoMarriage = {
+          rel,
+          path: [rootId, ...rel.path, targetId],
+          coreGender: byId.get(spouseOfTarget)?.gender,
+        };
+      }
+    }
+  }
+
+  if (bestTwoMarriage) {
+    const { up, down } = bestTwoMarriage.rel;
+    let label;
+    if (up === 1 && down === 1) {
+      label = genderWord(target.gender, "co-brother-in-law", "co-sister-in-law", "spouse's sibling's spouse");
+    } else if (up === 1 && down === 2) {
+      label = genderWord(target.gender, "nephew-in-law", "niece-in-law", "spouse's niece/nephew's spouse");
+    } else if (up === 2 && down === 1) {
+      label = genderWord(target.gender, "uncle-in-law", "aunt-in-law", "spouse's aunt/uncle's spouse");
+    } else {
+      const core = bloodLabel(up, down, bestTwoMarriage.coreGender);
+      label = `spouse's ${core}'s ${spouseLabel(target.gender)}`;
+    }
+    return {
+      label,
+      path: bestTwoMarriage.path,
+      kind: "in-law",
+    };
+  }
+
   return null;
 }
 

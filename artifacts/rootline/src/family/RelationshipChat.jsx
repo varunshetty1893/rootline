@@ -70,7 +70,7 @@ export default function RelationshipChat({
     if (openSignal) setOpen(true);
   }, [openSignal]);
 
-  const sendQuestion = async (question, subject = selectedPerson) => {
+  const sendQuestion = async (question, subject = selectedPerson, isExplicitSubject = false) => {
     const cleanQ = question.trim();
     if (!cleanQ || sending) return;
 
@@ -86,6 +86,7 @@ export default function RelationshipChat({
         family_id: activeFamilyId,
         root_person_id: rootPerson?.id || rootPersonId || null,
         selected_person_id: subject?.id || null,
+        person2_id: isExplicitSubject && subject?.id ? subject.id : null,
         root_person_name: rootPerson?.name || null,
         selected_person_name: subject?.name || null,
         selected_relationship: subjectRelationship?.label || null,
@@ -126,10 +127,20 @@ export default function RelationshipChat({
     if (!question || sending) return;
     setMessage("");
     const lowerQuestion = question.toLowerCase();
-    const duplicateName = [...new Set(safePeople.filter((person) => lowerQuestion.includes(person.name.toLowerCase())).map((person) => person.name.toLowerCase()))]
-      .find((name) => safePeople.filter((person) => person.name.toLowerCase() === name).length > 1);
+    const matchesWholeName = (text, name) => {
+      if (!name) return false;
+      const escaped = name.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return new RegExp(`(?<![a-zA-Z0-9])${escaped}(?![a-zA-Z0-9])`, "i").test(text);
+    };
+    const duplicateName = [
+      ...new Set(
+        safePeople
+          .filter((person) => person.name && matchesWholeName(question, person.name))
+          .map((person) => person.name.trim().toLowerCase())
+      ),
+    ].find((name) => safePeople.filter((person) => (person.name || "").trim().toLowerCase() === name).length > 1);
     if (duplicateName) {
-      const candidates = safePeople.filter((person) => person.name.toLowerCase() === duplicateName);
+      const candidates = safePeople.filter((person) => (person.name || "").trim().toLowerCase() === duplicateName);
       const describedCandidate = candidates.find((person) => {
         const clues = [person.address, ...(person.spouseIds || []).map((id) => safePeople.find((candidate) => candidate.id === id)?.name), ...(person.parentIds || []).map((id) => safePeople.find((candidate) => candidate.id === id)?.name)].filter(Boolean);
         return clues.some((clue) => lowerQuestion.includes(clue.toLowerCase()));
@@ -143,7 +154,7 @@ export default function RelationshipChat({
         }]);
         return;
       }
-      await sendQuestion(question, describedCandidate);
+      await sendQuestion(question, describedCandidate, true);
       return;
     }
     await sendQuestion(question);
@@ -236,7 +247,7 @@ export default function RelationshipChat({
                             key={option.id}
                             type="button"
                             disabled={sending}
-                            onClick={() => sendQuestion(option.question, safePeople.find((person) => person.id === option.id))}
+                            onClick={() => sendQuestion(option.question, safePeople.find((person) => person.id === option.id), true)}
                             className="block w-full rounded-lg border border-[#1C4B3C]/20 bg-[#F7F5F0] px-2.5 py-2 text-left text-[11px] font-medium text-[#1C4B3C] hover:bg-[#E7F1EB] disabled:opacity-50"
                           >
                             {option.label}
