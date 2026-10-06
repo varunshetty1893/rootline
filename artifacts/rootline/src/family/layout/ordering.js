@@ -37,31 +37,20 @@ export function orderUnits(units, generation, indexById) {
     order.set(unitId, next++);
     const unit = units.get(unitId);
     const children = [...(unit?.childUnits || [])];
-    const referenceCouple = children
-      .map((childId) => units.get(childId))
-      .find((child) =>
-        child?.members.length > 1 &&
-        child.members.some((member) => child.memberParents.get(member.id)?.has(unitId))
+    const bloodMemberForParent = (childUnit) => {
+      if (!childUnit?.members?.length) return null;
+      return (
+        childUnit.members.find((member) => childUnit.memberParents.get(member.id)?.has(unitId)) ||
+        childUnit.members[0]
       );
-    const referenceSide = referenceCouple
-      ? referenceCouple.members.findIndex((member) => referenceCouple.memberParents.get(member.id)?.has(unitId))
-      : -1;
+    };
 
     children.sort((a, b) => {
-      // If this parent unit is the left partner's parent, siblings belong
-      // before the couple. If it is the right partner's parent, siblings
-      // belong after the couple. This prevents a sibling of babu from being
-      // laid out on shubha's side merely because babu and shubha are a
-      // contracted partner unit.
-      if (referenceCouple && (a === referenceCouple.id || b === referenceCouple.id)) {
-        if (a === referenceCouple.id) return referenceSide === 0 ? 1 : -1;
-        if (b === referenceCouple.id) return referenceSide === 0 ? -1 : 1;
-      }
       const ga = generation.get(a) ?? 0;
       const gb = generation.get(b) ?? 0;
       if (ga !== gb) return ga - gb;
-      const memberA = units.get(a)?.members?.[0];
-      const memberB = units.get(b)?.members?.[0];
+      const memberA = bloodMemberForParent(units.get(a));
+      const memberB = bloodMemberForParent(units.get(b));
       if (!memberA || !memberB) return 0;
       return stableKey(memberA, indexById).localeCompare(
         stableKey(memberB, indexById)

@@ -133,6 +133,15 @@ export function getShortFamily(allPeople, focusId) {
     resultIds.add(pid);
   }
 
+  // 1b. Grandparents of focus (parents of the selected person's parents, if they exist)
+  for (const pid of myParents) {
+    const parentPerson = byId.get(pid);
+    if (!parentPerson) continue;
+    for (const gpId of getParents(parentPerson)) {
+      resultIds.add(gpId);
+    }
+  }
+
   // 2. Direct Siblings of focus (sharing at least one direct parent with focus)
   if (myParents.length > 0) {
     for (const p of allPeople) {
@@ -152,7 +161,7 @@ export function getShortFamily(allPeople, focusId) {
   }
 
   // If focus is a married-in partner who has no parents recorded in the tree,
-  // include their spouse's direct parents and siblings so the couple's immediate family context stays visible.
+  // include their spouse's direct parents, grandparents, and siblings so the couple's family context stays visible.
   if (myParents.length === 0 && myPartners.length > 0) {
     for (const partnerId of myPartners) {
       const partner = byId.get(partnerId);
@@ -160,6 +169,12 @@ export function getShortFamily(allPeople, focusId) {
       const spouseParents = getParents(partner);
       for (const spPid of spouseParents) {
         resultIds.add(spPid);
+        const spParentPerson = byId.get(spPid);
+        if (spParentPerson) {
+          for (const gpId of getParents(spParentPerson)) {
+            resultIds.add(gpId);
+          }
+        }
       }
       if (spouseParents.length > 0) {
         for (const p of allPeople) {
@@ -585,7 +600,9 @@ export default function TreeView() {
   const lastRootRef = useRef(null);
   const userHasSelectedRef = useRef(false);
   const pendingFocusIdRef = useRef(null);
+  const anchorNodeRef = useRef(null);
   const initializedTreeKeyRef = useRef(null);
+  const initialCenteredTreeKeyRef = useRef(null);
 
   // Create tree & first person modal state
   const [createTreeModalOpen, setCreateTreeModalOpen] = useState(false);
@@ -760,13 +777,14 @@ export default function TreeView() {
   useEffect(() => {
     if (initializedTreeKeyRef.current !== currentTreeKey) {
       initializedTreeKeyRef.current = currentTreeKey;
+      initialCenteredTreeKeyRef.current = null;
       userHasSelectedRef.current = false;
       setFocusedView(true);
     }
   }, [currentTreeKey]);
 
   // On initial tree load (or if rootPersonId resolves before user manually clicks someone),
-  // ensure "You" (Tree Starter) is selected and focused.
+  // ensure "You" (Tree Starter) is selected and focused once.
   useEffect(() => {
     if (!people.length) return;
     const starterId =
@@ -778,15 +796,18 @@ export default function TreeView() {
       if (selectedId !== starterId) {
         setSelectedId(starterId);
       }
-      pendingFocusIdRef.current = starterId;
+      const centerKey = `${currentTreeKey}:${starterId}`;
+      if (initialCenteredTreeKeyRef.current !== centerKey) {
+        initialCenteredTreeKeyRef.current = centerKey;
+        pendingFocusIdRef.current = starterId;
+      }
       return;
     }
 
     if (!people.some((p) => p.id === selectedId)) {
       setSelectedId(starterId);
-      pendingFocusIdRef.current = starterId;
     }
-  }, [people, rootPersonId, currentUserPersonId, selectedId]);
+  }, [people, rootPersonId, currentUserPersonId, selectedId, currentTreeKey]);
 
   const openQuickAdd = (relation) => {
     const person = selectedPerson;
@@ -887,10 +908,17 @@ export default function TreeView() {
           setQuickError("Select the existing person you want to link.");
           return;
         }
+        const currentPos = getNodeLayoutPosition(selectedPerson.id);
+        if (currentPos) {
+          anchorNodeRef.current = { id: selectedPerson.id, x: currentPos.x, y: currentPos.y };
+        }
         await linkPeople(selectedPerson.id, quickPartnerId, quickPartnerStatus);
         closeQuickAdd();
-        pendingFocusIdRef.current = selectedPerson.id;
         return;
+      }
+      const currentPos = getNodeLayoutPosition(selectedPerson.id);
+      if (currentPos) {
+        anchorNodeRef.current = { id: selectedPerson.id, x: currentPos.x, y: currentPos.y };
       }
       await addPerson(
         { name: quickName.trim(), gender: quickGender, dob: "", dod: "", notes: "" },
@@ -906,7 +934,6 @@ export default function TreeView() {
           newFamily: quickFamilyId === "new-family",
         }
       );
-      pendingFocusIdRef.current = selectedPerson.id;
       if (quickRelation === "child") {
         setQuickName("");
         setQuickSuccess("Child added. Add another child below, or choose Done.");
@@ -1097,14 +1124,31 @@ export default function TreeView() {
     [uncollapseImmediateFamily, focusViewportOnPerson]
   );
 
+  const getNodeLayoutPosition = useCallback(
+    (personId, currentRows = rows) => {
+      if (!personId || !currentRows?.length) return null;
+      for (let rowIndex = 0; rowIndex < currentRows.length; rowIndex += 1) {
+        const entry = currentRows[rowIndex].people.find((p) => p.person.id === personId);
+        if (entry) {
+          return { x: entry.x, y: rowIndex * ROW_HEIGHT };
+        }
+      }
+      return null;
+    },
+    [rows]
+  );
+
   const handleSelectPerson = (id) => {
     if (!id) {
       setSelectedId(null);
       return;
     }
+    const currentPos = getNodeLayoutPosition(id);
+    if (currentPos) {
+      anchorNodeRef.current = { id, x: currentPos.x, y: currentPos.y };
+    }
     userHasSelectedRef.current = true;
     setSelectedId(id);
-    pendingFocusIdRef.current = id;
   };
 
   const handleDeleteSelected = async () => {
@@ -1628,14 +1672,36 @@ export default function TreeView() {
     return () => window.removeEventListener("resize", recompute);
   }, [scopedPeople, edges, rows, zoom, pathEdgeKeys, selectedId, collapsedFamilyKeys]);
 
-  // Whenever a focus target is queued (initial load, selecting a person, Back to Me, search, or toggling view),
-  // position the viewport around that person's local family neighborhood as soon as rows are ready.
+  // Preserve the clicked person's exact screen coordinates when selection updates local family context,
+  // and only run automatic viewport framing when an explicit focus action (initial load, Back to Me, Search) is queued.
   useLayoutEffect(() => {
-    if (!rows.length || !pendingFocusIdRef.current) return;
+    if (!rows.length) return;
+
+    if (anchorNodeRef.current) {
+      const anchor = anchorNodeRef.current;
+      anchorNodeRef.current = null;
+      const newPos = getNodeLayoutPosition(anchor.id, rows);
+      if (newPos) {
+        const dx = anchor.x - newPos.x;
+        const dy = anchor.y - newPos.y;
+        if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+          const currentZoom = zoomRef.current;
+          const nextPan = {
+            x: Math.round(panRef.current.x + dx * currentZoom),
+            y: Math.round(panRef.current.y + dy * currentZoom),
+          };
+          panRef.current = nextPan;
+          setPan(nextPan);
+        }
+      }
+      return;
+    }
+
+    if (!pendingFocusIdRef.current) return;
     const targetId = pendingFocusIdRef.current;
     pendingFocusIdRef.current = null;
     focusViewportOnPerson(targetId);
-  }, [rows, focusViewportOnPerson]);
+  }, [rows, focusViewportOnPerson, getNodeLayoutPosition]);
 
   const familyLabel = (family) => {
     const otherPartners = (family.partner_ids || [])
@@ -2009,7 +2075,11 @@ export default function TreeView() {
               <button
                 type="button"
                 onClick={() => {
-                  pendingFocusIdRef.current = selectedId || rootPersonId;
+                  const anchorId = selectedId || rootPersonId;
+                  const currentPos = getNodeLayoutPosition(anchorId);
+                  if (currentPos) {
+                    anchorNodeRef.current = { id: anchorId, x: currentPos.x, y: currentPos.y };
+                  }
                   setFocusedView((value) => !value);
                 }}
                 title={focusedView ? "Switch to Full tree mode" : "Switch to Short family mode"}
@@ -2162,7 +2232,11 @@ export default function TreeView() {
                     <button
                       type="button"
                       onClick={() => {
-                        pendingFocusIdRef.current = selectedId || rootPersonId;
+                        const anchorId = selectedId || rootPersonId;
+                        const currentPos = getNodeLayoutPosition(anchorId);
+                        if (currentPos) {
+                          anchorNodeRef.current = { id: anchorId, x: currentPos.x, y: currentPos.y };
+                        }
                         setFocusedView((v) => !v);
                         setMobileToolsOpen(false);
                       }}

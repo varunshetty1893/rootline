@@ -81,7 +81,6 @@ export function layoutUnitCenters(units, generation, order) {
           desired.set(unit.id, (centers.get(unit.id) + target * 3) / 4);
         }
       }
-      row.sort((a, b) => (desired.get(a.id) ?? centers.get(a.id) ?? 0) - (desired.get(b.id) ?? centers.get(b.id) ?? 0));
       placeRow(row, desired, centers);
     }
     for (let g = maxGeneration; g >= 0; g -= 1) {
@@ -110,7 +109,6 @@ export function layoutUnitCenters(units, generation, order) {
           desired.set(unit.id, (centers.get(unit.id) + target * 2) / 3);
         }
       }
-      row.sort((a, b) => (desired.get(a.id) ?? centers.get(a.id) ?? 0) - (desired.get(b.id) ?? centers.get(b.id) ?? 0));
       placeRow(row, desired, centers);
     }
   }
@@ -142,11 +140,9 @@ export function makeRows(units, generation, order, centers) {
           const avg2 = p2Centers.reduce((s, v) => s + v, 0) / p2Centers.length;
           unit.members = avg1 <= avg2 ? [m1, m2] : [m2, m1];
         } else if (p1Centers.length && !p2Centers.length) {
-          const avg1 = p1Centers.reduce((s, v) => s + v, 0) / p1Centers.length;
-          unit.members = avg1 <= center ? [m1, m2] : [m2, m1];
+          unit.members = [m1, m2];
         } else if (!p1Centers.length && p2Centers.length) {
-          const avg2 = p2Centers.reduce((s, v) => s + v, 0) / p2Centers.length;
-          unit.members = avg2 <= center ? [m2, m1] : [m1, m2];
+          unit.members = [m2, m1];
         }
       }
 
