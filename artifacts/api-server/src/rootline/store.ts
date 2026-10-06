@@ -251,12 +251,16 @@ export interface ActivityLog {
   family_id: string;
   actor_id: string;
   actor_name: string;
+  actor_email?: string | null;
+  actor_role?: string | null;
   action: ActivityAction;
   target_type: "person" | "relationship" | "member" | "share" | "family" | "invitation";
   target_id?: string | null;
   target_name?: string | null;
   description: string;
   details?: Record<string, { before?: any; after?: any }> | null;
+  snapshot_id?: string | null;
+  snapshot_version?: number | null;
   created_at: string;
 }
 
@@ -1327,11 +1331,53 @@ export class MemoryStore {
 
     if (actor) {
       const relatedPerson = relation?.related_to_id ? this.people.get(relation.related_to_id) : null;
+      const relationLabel =
+        relation?.relation_type && relatedPerson
+          ? `${relation.relation_type.charAt(0).toUpperCase() + relation.relation_type.slice(1)} of ${relatedPerson.name}`
+          : targetFamily?.root_person_id === person.id
+          ? "Tree Starter (Root Person)"
+          : "Family tree member";
       const relationSuffix =
         relation?.relation_type && relatedPerson
           ? ` (${relation.relation_type} of ${relatedPerson.name})`
           : "";
       const actionDesc = `${actor.name} added ${person.name}${relationSuffix} to the family tree`;
+      const validIds = this.getValidOwnerIds(canonicalFamilyId);
+      const totalAfter = Array.from(this.people.values()).filter((p) => validIds.has(p.owner_id)).length;
+
+      const addDetails: Record<string, { before?: any; after?: any }> = {
+        person_added: { before: "Not in tree", after: person.name },
+        relationship: { before: null, after: relationLabel },
+      };
+      if (person.gender && person.gender !== "unspecified") {
+        addDetails.gender = { before: null, after: person.gender };
+      }
+      if (person.date_of_birth) {
+        addDetails.date_of_birth = { before: null, after: person.date_of_birth };
+      }
+      if (person.date_of_death) {
+        addDetails.date_of_death = { before: null, after: person.date_of_death };
+      }
+      if (person.place_of_birth) {
+        addDetails.place_of_birth = { before: null, after: person.place_of_birth };
+      }
+      if (person.occupation) {
+        addDetails.occupation = { before: null, after: person.occupation };
+      }
+      if (person.address) {
+        addDetails.address = { before: null, after: person.address };
+      }
+      if (person.phone) {
+        addDetails.phone = { before: null, after: person.phone };
+      }
+      if (person.bio) {
+        addDetails.bio = { before: null, after: person.bio };
+      }
+      addDetails.tree_members = {
+        before: `${Math.max(0, totalAfter - 1)} members`,
+        after: `${totalAfter} members`,
+      };
+
       this.logActivity({
         family_id: canonicalFamilyId,
         actor_id: actor.id,
@@ -1341,6 +1387,7 @@ export class MemoryStore {
         target_id: person.id,
         target_name: person.name,
         description: actionDesc,
+        details: addDetails,
       });
       this.createTreeSnapshot(canonicalFamilyId, actor, "PERSON_ADDED", `${actor.name} added ${person.name}${relationSuffix}`);
     }
@@ -1669,98 +1716,68 @@ export class MemoryStore {
       return normalizeToIsoString(a.created_at).localeCompare(normalizeToIsoString(b.created_at));
     });
 
+    const recordLinkActivity = (statusVal: string) => {
+      if (!actor) return;
+      const linkDesc = `${actor.name} linked ${p1.name} and ${p2.name} (${statusVal})`;
+      this.logActivity({
+        family_id: canonicalFamilyId,
+        actor_id: actor.id,
+        actor_name: actor.name,
+        action: "RELATIONSHIP_ADDED",
+        target_type: "relationship",
+        target_id: p1.id,
+        target_name: `${p1.name} & ${p2.name}`,
+        description: linkDesc,
+        details: {
+          partner_1: { before: "Unlinked", after: p1.name },
+          partner_2: { before: "Unlinked", after: p2.name },
+          relationship_status: { before: null, after: statusVal },
+        },
+      });
+      this.createTreeSnapshot(canonicalFamilyId, actor, "RELATIONSHIP_ADDED", linkDesc);
+    };
+
     for (const family of candidateUnits) {
       if (family.partner1_id === firstPersonId && family.partner2_id === null) {
         family.partner2_id = secondPersonId;
         family.relationship_status = relationshipStatus || family.relationship_status || "partner";
         this.saveFamilyUnit(family);
-        if (actor) {
-          this.logActivity({
-            family_id: ownerId,
-            actor_id: actor.id,
-            actor_name: actor.name,
-            action: "RELATIONSHIP_ADDED",
-            target_type: "relationship",
-            description: `${actor.name} linked ${p1.name} and ${p2.name}`,
-          });
-          this.createTreeSnapshot(ownerId, actor, "RELATIONSHIP_ADDED", `${actor.name} linked ${p1.name} and ${p2.name}`);
-        }
+        recordLinkActivity(family.relationship_status);
         return { message: "People linked." };
       }
       if (family.partner1_id === secondPersonId && family.partner2_id === null) {
         family.partner2_id = firstPersonId;
         family.relationship_status = relationshipStatus || family.relationship_status || "partner";
         this.saveFamilyUnit(family);
-        if (actor) {
-          this.logActivity({
-            family_id: ownerId,
-            actor_id: actor.id,
-            actor_name: actor.name,
-            action: "RELATIONSHIP_ADDED",
-            target_type: "relationship",
-            description: `${actor.name} linked ${p1.name} and ${p2.name}`,
-          });
-          this.createTreeSnapshot(ownerId, actor, "RELATIONSHIP_ADDED", `${actor.name} linked ${p1.name} and ${p2.name}`);
-        }
+        recordLinkActivity(family.relationship_status);
         return { message: "People linked." };
       }
       if (family.partner2_id === firstPersonId && family.partner1_id === null) {
         family.partner1_id = secondPersonId;
         family.relationship_status = relationshipStatus || family.relationship_status || "partner";
         this.saveFamilyUnit(family);
-        if (actor) {
-          this.logActivity({
-            family_id: ownerId,
-            actor_id: actor.id,
-            actor_name: actor.name,
-            action: "RELATIONSHIP_ADDED",
-            target_type: "relationship",
-            description: `${actor.name} linked ${p1.name} and ${p2.name}`,
-          });
-          this.createTreeSnapshot(ownerId, actor, "RELATIONSHIP_ADDED", `${actor.name} linked ${p1.name} and ${p2.name}`);
-        }
+        recordLinkActivity(family.relationship_status);
         return { message: "People linked." };
       }
       if (family.partner2_id === secondPersonId && family.partner1_id === null) {
         family.partner1_id = firstPersonId;
         family.relationship_status = relationshipStatus || family.relationship_status || "partner";
         this.saveFamilyUnit(family);
-        if (actor) {
-          this.logActivity({
-            family_id: ownerId,
-            actor_id: actor.id,
-            actor_name: actor.name,
-            action: "RELATIONSHIP_ADDED",
-            target_type: "relationship",
-            description: `${actor.name} linked ${p1.name} and ${p2.name}`,
-          });
-          this.createTreeSnapshot(ownerId, actor, "RELATIONSHIP_ADDED", `${actor.name} linked ${p1.name} and ${p2.name}`);
-        }
+        recordLinkActivity(family.relationship_status);
         return { message: "People linked." };
       }
     }
 
     const fu: FamilyUnit = {
       id: crypto.randomUUID(),
-      owner_id: ownerId,
+      owner_id: canonicalFamilyId,
       partner1_id: firstPersonId,
       partner2_id: secondPersonId,
       relationship_status: relationshipStatus || "partner",
       created_at: new Date().toISOString(),
     };
     this.saveFamilyUnit(fu);
-
-    if (actor) {
-      this.logActivity({
-        family_id: ownerId,
-        actor_id: actor.id,
-        actor_name: actor.name,
-        action: "RELATIONSHIP_ADDED",
-        target_type: "relationship",
-        description: `${actor.name} linked ${p1.name} and ${p2.name}`,
-      });
-      this.createTreeSnapshot(ownerId, actor, "RELATIONSHIP_ADDED", `${actor.name} linked ${p1.name} and ${p2.name}`);
-    }
+    recordLinkActivity(fu.relationship_status || "partner");
 
     return { message: "People linked." };
   }
@@ -1803,10 +1820,15 @@ export class MemoryStore {
 
     const details: Record<string, { before?: any; after?: any }> = {};
     const changedLabels: string[] = [];
+    const normVal = (v: any) => (v === undefined || v === null || String(v).trim() === "" ? null : String(v).trim());
     const checkDiff = (field: keyof Person, label: string, nextVal: any) => {
-      if (nextVal !== undefined && person[field] !== nextVal) {
-        details[field] = { before: person[field], after: nextVal };
-        changedLabels.push(label);
+      if (nextVal !== undefined) {
+        const beforeClean = normVal(person[field]);
+        const afterClean = normVal(nextVal);
+        if (beforeClean !== afterClean) {
+          details[field] = { before: beforeClean || "Empty", after: afterClean || "Empty" };
+          changedLabels.push(label);
+        }
       }
     };
 
@@ -1819,8 +1841,11 @@ export class MemoryStore {
     checkDiff("bio", "notes", updates.bio);
     checkDiff("address", "location", updates.address);
     checkDiff("phone", "phone", updates.phone);
-    if (updates.photo_url !== undefined && person.photo_url !== updates.photo_url) {
-      details.photo = { before: person.photo_url ? "updated" : "none", after: updates.photo_url ? "updated" : "removed" };
+    if (updates.photo_url !== undefined && normVal(person.photo_url) !== normVal(updates.photo_url)) {
+      details.photo = {
+        before: person.photo_url ? "Previous photo" : "No photo",
+        after: updates.photo_url ? "New photo uploaded" : "Photo removed",
+      };
       changedLabels.push("photo");
     }
 
@@ -1867,6 +1892,45 @@ export class MemoryStore {
     if (!person) throw new Error("Person not found");
     const personName = person.name;
     const canonicalFamilyId = this.resolveCanonicalFamilyId(ownerId);
+    const validOwnerIds = this.getValidOwnerIds(ownerId);
+
+    // Capture full details and connections before deletion
+    const serializedBefore = this.serializePerson(person);
+    const parentNames = (serializedBefore.parent_ids || [])
+      .map((pid) => this.people.get(pid)?.name)
+      .filter(Boolean);
+    const spouseNames = (serializedBefore.spouse_ids || [])
+      .map((sid) => this.people.get(sid)?.name)
+      .filter(Boolean);
+    const childNames = Array.from(this.people.values())
+      .filter((p) => validOwnerIds.has(p.owner_id) && (this.serializePerson(p).parent_ids || []).includes(id))
+      .map((p) => p.name);
+    const totalBefore = Array.from(this.people.values()).filter((p) => validOwnerIds.has(p.owner_id)).length;
+
+    const connectionParts: string[] = [];
+    if (parentNames.length > 0) connectionParts.push(`Parents: ${parentNames.join(", ")}`);
+    if (spouseNames.length > 0) connectionParts.push(`Spouse: ${spouseNames.join(", ")}`);
+    if (childNames.length > 0) connectionParts.push(`Children: ${childNames.join(", ")}`);
+
+    const deleteDetails: Record<string, { before?: any; after?: any }> = {
+      removed_person: { before: personName, after: "Removed from tree" },
+    };
+    if (connectionParts.length > 0) {
+      deleteDetails.previous_connections = { before: connectionParts.join(" · "), after: "Unlinked" };
+    }
+    if (person.gender && person.gender !== "unspecified") {
+      deleteDetails.gender = { before: person.gender, after: "Removed" };
+    }
+    if (person.date_of_birth) {
+      deleteDetails.date_of_birth = { before: person.date_of_birth, after: "Removed" };
+    }
+    if (person.bio) {
+      deleteDetails.bio = { before: person.bio, after: "Removed" };
+    }
+    deleteDetails.tree_members = {
+      before: `${totalBefore} members`,
+      after: `${Math.max(0, totalBefore - 1)} members`,
+    };
 
     if (actor) {
       this.ensureBaselineSnapshot(canonicalFamilyId);
@@ -1879,7 +1943,6 @@ export class MemoryStore {
       }
     }
 
-    const validOwnerIds = this.getValidOwnerIds(ownerId);
     for (const fu of this.familyUnits.values()) {
       if (validOwnerIds.has(fu.owner_id)) {
         let changed = false;
@@ -1917,6 +1980,7 @@ export class MemoryStore {
         target_id: id,
         target_name: personName,
         description: `${actor.name} removed ${personName} from the family tree`,
+        details: deleteDetails,
       });
       this.createTreeSnapshot(canonicalFamilyId, actor, "PERSON_DELETED", `${actor.name} removed ${personName}`);
     }
@@ -2616,19 +2680,35 @@ export class MemoryStore {
       }
     }
 
+    const prevName = family.name;
+    if (prevName === trimmedName) {
+      return family;
+    }
+
+    this.ensureBaselineSnapshot(family.id);
     family.name = trimmedName;
     this.trackDbWrite(dbSaveFamily(family));
 
+    const actorName = this.users.get(userId)?.name || "Owner";
     this.logActivity({
       family_id: family.id,
       actor_id: userId,
-      actor_name: this.users.get(userId)?.name || "Owner",
+      actor_name: actorName,
       action: "FAMILY_UPDATED",
       target_type: "family",
       target_id: family.id,
       target_name: family.name,
-      description: `Renamed family tree to "${family.name}"`,
+      description: `${actorName} renamed family tree from "${prevName}" to "${family.name}"`,
+      details: {
+        tree_name: { before: prevName, after: family.name },
+      },
     });
+    this.createTreeSnapshot(
+      family.id,
+      { id: userId, name: actorName },
+      "FAMILY_UPDATED",
+      `Renamed family tree from "${prevName}" to "${family.name}"`
+    );
 
     return family;
   }
@@ -2641,9 +2721,18 @@ export class MemoryStore {
     }
 
     const family = access.family;
+    const prevRootId = family.root_person_id || null;
+    const nextRootId = rootPersonId || null;
+
+    // Do not log redundant activity or snapshot if the Tree Starter has not changed!
+    if (prevRootId === nextRootId) {
+      return family;
+    }
+
+    const prevStarterName = prevRootId ? this.people.get(prevRootId)?.name || "Previous Starter" : "None";
     let targetPersonName = "None";
-    if (rootPersonId) {
-      const person = this.people.get(rootPersonId);
+    if (nextRootId) {
+      const person = this.people.get(nextRootId);
       const belongs =
         person &&
         (person.owner_id === family.id ||
@@ -2655,29 +2744,46 @@ export class MemoryStore {
       targetPersonName = person.name;
     }
 
-    family.root_person_id = rootPersonId || null;
+    this.ensureBaselineSnapshot(family.id);
+    family.root_person_id = nextRootId;
     this.families.set(family.id, family);
     if (familyId && familyId !== family.id && this.families.has(familyId)) {
       const aliasFamily = this.families.get(familyId)!;
-      aliasFamily.root_person_id = rootPersonId || null;
+      aliasFamily.root_person_id = nextRootId;
       this.families.set(familyId, aliasFamily);
     }
     this.scheduleDiskSave();
     this.trackDbWrite(dbSaveFamily(family));
 
     const user = this.users.get(userId);
+    const actorName = user?.name || "User";
+    const desc = nextRootId
+      ? `${actorName} changed Tree Starter from "${prevStarterName}" to "${targetPersonName}"`
+      : `${actorName} cleared the Tree Starter (was "${prevStarterName}")`;
+
     this.logActivity({
       family_id: family.id,
       actor_id: userId,
-      actor_name: user?.name || "User",
+      actor_name: actorName,
       action: "FAMILY_UPDATED",
       target_type: "family",
-      target_id: family.id,
-      target_name: family.name,
-      description: rootPersonId 
-        ? `Set "${targetPersonName}" as the Tree Starter`
-        : `Cleared the Tree Starter`,
+      target_id: nextRootId || family.id,
+      target_name: nextRootId ? targetPersonName : family.name,
+      description: desc,
+      details: {
+        tree_starter: {
+          before: prevStarterName,
+          after: nextRootId ? targetPersonName : "None",
+        },
+      },
     });
+
+    this.createTreeSnapshot(
+      family.id,
+      { id: userId, name: actorName },
+      "FAMILY_UPDATED",
+      desc
+    );
 
     return family;
   }
@@ -3880,17 +3986,204 @@ export class MemoryStore {
     return log;
   }
 
+  private resolveActorMeta(actorId: string, canonicalFamilyId: string): { email: string | null; role: string } {
+    const user = this.users.get(actorId);
+    const email = user?.email || null;
+    const fam = this.families.get(canonicalFamilyId);
+    if (fam && fam.owner_id === actorId) {
+      return { email, role: "Tree Owner" };
+    }
+    const access = this.checkFamilyAccess(actorId, canonicalFamilyId);
+    if (access?.role === "owner") return { email, role: "Tree Owner" };
+    if (access?.role === "editor") return { email, role: "Shared Editor" };
+    return { email, role: "Collaborator" };
+  }
+
+  private enrichActivityLog(log: ActivityLog, canonicalFamilyId: string, allFamilyLogs: ActivityLog[], snapshots: TreeSnapshot[]): ActivityLog {
+    const validIds = this.getValidOwnerIds(canonicalFamilyId);
+    const fam = this.families.get(canonicalFamilyId);
+    const familyPeople = Array.from(this.people.values()).filter((p) => validIds.has(p.owner_id));
+    const actorMeta = this.resolveActorMeta(log.actor_id, canonicalFamilyId);
+
+    // Match corresponding snapshot if any
+    const logTime = new Date(log.created_at).getTime();
+    const matchedSnap = snapshots.find(
+      (s) => Math.abs(new Date(s.created_at).getTime() - logTime) <= 5000 && (s.action === log.action || s.actor_id === log.actor_id)
+    );
+
+    let details: Record<string, { before?: any; after?: any }> | null =
+      log.details && Object.keys(log.details).length > 0 ? { ...log.details } : null;
+
+    if (!details) {
+      const synthesized: Record<string, { before?: any; after?: any }> = {};
+
+      if (log.action === "PERSON_ADDED") {
+        let targetPerson = log.target_id ? this.people.get(log.target_id) : undefined;
+        let targetName = log.target_name || targetPerson?.name || null;
+        if (!targetName && log.description) {
+          const m = log.description.match(/added\s+(.+?)(?:\s+\(|\s+to the family tree|$)/i);
+          if (m) targetName = m[1].trim();
+        }
+        if (!targetPerson && targetName) {
+          targetPerson = familyPeople.find((p) => p.name.toLowerCase() === targetName!.toLowerCase());
+        }
+        if (targetName) {
+          synthesized.person_added = { before: "Not in tree", after: targetName };
+        }
+        if (targetPerson) {
+          const ser = this.serializePerson(targetPerson);
+          const parents = (ser.parent_ids || []).map((pid) => this.people.get(pid)?.name).filter(Boolean);
+          const spouses = (ser.spouse_ids || []).map((sid) => this.people.get(sid)?.name).filter(Boolean);
+          const children = familyPeople
+            .filter((p) => (this.serializePerson(p).parent_ids || []).includes(targetPerson!.id))
+            .map((p) => p.name);
+          const relParts: string[] = [];
+          if (parents.length > 0) relParts.push(`Child of ${parents.join(" & ")}`);
+          if (spouses.length > 0) relParts.push(`Spouse of ${spouses.join(", ")}`);
+          if (children.length > 0) relParts.push(`Parent of ${children.join(", ")}`);
+          if (relParts.length > 0) {
+            synthesized.connections = { before: null, after: relParts.join(" · ") };
+          }
+          if (targetPerson.gender && targetPerson.gender !== "unspecified") {
+            synthesized.gender = { before: null, after: targetPerson.gender };
+          }
+          if (targetPerson.date_of_birth) {
+            synthesized.date_of_birth = { before: null, after: targetPerson.date_of_birth };
+          }
+          if (targetPerson.place_of_birth) {
+            synthesized.place_of_birth = { before: null, after: targetPerson.place_of_birth };
+          }
+          if (targetPerson.occupation) {
+            synthesized.occupation = { before: null, after: targetPerson.occupation };
+          }
+          if (targetPerson.address) {
+            synthesized.address = { before: null, after: targetPerson.address };
+          }
+          if (targetPerson.bio) {
+            synthesized.bio = { before: null, after: targetPerson.bio };
+          }
+        }
+      } else if (log.action === "PERSON_DELETED") {
+        let removedName = log.target_name || null;
+        if (!removedName && log.description) {
+          const m = log.description.match(/removed\s+(.+?)(?:\s+from the family tree|$)/i);
+          if (m) removedName = m[1].trim();
+        }
+        synthesized.removed_person = { before: removedName || "Family member", after: "Removed from tree" };
+      } else if (log.action === "RELATIONSHIP_ADDED") {
+        const m = log.description?.match(/linked\s+(.+?)\s+and\s+(.+?)(?:\s+\(|$)/i);
+        if (m) {
+          synthesized.partner_1 = { before: "Unlinked", after: m[1].trim() };
+          synthesized.partner_2 = { before: "Unlinked", after: m[2].trim() };
+        }
+      } else if (log.action === "FAMILY_UPDATED") {
+        const starterMatch = log.description?.match(/Set\s+"([^"]+)"\s+as the Tree Starter/i) ||
+          log.description?.match(/changed Tree Starter from\s+"([^"]+)"\s+to\s+"([^"]+)"/i);
+        if (starterMatch) {
+          if (starterMatch[2]) {
+            synthesized.tree_starter = { before: starterMatch[1], after: starterMatch[2] };
+          } else {
+            synthesized.tree_starter = { before: "Previous Starter", after: starterMatch[1] };
+          }
+        } else if (log.description?.match(/Renamed family tree/i)) {
+          synthesized.tree_name = { before: "Previous Name", after: fam?.name || log.target_name || "Updated Name" };
+        }
+      } else if (log.action === "TREE_SAVED") {
+        const snapPeople = matchedSnap?.people || familyPeople;
+        const namesList = snapPeople.map((p) => p.name).join(", ");
+        // Find mutations recorded shortly before this checkpoint
+        const logIdx = allFamilyLogs.findIndex((l) => l.id === log.id);
+        const recentEdits: string[] = [];
+        if (logIdx >= 0) {
+          for (let i = logIdx + 1; i < allFamilyLogs.length && recentEdits.length < 4; i++) {
+            const older = allFamilyLogs[i];
+            if (older.action === "TREE_SAVED") break;
+            if (
+              older.action === "PERSON_ADDED" ||
+              older.action === "PERSON_UPDATED" ||
+              older.action === "PERSON_DELETED" ||
+              older.action === "RELATIONSHIP_ADDED"
+            ) {
+              recentEdits.push(older.description);
+            }
+          }
+        }
+        synthesized.tree_name = { before: null, after: fam?.name || "Family Tree" };
+        synthesized.members_in_tree = {
+          before: null,
+          after: `${snapPeople.length} ${snapPeople.length === 1 ? "member" : "members"}${namesList ? ` (${namesList})` : ""}`,
+        };
+        if (recentEdits.length > 0) {
+          synthesized.changes_in_checkpoint = {
+            before: null,
+            after: recentEdits.join(" · "),
+          };
+        }
+      } else if (log.action === "TREE_RESTORED") {
+        synthesized.restore_action = {
+          before: "Previous tree state",
+          after: log.description,
+        };
+      } else if (log.action === "FAMILY_CREATED") {
+        synthesized.tree_created = {
+          before: null,
+          after: fam?.name || log.target_name || "Family Tree",
+        };
+      }
+
+      if (Object.keys(synthesized).length > 0) {
+        details = synthesized;
+      }
+    }
+
+    return {
+      ...log,
+      actor_email: log.actor_email || actorMeta.email,
+      actor_role: log.actor_role || actorMeta.role,
+      details,
+      snapshot_id: matchedSnap?.id || log.snapshot_id || null,
+      snapshot_version: matchedSnap?.version || log.snapshot_version || null,
+    };
+  }
+
   getActivityHistory(
     familyId: string,
     options?: { category?: string; page?: number; limit?: number }
   ): { total: number; page: number; limit: number; items: ActivityLog[]; logs: ActivityLog[] } {
     const category = options?.category || "all";
     const page = Math.max(1, options?.page || 1);
-    const limit = Math.min(100, Math.max(1, options?.limit || 30));
+    const limit = Math.min(100, Math.max(1, options?.limit || 50));
 
-    const validIds = this.getValidOwnerIds(familyId);
-    let filtered = this.activityLogs.filter((log) => validIds.has(log.family_id));
+    const canonicalId = this.resolveCanonicalFamilyId(familyId);
+    const validIds = this.getValidOwnerIds(canonicalId);
+    const snapshots = this.ensureHistoricalSnapshotsForFamily(canonicalId);
 
+    const rawFiltered = this.activityLogs.filter((log) => validIds.has(log.family_id));
+
+    // Deduplicate bogus consecutive identical "Set X as the Tree Starter" logs that were previously triggered by Save
+    const deduped: ActivityLog[] = [];
+    for (let i = 0; i < rawFiltered.length; i++) {
+      const curr = rawFiltered[i];
+      const prev = deduped[deduped.length - 1];
+      if (
+        curr.action === "FAMILY_UPDATED" &&
+        curr.description?.startsWith('Set "') &&
+        prev &&
+        prev.action === "TREE_SAVED" &&
+        Math.abs(new Date(prev.created_at).getTime() - new Date(curr.created_at).getTime()) <= 3000
+      ) {
+        // Check if there was already another identical Set Tree Starter log earlier
+        const hasEarlierIdenticalStarter = rawFiltered
+          .slice(i + 1)
+          .some((older) => older.action === "FAMILY_UPDATED" && older.description === curr.description);
+        if (hasEarlierIdenticalStarter) {
+          continue;
+        }
+      }
+      deduped.push(curr);
+    }
+
+    let filtered = deduped;
     if (category === "people") {
       filtered = filtered.filter((l) => l.target_type === "person");
     } else if (category === "relationships") {
@@ -3903,7 +4196,9 @@ export class MemoryStore {
 
     const total = filtered.length;
     const start = (page - 1) * limit;
-    const items = filtered.slice(start, start + limit);
+    const items = filtered
+      .slice(start, start + limit)
+      .map((log) => this.enrichActivityLog(log, canonicalId, deduped, snapshots));
 
     return { total, page, limit, items, logs: items };
   }
@@ -3932,6 +4227,155 @@ export class MemoryStore {
       this.treeSnapshots.set(canonicalId, merged);
     }
     return merged;
+  }
+
+  private ensureHistoricalSnapshotsForFamily(familyId: string): TreeSnapshot[] {
+    const canonicalId = this.resolveCanonicalFamilyId(familyId);
+    const validIds = this.getValidOwnerIds(canonicalId);
+    let list = this.getMergedSnapshotsForFamily(canonicalId);
+
+    const currentPeople = Array.from(this.people.values())
+      .filter((p) => validIds.has(p.owner_id))
+      .map((p) => ({ ...p, owner_id: canonicalId }));
+    const currentUnits = Array.from(this.familyUnits.values())
+      .filter((fu) => validIds.has(fu.owner_id))
+      .map((fu) => ({ ...fu, owner_id: canonicalId }));
+    const unitIdSet = new Set(currentUnits.map((fu) => fu.id));
+    const currentChildren = Array.from(this.familyChildren.values())
+      .filter((fc) => unitIdSet.has(fc.family_unit_id))
+      .map((fc) => ({ ...fc }));
+
+    const fam = this.families.get(canonicalId);
+    const owner = fam ? this.users.get(fam.owner_id) : null;
+
+    // Check if we have historical mutation logs in activity_logs that predated tree_snapshots persistence
+    const familyLogs = this.activityLogs.filter(
+      (log) =>
+        validIds.has(log.family_id) &&
+        (log.action === "PERSON_ADDED" ||
+          log.action === "PERSON_UPDATED" ||
+          log.action === "PERSON_DELETED" ||
+          log.action === "RELATIONSHIP_ADDED" ||
+          log.action === "TREE_SAVED" ||
+          log.action === "FAMILY_CREATED")
+    );
+
+    if (list.length <= 1 && familyLogs.length > 1) {
+      // Reconstruct version snapshots by walking backwards from current live state through activityLogs
+      const reconstructedNewestFirst: Omit<TreeSnapshot, "version">[] = [];
+      let workingPeople = currentPeople.map((p) => ({ ...p }));
+      let workingUnits = currentUnits.map((u) => ({ ...u }));
+      let workingChildren = currentChildren.map((c) => ({ ...c }));
+      const workingRootId = fam?.root_person_id || workingPeople[0]?.id || null;
+
+      for (let i = 0; i < familyLogs.length; i++) {
+        const log = familyLogs[i];
+
+        // Deduplicate back-to-back TREE_SAVED checkpoints if no tree state changed between them
+        const prevSnap = reconstructedNewestFirst[reconstructedNewestFirst.length - 1];
+        const isDuplicateSave =
+          log.action === "TREE_SAVED" &&
+          prevSnap &&
+          prevSnap.people.length === workingPeople.length &&
+          Math.abs(new Date(prevSnap.created_at).getTime() - new Date(log.created_at).getTime()) < 120000;
+
+        if (!isDuplicateSave) {
+          reconstructedNewestFirst.push({
+            id: crypto.randomUUID(),
+            family_id: canonicalId,
+            created_at: log.created_at,
+            actor_id: log.actor_id,
+            actor_name: log.actor_name,
+            action: log.action,
+            description: log.description,
+            people_count: workingPeople.length,
+            root_person_id: workingRootId,
+            people: workingPeople.map((p) => ({ ...p })),
+            family_units: workingUnits.map((u) => ({ ...u })),
+            family_children: workingChildren.map((c) => ({ ...c })),
+          });
+        }
+
+        // Step backwards: undo this log's mutation on workingPeople/workingUnits for the older snapshots
+        if (log.action === "PERSON_ADDED") {
+          let addedId = log.target_id || null;
+          let addedName = log.target_name || null;
+          if (!addedName && log.description) {
+            const m = log.description.match(/added\s+(.+?)(?:\s+\(|\s+to the family tree|$)/i);
+            if (m) addedName = m[1].trim();
+          }
+          const matchPerson = workingPeople.find(
+            (p) => (addedId && p.id === addedId) || (addedName && p.name.toLowerCase() === addedName.toLowerCase())
+          );
+          if (matchPerson && workingPeople.length > 1) {
+            const removeId = matchPerson.id;
+            workingPeople = workingPeople.filter((p) => p.id !== removeId);
+            workingChildren = workingChildren.filter((fc) => fc.person_id !== removeId);
+            workingUnits = workingUnits
+              .map((fu) => ({
+                ...fu,
+                partner1_id: fu.partner1_id === removeId ? null : fu.partner1_id,
+                partner2_id: fu.partner2_id === removeId ? null : fu.partner2_id,
+              }))
+              .filter((fu) => fu.partner1_id !== null || fu.partner2_id !== null);
+          }
+        } else if (log.action === "PERSON_UPDATED" && log.details && log.target_id) {
+          workingPeople = workingPeople.map((p) => {
+            if (p.id !== log.target_id) return p;
+            const reverted: any = { ...p };
+            for (const [field, diff] of Object.entries(log.details!)) {
+              if (field in reverted && diff && "before" in diff) {
+                reverted[field] = diff.before === "Empty" ? null : diff.before;
+              }
+            }
+            return reverted;
+          });
+        }
+      }
+
+      // Always ensure a baseline snapshot at the oldest point if not already included
+      if (reconstructedNewestFirst.length === 0) {
+        reconstructedNewestFirst.push({
+          id: crypto.randomUUID(),
+          family_id: canonicalId,
+          created_at: fam?.created_at || new Date().toISOString(),
+          actor_id: owner?.id || "system",
+          actor_name: owner?.name || "Tree Owner",
+          action: "BASELINE",
+          description: `Initial tree state (${currentPeople.length} ${currentPeople.length === 1 ? "person" : "people"})`,
+          people_count: currentPeople.length,
+          root_person_id: workingRootId,
+          people: currentPeople,
+          family_units: currentUnits,
+          family_children: currentChildren,
+        });
+      }
+
+      const totalReconstructed = reconstructedNewestFirst.length;
+      const versioned: TreeSnapshot[] = reconstructedNewestFirst.map((snap, idx) => ({
+        ...snap,
+        version: totalReconstructed - idx,
+      }));
+
+      this.treeSnapshots.set(canonicalId, versioned);
+      for (const snap of versioned) {
+        this.trackDbWrite(dbSaveTreeSnapshot(snap));
+      }
+      this.scheduleDiskSave();
+      return versioned;
+    }
+
+    if (!list || list.length === 0) {
+      const initialSnapshot = this.createTreeSnapshot(
+        canonicalId,
+        { id: owner?.id || "system", name: owner?.name || "Tree Owner" },
+        "BASELINE",
+        `Current tree state (${currentPeople.length} ${currentPeople.length === 1 ? "person" : "people"})`
+      );
+      list = [initialSnapshot];
+    }
+
+    return list;
   }
 
   // --- Tree Snapshots & Version History (Revisions & Restore) ---
@@ -3995,6 +4439,8 @@ export class MemoryStore {
     created_at: string;
     actor_id: string;
     actor_name: string;
+    actor_email: string | null;
+    actor_role: string;
     action: string;
     description: string;
     people_count: number;
@@ -4008,27 +4454,16 @@ export class MemoryStore {
   }[] {
     const canonicalId = this.resolveCanonicalFamilyId(familyId);
     const validIds = this.getValidOwnerIds(canonicalId);
-    let list = this.getMergedSnapshotsForFamily(canonicalId);
+    const list = this.ensureHistoricalSnapshotsForFamily(canonicalId);
 
     const currentPeople = Array.from(this.people.values()).filter((p) => validIds.has(p.owner_id));
     const currentIdSet = new Set(currentPeople.map((p) => p.id));
-
-    if (!list || list.length === 0) {
-      const fam = this.families.get(canonicalId);
-      const owner = fam ? this.users.get(fam.owner_id) : null;
-      const initialSnapshot = this.createTreeSnapshot(
-        canonicalId,
-        { id: owner?.id || "system", name: owner?.name || "Tree Owner" },
-        "BASELINE",
-        `Current tree state (${currentPeople.length} ${currentPeople.length === 1 ? "person" : "people"})`
-      );
-      list = [initialSnapshot];
-    }
 
     return list.map((s, idx) => {
       const snapPeople = Array.isArray(s.people) ? s.people : [];
       const snapUnits = Array.isArray(s.family_units) ? s.family_units : [];
       const snapIdSet = new Set(snapPeople.map((p) => p.id));
+      const actorMeta = this.resolveActorMeta(s.actor_id, canonicalId);
 
       // Compare with the immediately older snapshot (idx + 1) to show what this revision changed
       const olderSnap = list[idx + 1];
@@ -4057,6 +4492,8 @@ export class MemoryStore {
         created_at: s.created_at,
         actor_id: s.actor_id,
         actor_name: s.actor_name,
+        actor_email: actorMeta.email,
+        actor_role: actorMeta.role,
         action: s.action,
         description: s.description,
         people_count: snapPeople.length,

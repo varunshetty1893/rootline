@@ -2169,8 +2169,12 @@ export async function createExpressApp() {
         }
         updated = store.renameFamily(req.user!.id, familyId, name.trim());
       }
-      if (root_person_id !== undefined && (typeof root_person_id === "string" || root_person_id === null)) {
-        updated = store.setRootPerson(req.user!.id, familyId, root_person_id);
+      if (root_person_id !== undefined) {
+        if (typeof root_person_id === "string") {
+          updated = store.setRootPerson(req.user!.id, familyId, root_person_id);
+        } else if (root_person_id === null) {
+          updated = store.setRootPerson(req.user!.id, familyId, null);
+        }
       }
       if (!updated) {
         return res.status(400).json({ detail: "No valid update parameters provided." });
@@ -2189,7 +2193,8 @@ export async function createExpressApp() {
     try {
       const rawFamilyId = req.params.id;
       const familyId = Array.isArray(rawFamilyId) ? rawFamilyId[0] : rawFamilyId;
-      const rootPersonId = req.body?.root_person_id || req.body?.rootPersonId || null;
+      const rawRoot = req.body?.root_person_id ?? req.body?.rootPersonId ?? null;
+      const rootPersonId: string | null = typeof rawRoot === "string" && rawRoot.trim() ? rawRoot.trim() : null;
       const updated = store.setRootPerson(req.user!.id, familyId, rootPersonId);
       await store.flushPendingWrites();
       return res.json({
@@ -2296,18 +2301,29 @@ export async function createExpressApp() {
         return res.status(403).json({ detail: "Viewers have read-only access and cannot save modifications to this tree." });
       }
 
-      const rootPersonId = req.body?.root_person_id || req.body?.rootPersonId;
-      if (rootPersonId !== undefined && (typeof rootPersonId === "string" || rootPersonId === null)) {
-        store.setRootPerson(req.user!.id, familyId, rootPersonId);
+      const rawRootPersonId = req.body?.root_person_id ?? req.body?.rootPersonId;
+      if (rawRootPersonId !== undefined) {
+        const nextRootId: string | null = typeof rawRootPersonId === "string" && rawRootPersonId.trim() ? rawRootPersonId.trim() : null;
+        if (nextRootId !== (access.family.root_person_id || null)) {
+          store.setRootPerson(req.user!.id, familyId, nextRootId);
+        }
       }
 
-      const description = req.body?.description || `${req.user!.name} saved a checkpoint of the family tree`;
+      const starterPerson = access.family.root_person_id ? store.people.get(access.family.root_person_id) : null;
+
       const snapshot = store.createTreeSnapshot(
         familyId,
         { id: req.user!.id, name: req.user!.name },
         "TREE_SAVED",
-        description
+        req.body?.description || `${req.user!.name} saved a checkpoint of "${access.family.name}"`
       );
+
+      const memberCount = snapshot.people_count;
+      const memberNames = (snapshot.people || []).map((p) => p.name).join(", ");
+      const description =
+        req.body?.description ||
+        `${req.user!.name} saved a checkpoint of "${access.family.name}" (${memberCount} ${memberCount === 1 ? "member" : "members"})`;
+      snapshot.description = description;
 
       store.logActivity({
         family_id: familyId,
@@ -2316,7 +2332,17 @@ export async function createExpressApp() {
         action: "TREE_SAVED",
         target_type: "family",
         target_id: familyId,
+        target_name: access.family.name,
         description,
+        details: {
+          checkpoint_version: { before: null, after: `v${snapshot.version}` },
+          tree_name: { before: null, after: access.family.name },
+          members_in_tree: {
+            before: null,
+            after: `${memberCount} ${memberCount === 1 ? "member" : "members"}${memberNames ? ` (${memberNames})` : ""}`,
+          },
+          ...(starterPerson ? { tree_starter: { before: null, after: starterPerson.name } } : {}),
+        },
       });
 
       await store.flushPendingWrites();

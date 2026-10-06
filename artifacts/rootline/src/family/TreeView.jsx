@@ -2660,8 +2660,15 @@ export default function TreeView() {
             </div>
 
             <p className="text-sm text-[#374151] mb-6 leading-relaxed">
-              Are you sure you want to set <strong className="font-semibold text-[#1C1F1D]">{confirmSetMePerson.name}</strong> as the {myRole === "owner" ? '<strong>"Me"</strong> tree starter' : '<strong>Tree Starter</strong>'}? 
-              The family tree will re-orient around them for all members and collaborators, with relationship paths and generational levels calculated from their perspective.
+              Are you sure you want to set <strong className="font-semibold text-[#1C1F1D]">{confirmSetMePerson.name}</strong> as the{" "}
+              {myRole === "owner" ? (
+                <>
+                  <strong className="font-semibold text-[#1C1F1D]">"Me"</strong> tree starter
+                </>
+              ) : (
+                <strong className="font-semibold text-[#1C1F1D]">Tree Starter</strong>
+              )}
+              ? The family tree will re-orient around them for all members and collaborators, with relationship paths and generational levels calculated from their perspective.
             </p>
 
             <div className="flex items-center justify-end gap-2.5">

@@ -18,15 +18,22 @@ const FamilyContext = createContext(null);
 function mapPerson(person) {
   return {
     ...person,
-    dob: person.date_of_birth || "",
-    dod: person.date_of_death || "",
-    notes: person.bio || "",
+    dob: person.date_of_birth || person.dob || "",
+    dod: person.date_of_death || person.dod || "",
+    place_of_birth: person.place_of_birth || person.placeOfBirth || "",
+    placeOfBirth: person.place_of_birth || person.placeOfBirth || "",
+    place_of_death: person.place_of_death || person.placeOfDeath || "",
+    placeOfDeath: person.place_of_death || person.placeOfDeath || "",
+    occupation: person.occupation || "",
+    notes: person.bio || person.notes || "",
     address: person.address || "",
     phone: person.phone || "",
-    parentIds: person.parent_ids || [],
-    spouseIds: person.spouse_ids || [],
-    parentFamilies: person.parent_families || [],
-    partnerFamilies: person.partner_families || [],
+    photo_url: person.photo_url || person.photoUrl || "",
+    photoUrl: person.photo_url || person.photoUrl || "",
+    parentIds: person.parent_ids || person.parentIds || [],
+    spouseIds: person.spouse_ids || person.spouseIds || [],
+    parentFamilies: person.parent_families || person.parentFamilies || [],
+    partnerFamilies: person.partner_families || person.partnerFamilies || [],
   };
 }
 
@@ -584,8 +591,8 @@ export function FamilyProvider({ children }) {
         };
       });
 
-      // Live persist to backend API so all collaborators & owner immediately see it
-      if (effectiveTreeId && (myRole === "owner" || myRole === "editor")) {
+      // Live persist to backend API when user explicitly changes the Tree Starter
+      if (recordHistory && effectiveTreeId && (myRole === "owner" || myRole === "editor")) {
         api.setRootPerson(effectiveTreeId, id)
           .then(() => refreshTreeList())
           .catch((err) => {
@@ -687,12 +694,15 @@ export function FamilyProvider({ children }) {
       const payload = {
         name: details.name,
         gender: details.gender && details.gender !== "unspecified" ? details.gender : null,
-        date_of_birth: details.dob || null,
-        date_of_death: details.dod || null,
-        bio: details.notes || null,
+        date_of_birth: details.date_of_birth || details.dob || null,
+        date_of_death: details.date_of_death || details.dod || null,
+        place_of_birth: details.place_of_birth || details.placeOfBirth || null,
+        place_of_death: details.place_of_death || details.placeOfDeath || null,
+        occupation: details.occupation || null,
+        bio: details.bio !== undefined ? details.bio : (details.notes || null),
         address: details.address || null,
         phone: details.phone || null,
-        photo_url: details.photo_url || null,
+        photo_url: details.photo_url || details.photoUrl || null,
         relation_type: relation?.type || null,
         related_to_id: relation?.toId || null,
         family_id: relation?.familyId || null,
@@ -745,8 +755,7 @@ export function FamilyProvider({ children }) {
       try {
         const effectiveTreeId = activeTreeId || activeTree?.id || undefined;
         const currentRoot = effectiveRootPersonId();
-        const desc = description || `Saved ${activeTree?.name || "tree"} changes`;
-        const res = await api.saveTree(effectiveTreeId, desc, currentRoot);
+        const res = await api.saveTree(effectiveTreeId, description || undefined, currentRoot);
         setLastSavedAt(new Date().toISOString());
         setHasUnsavedChanges(false);
         await refresh();
@@ -756,7 +765,7 @@ export function FamilyProvider({ children }) {
         setIsSaving(false);
       }
     },
-    [activeTreeId, activeTree?.id, activeTree?.name, effectiveRootPersonId, refresh, refreshTreeList]
+    [activeTreeId, activeTree?.id, effectiveRootPersonId, refresh, refreshTreeList]
   );
 
   const restoreTree = useCallback(
@@ -805,12 +814,13 @@ export function FamilyProvider({ children }) {
         gender: details.gender && details.gender !== "unspecified" ? details.gender : null,
         date_of_birth: details.date_of_birth || details.dob || null,
         date_of_death: details.date_of_death || details.dod || null,
-        place_of_birth: details.place_of_birth || null,
-        occupation: details.occupation || null,
+        place_of_birth: details.place_of_birth ?? details.placeOfBirth ?? null,
+        place_of_death: details.place_of_death ?? details.placeOfDeath ?? null,
+        occupation: details.occupation ?? null,
         bio: details.bio !== undefined ? details.bio : (details.notes || null),
-        address: details.address || null,
-        phone: details.phone || null,
-        photo_url: details.photo_url || null,
+        address: details.address ?? null,
+        phone: details.phone ?? null,
+        photo_url: details.photo_url ?? details.photoUrl ?? null,
       };
       const updated = await api.updatePerson(id, payload);
       const mapped = mapPerson(updated);
@@ -827,8 +837,13 @@ export function FamilyProvider({ children }) {
           gender: prevPerson.gender || null,
           date_of_birth: prevPerson.dob || null,
           date_of_death: prevPerson.dod || null,
+          place_of_birth: prevPerson.place_of_birth || prevPerson.placeOfBirth || null,
+          place_of_death: prevPerson.place_of_death || prevPerson.placeOfDeath || null,
+          occupation: prevPerson.occupation || null,
           bio: prevPerson.notes || null,
-          photo_url: prevPerson.photoUrl || null,
+          address: prevPerson.address || null,
+          phone: prevPerson.phone || null,
+          photo_url: prevPerson.photoUrl || prevPerson.photo_url || null,
         };
         const action = {
           type: "UPDATE_PERSON",
@@ -1248,8 +1263,8 @@ export function FamilyProvider({ children }) {
         rootPersonId: effectiveRootPersonId(),
         setRootPersonId,
         // ── Sharing / multi-tree ──────────────────────────────────────
-        activeTreeId,
-        activeFamilyId: activeTreeId,
+        activeTreeId: activeTreeId || activeTree?.id || null,
+        activeFamilyId: activeTreeId || activeTree?.id || null,
         setActiveTreeId,
         activeTree,
         currentFamily: activeTree,

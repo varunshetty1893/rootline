@@ -13,10 +13,14 @@ import {
   CheckCircle2,
   AlertTriangle,
   Clock,
+  Calendar,
   Users,
   ChevronDown,
   ChevronUp,
   ShieldCheck,
+  User,
+  ArrowRight,
+  FileText,
 } from "lucide-react";
 import { api } from "../api.js";
 import { useFamily } from "./FamilyContext.jsx";
@@ -59,6 +63,10 @@ function getActionBadge(action) {
       return { label: "Saved Checkpoint", className: "bg-teal-100 text-teal-800 border-teal-200" };
     case "TREE_RESTORED":
       return { label: "Restored Version", className: "bg-orange-100 text-orange-800 border-orange-200" };
+    case "FAMILY_UPDATED":
+      return { label: "Tree Settings Updated", className: "bg-indigo-100 text-indigo-800 border-indigo-200" };
+    case "FAMILY_CREATED":
+      return { label: "Tree Created", className: "bg-emerald-50 text-emerald-700 border-emerald-200" };
     case "BASELINE":
       return { label: "Initial Baseline", className: "bg-gray-100 text-gray-700 border-gray-200" };
     default:
@@ -76,6 +84,52 @@ function timeAgo(dateString) {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
+}
+
+function formatFullDateTime(dateString) {
+  if (!dateString) return { date: "", time: "" };
+  const d = new Date(dateString);
+  if (Number.isNaN(d.getTime())) return { date: "", time: "" };
+  return {
+    date: d.toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    }),
+    time: d.toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }),
+  };
+}
+
+function formatFieldLabel(field) {
+  const map = {
+    person_added: "Member Added",
+    removed_person: "Removed Member",
+    connections: "Family Links",
+    previous_connections: "Previous Links",
+    date_of_birth: "Date of Birth",
+    date_of_death: "Date of Death",
+    place_of_birth: "Birthplace",
+    place_of_death: "Place of Death",
+    tree_starter: "Tree Starter",
+    tree_name: "Tree Name",
+    members_in_tree: "Members in Tree",
+    checkpoint_version: "Checkpoint Version",
+    changes_in_checkpoint: "Included Changes",
+    partner_1: "First Partner",
+    partner_2: "Second Partner",
+    relationship_type: "Relationship",
+    restore_action: "Restored State",
+    tree_created: "Created Tree",
+    photo_url: "Profile Photo",
+  };
+  if (map[field]) return map[field];
+  return field
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export default function FamilyActivityModal({ isOpen, onClose }) {
@@ -104,7 +158,7 @@ export default function FamilyActivityModal({ isOpen, onClose }) {
           console.warn("Failed to get revisions:", err);
           return { revisions: [] };
         }),
-        api.getFamilyHistory(currentTreeId, { category, limit: 80 }).catch((err) => {
+        api.getFamilyHistory(currentTreeId, { category, limit: 100 }).catch((err) => {
           console.warn("Failed to get history:", err);
           return { logs: [] };
         }),
@@ -146,7 +200,7 @@ export default function FamilyActivityModal({ isOpen, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl border border-[#E7E2D6] overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl border border-[#E7E2D6] overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="px-6 py-5 border-b border-[#E7E2D6] flex items-center justify-between bg-[#FAF9F5]">
           <div className="flex items-center gap-3">
@@ -165,7 +219,7 @@ export default function FamilyActivityModal({ isOpen, onClose }) {
                 </span>
               </div>
               <p className="text-xs text-[#6B7280] mt-0.5">
-                Every addition, edit, deletion, and checkpoint is automatically recorded. Restore any earlier version with one click.
+                Complete audit trail of who edited, what changed, exact date & time, and one-click version restore.
               </p>
             </div>
           </div>
@@ -337,6 +391,7 @@ export default function FamilyActivityModal({ isOpen, onClose }) {
                   const removedNames = Array.isArray(rev.removed_names) ? rev.removed_names : [];
                   const willRestore = Array.isArray(rev.will_restore_names) ? rev.will_restore_names : [];
                   const willRemove = Array.isArray(rev.will_remove_names) ? rev.will_remove_names : [];
+                  const dt = formatFullDateTime(rev.created_at);
 
                   return (
                     <div
@@ -367,22 +422,26 @@ export default function FamilyActivityModal({ isOpen, onClose }) {
                             <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${badge.className}`}>
                               {badge.label}
                             </span>
-                            <span className="text-xs font-semibold text-[#1C1F1D]">
-                              by {rev.actor_name}
+                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#1C1F1D] bg-[#F7F5F0] px-2 py-0.5 rounded-md border border-[#E7E2D6]">
+                              <User className="w-3 h-3 text-[#1C4B3C]" />
+                              {rev.actor_name}
+                              {rev.actor_role && (
+                                <span className="text-[10px] font-normal text-[#6B7280]">({rev.actor_role})</span>
+                              )}
                             </span>
-                            <span className="text-[11px] text-[#9CA3AF] flex items-center gap-1">
-                              <Clock className="w-3 h-3" />
+                            <span className="text-[11px] text-[#6B7280] flex items-center gap-1 ml-auto">
+                              <Clock className="w-3 h-3 text-[#9CA3AF]" />
                               {timeAgo(rev.created_at)}
                             </span>
                           </div>
 
-                          <p className="text-xs text-[#1C1F1D] mt-1.5 font-medium">
+                          <p className="text-xs text-[#1C1F1D] mt-2 font-medium">
                             {rev.description || "Tree revision"}
                           </p>
 
                           {/* What changed in this version */}
                           {(addedNames.length > 0 || removedNames.length > 0) && (
-                            <div className="mt-1.5 flex flex-wrap gap-2 text-[11px]">
+                            <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
                               {addedNames.length > 0 && (
                                 <span className="text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md font-medium">
                                   + Added: {addedNames.join(", ")}
@@ -414,13 +473,23 @@ export default function FamilyActivityModal({ isOpen, onClose }) {
                             </div>
                           )}
 
-                          <div className="mt-2 flex items-center gap-3 flex-wrap text-[11px] text-[#6B7280]">
+                          {/* Metadata Bar: People count, exact date & time, actor email, expand members */}
+                          <div className="mt-2.5 pt-2 border-t border-[#F0EDE3] flex items-center gap-3 flex-wrap text-[11px] text-[#6B7280]">
                             <span className="flex items-center gap-1 font-medium text-[#374151]">
                               <Users className="w-3 h-3 text-[#1C4B3C]" />
                               {rev.people_count} {rev.people_count === 1 ? "person" : "people"}
                             </span>
                             <span>·</span>
-                            <span>{new Date(rev.created_at).toLocaleString()}</span>
+                            <span className="flex items-center gap-1 text-[#4B5563]">
+                              <Calendar className="w-3 h-3 text-[#9CA3AF]" />
+                              {dt.date} at {dt.time}
+                            </span>
+                            {rev.actor_email && (
+                              <>
+                                <span>·</span>
+                                <span className="text-[#6B7280]">{rev.actor_email}</span>
+                              </>
+                            )}
                             {peopleNames.length > 0 && (
                               <>
                                 <span>·</span>
@@ -429,7 +498,7 @@ export default function FamilyActivityModal({ isOpen, onClose }) {
                                   onClick={() => setExpandedRevId(isExpanded ? null : rev.id)}
                                   className="text-[#1C4B3C] font-semibold hover:underline inline-flex items-center gap-0.5"
                                 >
-                                  <span>{isExpanded ? "Hide members" : "View members"}</span>
+                                  <span>{isExpanded ? "Hide members" : `View ${peopleNames.length} member(s)`}</span>
                                   {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                                 </button>
                               </>
@@ -479,7 +548,7 @@ export default function FamilyActivityModal({ isOpen, onClose }) {
           </div>
         )}
 
-        {/* Tab 2: Activity Log */}
+        {/* Tab 2: Detailed Activity Log */}
         {activeTab === "activity" && (
           <div className="flex flex-col flex-1 overflow-hidden">
             {/* Filter Bar */}
@@ -504,7 +573,7 @@ export default function FamilyActivityModal({ isOpen, onClose }) {
 
             <div className="p-6 overflow-y-auto flex-1">
               {loading && logs.length === 0 ? (
-                <div className="text-center py-10 text-xs text-[#9CA3AF]">Loading history…</div>
+                <div className="text-center py-10 text-xs text-[#9CA3AF]">Loading detailed activity log…</div>
               ) : logs.length === 0 ? (
                 <div className="text-center py-12 border border-dashed border-[#D9D3C3] rounded-xl text-xs text-[#9CA3AF]">
                   No activity logs recorded for this filter yet.
@@ -515,48 +584,134 @@ export default function FamilyActivityModal({ isOpen, onClose }) {
                     const badge = getActionBadge(log.action);
                     const detailEntries =
                       log.details && typeof log.details === "object" ? Object.entries(log.details) : [];
+                    const dt = formatFullDateTime(log.created_at);
+                    const matchingRev = log.snapshot_id
+                      ? revisions.find((r) => r.id === log.snapshot_id)
+                      : log.snapshot_version
+                      ? revisions.find((r) => r.version === log.snapshot_version)
+                      : null;
+
                     return (
                       <div key={log.id} className="relative group">
-                        <div className="absolute -left-6 top-1 w-4 h-4 rounded-full bg-white border-2 border-[#1C4B3C] flex items-center justify-center ring-4 ring-white">
+                        <div className="absolute -left-6 top-1.5 w-4 h-4 rounded-full bg-white border-2 border-[#1C4B3C] flex items-center justify-center ring-4 ring-white">
                           <span className="w-1.5 h-1.5 rounded-full bg-[#1C4B3C]" />
                         </div>
-                        <div className="bg-[#FAF9F5] border border-[#E7E2D6] rounded-xl p-3 hover:border-[#1C4B3C]/30 transition-all">
-                          <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
-                            <div className="flex items-center gap-1.5">
-                              <span className="p-1 rounded-md bg-white border border-[#E7E2D6]">
+                        <div className="bg-[#FAF9F5] border border-[#E7E2D6] rounded-xl p-4 hover:border-[#1C4B3C]/30 transition-all shadow-2xs">
+                          {/* Top Row: Actor + Role + Action Badge + Timestamp */}
+                          <div className="flex items-start justify-between gap-2 mb-2 flex-wrap">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="p-1.5 rounded-lg bg-white border border-[#E7E2D6] shadow-2xs">
                                 {getActionIcon(log.action)}
                               </span>
-                              <span className="text-xs font-semibold text-[#1C1F1D]">
-                                {log.actor_name}
-                              </span>
-                              <span className={`text-[10px] font-semibold px-2 py-0.2 rounded-full border ${badge.className}`}>
-                                {badge.label}
-                              </span>
-                            </div>
-                            <span
-                              className="text-[11px] text-[#9CA3AF]"
-                              title={new Date(log.created_at).toLocaleString()}
-                            >
-                              {timeAgo(log.created_at)} · {new Date(log.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                            </span>
-                          </div>
-                          <p className="text-xs text-[#4B5563] pl-6 font-medium">{log.description}</p>
-                          {detailEntries.length > 0 && (
-                            <div className="mt-2 ml-6 p-2 bg-white rounded-lg border border-[#E7E2D6] space-y-1 text-[11px] text-[#4B5563]">
-                              {detailEntries.map(([field, diff]) => (
-                                <div key={field} className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="font-semibold capitalize text-[#1C1F1D]">
-                                    {field.replace(/_/g, " ")}:
+                              <div>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-xs font-bold text-[#1C1F1D]">
+                                    {log.actor_name || "Unknown User"}
                                   </span>
-                                  <span className="line-through text-red-600/80">
-                                    {diff?.before || "empty"}
+                                  {log.actor_role && (
+                                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-[#EBE7DF] text-[#374151]">
+                                      {log.actor_role}
+                                    </span>
+                                  )}
+                                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${badge.className}`}>
+                                    {badge.label}
                                   </span>
-                                  <span>→</span>
-                                  <span className="text-emerald-700 font-medium">
-                                    {diff?.after || "empty"}
-                                  </span>
+                                  {matchingRev && (
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#1C4B3C]/10 text-[#1C4B3C]">
+                                      v{matchingRev.version}
+                                    </span>
+                                  )}
                                 </div>
-                              ))}
+                                {log.actor_email && (
+                                  <div className="text-[10px] text-[#6B7280] mt-0.5">
+                                    Edited by: {log.actor_name} ({log.actor_email})
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="text-right shrink-0">
+                              <div className="text-[11px] font-medium text-[#374151] flex items-center justify-end gap-1">
+                                <Calendar className="w-3 h-3 text-[#1C4B3C]" />
+                                {dt.date} · {dt.time}
+                              </div>
+                              <div className="text-[10px] text-[#9CA3AF] mt-0.5">
+                                {timeAgo(log.created_at)}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Summary Description */}
+                          <p className="text-xs text-[#1C1F1D] font-medium bg-white/80 px-3 py-2 rounded-lg border border-[#E7E2D6]/80">
+                            {log.description}
+                          </p>
+
+                          {/* Structured Changes Breakdown */}
+                          {detailEntries.length > 0 && (
+                            <div className="mt-2.5 p-3 bg-white rounded-xl border border-[#E7E2D6] space-y-1.5 text-[11px]">
+                              <div className="text-[10px] font-bold uppercase tracking-wider text-[#6B7280] flex items-center gap-1 mb-1">
+                                <FileText className="w-3 h-3 text-[#1C4B3C]" />
+                                Detailed Change Data
+                              </div>
+                              {detailEntries.map(([field, diff]) => {
+                                const hasBefore =
+                                  diff &&
+                                  diff.before !== undefined &&
+                                  diff.before !== null &&
+                                  String(diff.before).trim() !== "";
+                                const hasAfter =
+                                  diff &&
+                                  diff.after !== undefined &&
+                                  diff.after !== null &&
+                                  String(diff.after).trim() !== "";
+
+                                return (
+                                  <div
+                                    key={field}
+                                    className="flex items-start sm:items-center justify-between gap-2 py-1 border-t border-[#F4F1EA] first:border-t-0 flex-wrap"
+                                  >
+                                    <span className="font-semibold text-[#374151] min-w-[120px]">
+                                      {formatFieldLabel(field)}:
+                                    </span>
+                                    <div className="flex items-center gap-1.5 flex-wrap flex-1">
+                                      {hasBefore && hasAfter ? (
+                                        <>
+                                          <span className="px-2 py-0.5 rounded bg-red-50 text-red-700 border border-red-200/70 line-through">
+                                            {String(diff.before)}
+                                          </span>
+                                          <ArrowRight className="w-3 h-3 text-[#9CA3AF] shrink-0" />
+                                          <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200/70 font-semibold">
+                                            {String(diff.after)}
+                                          </span>
+                                        </>
+                                      ) : hasAfter ? (
+                                        <span className="px-2 py-0.5 rounded bg-[#FAF8F4] text-[#1C1F1D] border border-[#E7E2D6] font-medium">
+                                          {String(diff.after)}
+                                        </span>
+                                      ) : hasBefore ? (
+                                        <span className="px-2 py-0.5 rounded bg-red-50 text-red-700 border border-red-200/70">
+                                          {String(diff.before)}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {/* Quick Restore Link if associated with a non-current snapshot */}
+                          {matchingRev && !matchingRev.is_current && (
+                            <div className="mt-2.5 flex items-center justify-end">
+                              <button
+                                type="button"
+                                onClick={() => setConfirmRevision(matchingRev)}
+                                disabled={Boolean(restoringId)}
+                                className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#1C4B3C] hover:underline"
+                              >
+                                <RotateCcw className="w-3 h-3" />
+                                Restore tree to Version v{matchingRev.version}
+                              </button>
                             </div>
                           )}
                         </div>
@@ -586,4 +741,3 @@ export default function FamilyActivityModal({ isOpen, onClose }) {
     </div>
   );
 }
-
