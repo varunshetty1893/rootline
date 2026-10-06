@@ -497,7 +497,9 @@ export function FamilyProvider({ children }) {
       setRootPersonIdState(null);
       return;
     }
-    const treeKey = rootStorageKey(user.id, activeTreeId);
+    const effectiveTreeId = activeTreeId || activeTree?.id;
+    const treeKey = rootStorageKey(user.id, effectiveTreeId);
+    const globalKey = rootStorageKey(user.id);
 
     // 1. Canonical server-persisted tree root_person_id
     const serverRoot = activeTree?.root_person_id;
@@ -509,9 +511,33 @@ export function FamilyProvider({ children }) {
       return;
     }
 
-    // 2. Person matching the tree owner (for shared trees) or current user (for owned trees)
+    // 2. Saved localStorage for this tree (or global fallback)
+    const saved = localStorage.getItem(treeKey) || localStorage.getItem(globalKey);
+    if (saved && people.some((p) => p.id === saved)) {
+      setRootPersonIdState(saved);
+      return;
+    }
+
+    // 3. Person whose notes/bio explicitly mark them as Tree Starter / You / Self / Owner
+    if (people.length > 0) {
+      const selfPerson = people.find((p) => {
+        const notes = (p?.notes || p?.bio || "").toLowerCase();
+        return (
+          notes.includes("tree starter") ||
+          notes === "you" ||
+          notes === "self" ||
+          notes.includes("owner")
+        );
+      });
+      if (selfPerson) {
+        setRootPersonIdState(selfPerson.id);
+        return;
+      }
+    }
+
+    // 4. Person matching the tree owner (for shared trees) or current user (for owned trees)
     const isSharedTree = Boolean(activeTree && activeTree.isOwned === false);
-    const targetOwnerName = isSharedTree ? activeTree?.owner_name : user?.name;
+    const targetOwnerName = isSharedTree ? activeTree?.owner_name : (user?.name || activeTree?.owner_name);
     if (targetOwnerName && people.length > 0) {
       const normalize = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
       const normTarget = normalize(targetOwnerName);
@@ -528,18 +554,11 @@ export function FamilyProvider({ children }) {
       }
     }
 
-    // 3. Saved localStorage
-    const saved = localStorage.getItem(treeKey);
-    if (saved && people.some((p) => p.id === saved)) {
-      setRootPersonIdState(saved);
-      return;
-    }
-
-    // 4. Fallback to first person
+    // 5. Fallback to first person
     if (people.length > 0) {
       setRootPersonIdState(people[0].id);
     }
-  }, [user?.id, user?.name, activeTreeId, activeTree?.id, activeTree?.root_person_id, people]);
+  }, [user?.id, user?.name, activeTreeId, activeTree?.id, activeTree?.root_person_id, activeTree?.owner_name, activeTree?. isOwned, people]);
 
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);

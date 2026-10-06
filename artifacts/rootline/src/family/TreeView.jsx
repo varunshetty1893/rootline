@@ -79,7 +79,7 @@ export function getShortFamily(allPeople, focusId) {
 
   const resultIds = new Set([focusId]);
 
-  // Helper to extract parent IDs
+  // Helper to extract direct parent IDs of a person
   const getParents = (person) => {
     if (!person) return [];
     const parentIds = new Set();
@@ -87,7 +87,6 @@ export function getShortFamily(allPeople, focusId) {
     for (const fam of person.parentFamilies || []) {
       for (const pid of fam.partner_ids || []) parentIds.add(pid);
     }
-    // Also check reverse: any person whose partnerFamilies include person.id as a child
     for (const p of allPeople) {
       for (const fam of p.partnerFamilies || []) {
         if ((fam.child_ids || []).includes(person.id)) {
@@ -99,7 +98,7 @@ export function getShortFamily(allPeople, focusId) {
     return [...parentIds].filter((id) => id !== person.id && byId.has(id));
   };
 
-  // Helper to extract partner/spouse IDs
+  // Helper to extract direct partner/spouse IDs of a person
   const getPartners = (person) => {
     if (!person) return [];
     const partnerIds = new Set();
@@ -112,7 +111,7 @@ export function getShortFamily(allPeople, focusId) {
     return [...partnerIds].filter((id) => byId.has(id));
   };
 
-  // Helper to extract child IDs
+  // Helper to extract direct child IDs of a person
   const getChildren = (person) => {
     if (!person) return [];
     const childIds = new Set();
@@ -128,11 +127,13 @@ export function getShortFamily(allPeople, focusId) {
     return [...childIds].filter((id) => id !== person.id && byId.has(id));
   };
 
-  // 1. Direct Parents of focus
+  // 1. Direct Parents of focus (and their partner within focus's parent unit)
   const myParents = getParents(focus);
-  for (const pid of myParents) resultIds.add(pid);
+  for (const pid of myParents) {
+    resultIds.add(pid);
+  }
 
-  // 2. Siblings of focus, their partners, and their children (nieces/nephews)
+  // 2. Direct Siblings of focus (sharing at least one direct parent with focus)
   if (myParents.length > 0) {
     for (const p of allPeople) {
       if (p.id === focusId) continue;
@@ -140,31 +141,39 @@ export function getShortFamily(allPeople, focusId) {
       const isSibling = pParents.some((pid) => myParents.includes(pid));
       if (isSibling) {
         resultIds.add(p.id);
-        for (const partnerId of getPartners(p)) {
-          resultIds.add(partnerId);
-        }
-        for (const sibChildId of getChildren(p)) {
-          resultIds.add(sibChildId);
-        }
       }
     }
   }
 
-  // 3. Partners of focus (husband/wife)
+  // 3. Direct Partners of focus (spouse/partner)
   const myPartners = getPartners(focus);
   for (const partnerId of myPartners) {
     resultIds.add(partnerId);
-    const partner = byId.get(partnerId);
-    if (partner) {
-      // 4. In-laws: Father-in-law & Mother-in-law (parents of partner)
-      const inLawParents = getParents(partner);
-      for (const inLawId of inLawParents) {
-        resultIds.add(inLawId);
+  }
+
+  // If focus is a married-in partner who has no parents recorded in the tree,
+  // include their spouse's direct parents and siblings so the couple's immediate family context stays visible.
+  if (myParents.length === 0 && myPartners.length > 0) {
+    for (const partnerId of myPartners) {
+      const partner = byId.get(partnerId);
+      if (!partner) continue;
+      const spouseParents = getParents(partner);
+      for (const spPid of spouseParents) {
+        resultIds.add(spPid);
+      }
+      if (spouseParents.length > 0) {
+        for (const p of allPeople) {
+          if (p.id === partnerId || p.id === focusId) continue;
+          const pParents = getParents(p);
+          if (pParents.some((pid) => spouseParents.includes(pid))) {
+            resultIds.add(p.id);
+          }
+        }
       }
     }
   }
 
-  // 5. Children of focus (and partner's shared children + children's partners + grandchildren)
+  // 4. Direct Children of focus (and partner's shared children + co-parents of those children)
   const myChildren = getChildren(focus);
   const allChildIds = new Set(myChildren);
   for (const partnerId of myPartners) {
@@ -179,35 +188,8 @@ export function getShortFamily(allPeople, focusId) {
     resultIds.add(childId);
     const child = byId.get(childId);
     if (child) {
-      for (const cpId of getPartners(child)) {
-        resultIds.add(cpId);
-      }
-      for (const gcId of getChildren(child)) {
-        resultIds.add(gcId);
-      }
-    }
-  }
-
-  // 6. Grandparents and Aunts/Uncles
-  if (myParents.length > 0) {
-    for (const parentId of myParents) {
-      const parent = byId.get(parentId);
-      if (!parent) continue;
-      for (const pPartnerId of getPartners(parent)) {
-        resultIds.add(pPartnerId);
-      }
-      const grandParents = getParents(parent);
-      for (const gpId of grandParents) {
-        resultIds.add(gpId);
-        const gp = byId.get(gpId);
-        if (gp) {
-          for (const spId of getPartners(gp)) {
-            resultIds.add(spId);
-          }
-          for (const auntUncleId of getChildren(gp)) {
-            resultIds.add(auntUncleId);
-          }
-        }
+      for (const coParentId of getParents(child)) {
+        resultIds.add(coParentId);
       }
     }
   }
@@ -569,6 +551,9 @@ export default function TreeView() {
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [collapsedFamilyKeys, setCollapsedFamilyKeys] = useState(() => new Set());
   const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const zoomRef = useRef(1);
+  const panRef = useRef({ x: 0, y: 0 });
   const [query, setQuery] = useState("");
   const [highlightId, setHighlightId] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
@@ -592,12 +577,15 @@ export default function TreeView() {
   const [confirmSetMePerson, setConfirmSetMePerson] = useState(null);
   const [isPanning, setIsPanning] = useState(false);
   const [collapseControls, setCollapseControls] = useState([]);
-  const [focusedView, setFocusedView] = useState(false);
+  const [focusedView, setFocusedView] = useState(true);
   const [smartAccordion, setSmartAccordion] = useState(true);
   const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
   const [mobileSheetMinimized, setMobileSheetMinimized] = useState(false);
   const panState = useRef(null);
   const lastRootRef = useRef(null);
+  const userHasSelectedRef = useRef(false);
+  const pendingFocusIdRef = useRef(null);
+  const initializedTreeKeyRef = useRef(null);
 
   // Create tree & first person modal state
   const [createTreeModalOpen, setCreateTreeModalOpen] = useState(false);
@@ -688,8 +676,8 @@ export default function TreeView() {
   );
 
   const { rows, edges, layoutWidth } = useMemo(
-    () => computeLayout(scopedPeople, focusedView ? new Set() : collapsedFamilyKeys, focusId),
-    [scopedPeople, focusedView, collapsedFamilyKeys, focusId]
+    () => computeLayout(scopedPeople, new Set(), focusId),
+    [scopedPeople, focusId]
   );
 
   // Keep all branches expanded by default when switching roots so collaborators see all added relatives
@@ -712,11 +700,11 @@ export default function TreeView() {
   }, [scopedPeople.length, rows.length, collapsedFamilyKeys.size]);
 
   // "How am I related?" — recomputed whenever the selection or the root
-  // ("you") changes. Cheap even for large trees: bounded by tree depth.
+  // ("you") changes across the full family tree in state.
   const relationship = useMemo(() => {
     if (!selectedId || !rootPersonId || selectedId === rootPersonId) return null;
-    return findRelationship(rootPersonId, selectedId, scopedPeople);
-  }, [selectedId, rootPersonId, scopedPeople]);
+    return findRelationship(rootPersonId, selectedId, people);
+  }, [selectedId, rootPersonId, people]);
 
   const pathIdSet = useMemo(
     () => new Set(relationship?.path || []),
@@ -767,11 +755,38 @@ export default function TreeView() {
     return null;
   }, [user, people, myRole, rootPersonId]);
 
+  // Reset interaction tracking when switching between different family trees
+  const currentTreeKey = activeTreeId || activeTree?.id || "default";
   useEffect(() => {
-    if (people.length && !people.some((p) => p.id === selectedId)) {
-      setSelectedId(rootPersonId && people.some((p) => p.id === rootPersonId) ? rootPersonId : people[0].id);
+    if (initializedTreeKeyRef.current !== currentTreeKey) {
+      initializedTreeKeyRef.current = currentTreeKey;
+      userHasSelectedRef.current = false;
+      setFocusedView(true);
     }
-  }, [people, rootPersonId, selectedId]);
+  }, [currentTreeKey]);
+
+  // On initial tree load (or if rootPersonId resolves before user manually clicks someone),
+  // ensure "You" (Tree Starter) is selected and focused.
+  useEffect(() => {
+    if (!people.length) return;
+    const starterId =
+      (rootPersonId && people.some((p) => p.id === rootPersonId) ? rootPersonId : null) ||
+      (currentUserPersonId && people.some((p) => p.id === currentUserPersonId) ? currentUserPersonId : null) ||
+      people[0].id;
+
+    if (!userHasSelectedRef.current) {
+      if (selectedId !== starterId) {
+        setSelectedId(starterId);
+      }
+      pendingFocusIdRef.current = starterId;
+      return;
+    }
+
+    if (!people.some((p) => p.id === selectedId)) {
+      setSelectedId(starterId);
+      pendingFocusIdRef.current = starterId;
+    }
+  }, [people, rootPersonId, currentUserPersonId, selectedId]);
 
   const openQuickAdd = (relation) => {
     const person = selectedPerson;
@@ -873,12 +888,11 @@ export default function TreeView() {
           return;
         }
         await linkPeople(selectedPerson.id, quickPartnerId, quickPartnerStatus);
-        setSelectedId(quickPartnerId);
         closeQuickAdd();
-        requestAnimationFrame(() => revealAndFocus(quickPartnerId));
+        pendingFocusIdRef.current = selectedPerson.id;
         return;
       }
-      const id = await addPerson(
+      await addPerson(
         { name: quickName.trim(), gender: quickGender, dob: "", dod: "", notes: "" },
         {
           type: quickRelation === "parent" ? quickParentType : quickRelation,
@@ -892,8 +906,7 @@ export default function TreeView() {
           newFamily: quickFamilyId === "new-family",
         }
       );
-      if (quickRelation !== "child") setSelectedId(id);
-      requestAnimationFrame(() => revealAndFocus(id));
+      pendingFocusIdRef.current = selectedPerson.id;
       if (quickRelation === "child") {
         setQuickName("");
         setQuickSuccess("Child added. Add another child below, or choose Done.");
@@ -978,36 +991,120 @@ export default function TreeView() {
     }
   }, [focusedView, focusId, uncollapseImmediateFamily]);
 
-  // Reveal a person hidden behind a collapsed ancestor, then scroll to them.
-  const revealAndFocus = (id) => {
-    uncollapseImmediateFamily(id);
-    const ancestors = ancestorsOf(id, people);
-    setCollapsedFamilyKeys((prev) => {
-      let changed = false;
-      const next = new Set(prev);
-      for (const ancestorId of [...ancestors, id]) {
-        for (const branch of familyKeysFor(people.find((person) => person.id === ancestorId))) {
-          if (next.has(branch)) {
-            next.delete(branch);
-            changed = true;
-          }
+  // Position and scale the infinite canvas around a target person and their immediate connected family
+  // (Parents above, Siblings/Partner beside, Children below), without zooming out to the entire tree.
+  const focusViewportOnPerson = useCallback(
+    (targetId, options = {}) => {
+      const viewport = scrollRef.current;
+      if (!viewport || !rows.length) return;
+      const viewportW = viewport.clientWidth;
+      const viewportH = viewport.clientHeight;
+      if (!viewportW || !viewportH) return;
+
+      const posById = new Map();
+      rows.forEach((row, rowIndex) => {
+        row.people.forEach(({ person, x }) => {
+          posById.set(person.id, {
+            id: person.id,
+            left: x,
+            right: x + CARD_W,
+            centerX: x + CARD_W / 2,
+            top: rowIndex * ROW_HEIGHT,
+            bottom: rowIndex * ROW_HEIGHT + 146,
+            centerY: rowIndex * ROW_HEIGHT + 70,
+          });
+        });
+      });
+
+      if (!posById.size) return;
+
+      const effectiveId = targetId && posById.has(targetId) ? targetId : (rootPersonId && posById.has(rootPersonId) ? rootPersonId : [...posById.keys()][0]);
+      const targetPos = posById.get(effectiveId);
+
+      // Gather layout bounds for the immediate family of effectiveId
+      const immediatePeople = getShortFamily(people, effectiveId);
+      const immediatePositions = immediatePeople
+        .map((p) => posById.get(p.id))
+        .filter(Boolean);
+      const neighborhood = immediatePositions.length > 0 ? immediatePositions : (targetPos ? [targetPos] : [...posById.values()]);
+
+      const minX = Math.min(...neighborhood.map((p) => p.left));
+      const maxX = Math.max(...neighborhood.map((p) => p.right));
+      const minY = Math.min(...neighborhood.map((p) => p.top));
+      const maxY = Math.max(...neighborhood.map((p) => p.bottom));
+      const boxW = Math.max(CARD_W, maxX - minX);
+      const boxH = Math.max(146, maxY - minY);
+      const boxCenterX = (minX + maxX) / 2;
+      const boxCenterY = (minY + maxY) / 2;
+
+      const availW = Math.max(260, viewportW - 96);
+      const availH = Math.max(220, viewportH - 88);
+      const fitScale = Math.min(availW / boxW, availH / boxH);
+      const nextZoom = options.preserveZoom
+        ? zoomRef.current
+        : Math.max(0.75, Math.min(1.0, +fitScale.toFixed(2)));
+
+      let panX;
+      if (boxW * nextZoom <= viewportW - 64) {
+        const anchorX = targetPos ? boxCenterX * 0.65 + targetPos.centerX * 0.35 : boxCenterX;
+        panX = viewportW / 2 - anchorX * nextZoom;
+        const scaledLeft = minX * nextZoom + panX;
+        const scaledRight = maxX * nextZoom + panX;
+        if (scaledLeft < 32 && scaledRight <= viewportW - 32) {
+          panX = Math.min(32 - minX * nextZoom, (viewportW - boxW * nextZoom) / 2 - minX * nextZoom);
+        } else if (scaledRight > viewportW - 32 && scaledLeft >= 32) {
+          panX = Math.max(viewportW - 32 - maxX * nextZoom, (viewportW - boxW * nextZoom) / 2 - minX * nextZoom);
         }
+      } else {
+        panX = viewportW / 2 - (targetPos ? targetPos.centerX : boxCenterX) * nextZoom;
       }
-      return changed ? next : prev;
-    });
-    requestAnimationFrame(() => {
-      cardRefs.current[id]?.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
-    });
-  };
+
+      let panY;
+      if (boxH * nextZoom <= viewportH - 56) {
+        panY = (viewportH - boxH * nextZoom) / 2 - minY * nextZoom;
+      } else {
+        panY = viewportH / 2 - (targetPos ? targetPos.centerY : boxCenterY) * nextZoom;
+      }
+
+      const nextPan = { x: Math.round(panX), y: Math.round(panY) };
+      zoomRef.current = nextZoom;
+      panRef.current = nextPan;
+      setZoom(nextZoom);
+      setPan(nextPan);
+    },
+    [rows, people, rootPersonId]
+  );
+
+  const centerPerson = useCallback(
+    (id) => {
+      const targetId = id || selectedId || rootPersonId;
+      if (!targetId) return;
+      focusViewportOnPerson(targetId);
+    },
+    [selectedId, rootPersonId, focusViewportOnPerson]
+  );
+
+  // Reveal a person and frame their local family neighborhood in the viewport.
+  const revealAndFocus = useCallback(
+    (id) => {
+      if (!id) return;
+      uncollapseImmediateFamily(id);
+      pendingFocusIdRef.current = id;
+      requestAnimationFrame(() => {
+        focusViewportOnPerson(id);
+      });
+    },
+    [uncollapseImmediateFamily, focusViewportOnPerson]
+  );
 
   const handleSelectPerson = (id) => {
     if (!id) {
       setSelectedId(null);
       return;
     }
+    userHasSelectedRef.current = true;
     setSelectedId(id);
-    setFocusedView(true);
-    revealAndFocus(id);
+    pendingFocusIdRef.current = id;
   };
 
   const handleDeleteSelected = async () => {
@@ -1063,23 +1160,28 @@ export default function TreeView() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [selectedId, deletePerson, canUndo, canRedo, undo, redo, canEdit, isSaving, isSavingTree]);
 
-  // Click-and-drag panning on empty canvas — a large tree needs this far
-  // more than thin scrollbars. Bails out if the mousedown started on an
-  // actual person card, so clicking someone still selects them normally.
+  // Click-and-drag infinite canvas panning on empty canvas space.
+  // Bails out if mousedown started on a person card or interactive control,
+  // so clicking a person card always selects them normally.
   const handleCanvasMouseDown = (e) => {
-    if (e.button !== 0 || e.target.closest("[data-person-id]")) return;
-    const viewport = scrollRef.current;
-    if (!viewport) return;
+    if (
+      e.button !== 0 ||
+      e.target.closest("[data-person-id]") ||
+      e.target.closest("button, a, input, select, textarea")
+    ) {
+      return;
+    }
+    e.preventDefault();
     panState.current = {
       startX: e.clientX,
       startY: e.clientY,
-      scrollLeft: viewport.scrollLeft,
-      scrollTop: viewport.scrollTop,
+      startPanX: panRef.current.x,
+      startPanY: panRef.current.y,
     };
     setIsPanning(true);
   };
 
-  const handleCanvasWheel = (e) => {
+  const handleCanvasWheel = useCallback((e) => {
     e.preventDefault();
     const viewport = scrollRef.current;
     if (!viewport) return;
@@ -1087,26 +1189,31 @@ export default function TreeView() {
     const cursorX = e.clientX - bounds.left;
     const cursorY = e.clientY - bounds.top;
 
-    setZoom((current) => {
-      // Convert the cursor into the tree's unscaled coordinate system, then
-      // restore that same point under the cursor after the scale changes.
-      // This makes ordinary wheel zoom feel anchored to the graph, rather
-      // than jumping toward a fixed canvas corner.
-      const treeX = (viewport.scrollLeft + cursorX) / current;
-      const treeY = (viewport.scrollTop + cursorY) / current;
-      const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
-      const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, +(current * factor).toFixed(3)));
-      requestAnimationFrame(() => {
-        viewport.scrollLeft = Math.max(0, treeX * next - cursorX);
-        viewport.scrollTop = Math.max(0, treeY * next - cursorY);
-      });
-      return next;
-    });
-  };
+    const currentZoom = zoomRef.current;
+    const currentPan = panRef.current;
+    const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+    const nextZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, +(currentZoom * factor).toFixed(3)));
 
-  const centerPerson = (id) => {
-    cardRefs.current[id]?.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
-  };
+    // Keep the exact tree coordinate under the mouse cursor anchored during zoom
+    const treeX = (cursorX - currentPan.x) / currentZoom;
+    const treeY = (cursorY - currentPan.y) / currentZoom;
+    const nextPan = {
+      x: Math.round(cursorX - treeX * nextZoom),
+      y: Math.round(cursorY - treeY * nextZoom),
+    };
+
+    zoomRef.current = nextZoom;
+    panRef.current = nextPan;
+    setZoom(nextZoom);
+    setPan(nextPan);
+  }, []);
+
+  useEffect(() => {
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+    viewport.addEventListener("wheel", handleCanvasWheel, { passive: false });
+    return () => viewport.removeEventListener("wheel", handleCanvasWheel);
+  }, [handleCanvasWheel, loaded, treesLoading, people.length, scopedPeople.length]);
 
   const toggleFullscreen = async () => {
     if (!scrollRef.current) return;
@@ -1117,12 +1224,16 @@ export default function TreeView() {
   useEffect(() => {
     const handleMouseMove = (e) => {
       const state = panState.current;
-      const viewport = scrollRef.current;
-      if (!state || !viewport) return;
-      viewport.scrollLeft = state.scrollLeft - (e.clientX - state.startX);
-      viewport.scrollTop = state.scrollTop - (e.clientY - state.startY);
+      if (!state) return;
+      const nextPan = {
+        x: Math.round(state.startPanX + (e.clientX - state.startX)),
+        y: Math.round(state.startPanY + (e.clientY - state.startY)),
+      };
+      panRef.current = nextPan;
+      setPan(nextPan);
     };
     const handleMouseUp = () => {
+      if (!panState.current) return;
       panState.current = null;
       setIsPanning(false);
     };
@@ -1134,7 +1245,7 @@ export default function TreeView() {
     };
   }, []);
 
-  // Issue #27: Touch pan and pinch-to-zoom for mobile/tablet devices
+  // Touch pan and pinch-to-zoom on the infinite canvas for mobile/tablet devices
   const touchState = useRef(null);
 
   const getTouchDistance = (t1, t2) => {
@@ -1144,7 +1255,12 @@ export default function TreeView() {
   };
 
   const handleTouchStart = (e) => {
-    if (e.target.closest("[data-person-id]")) return;
+    if (
+      e.target.closest("[data-person-id]") ||
+      e.target.closest("button, a, input, select, textarea")
+    ) {
+      return;
+    }
     const viewport = scrollRef.current;
     if (!viewport) return;
 
@@ -1154,35 +1270,54 @@ export default function TreeView() {
         mode: "pan",
         startX: t.clientX,
         startY: t.clientY,
-        scrollLeft: viewport.scrollLeft,
-        scrollTop: viewport.scrollTop,
+        startPanX: panRef.current.x,
+        startPanY: panRef.current.y,
       };
       setIsPanning(true);
     } else if (e.touches.length === 2) {
       const dist = getTouchDistance(e.touches[0], e.touches[1]);
+      const bounds = viewport.getBoundingClientRect();
+      const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - bounds.left;
+      const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - bounds.top;
       touchState.current = {
         mode: "pinch",
         startDist: dist,
-        startZoom: zoom,
+        startZoom: zoomRef.current,
+        startPanX: panRef.current.x,
+        startPanY: panRef.current.y,
+        midX,
+        midY,
       };
     }
   };
 
   const handleTouchMove = (e) => {
     const state = touchState.current;
-    const viewport = scrollRef.current;
-    if (!state || !viewport) return;
+    if (!state) return;
 
     if (state.mode === "pan" && e.touches.length === 1) {
       const t = e.touches[0];
-      viewport.scrollLeft = state.scrollLeft - (t.clientX - state.startX);
-      viewport.scrollTop = state.scrollTop - (t.clientY - state.startY);
+      const nextPan = {
+        x: Math.round(state.startPanX + (t.clientX - state.startX)),
+        y: Math.round(state.startPanY + (t.clientY - state.startY)),
+      };
+      panRef.current = nextPan;
+      setPan(nextPan);
     } else if (state.mode === "pinch" && e.touches.length === 2) {
       const dist = getTouchDistance(e.touches[0], e.touches[1]);
       if (state.startDist > 0) {
         const factor = dist / state.startDist;
         const nextZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, +(state.startZoom * factor).toFixed(3)));
+        const treeX = (state.midX - state.startPanX) / state.startZoom;
+        const treeY = (state.midY - state.startPanY) / state.startZoom;
+        const nextPan = {
+          x: Math.round(state.midX - treeX * nextZoom),
+          y: Math.round(state.midY - treeY * nextZoom),
+        };
+        zoomRef.current = nextZoom;
+        panRef.current = nextPan;
         setZoom(nextZoom);
+        setPan(nextPan);
       }
     }
   };
@@ -1254,13 +1389,14 @@ export default function TreeView() {
 
   const handleBackToMe = useCallback(() => {
     if (!rootPersonId) return;
+    userHasSelectedRef.current = false;
     setSelectedId(rootPersonId);
     setFocusedView(true);
-    uncollapseImmediateFamily(rootPersonId);
+    pendingFocusIdRef.current = rootPersonId;
     requestAnimationFrame(() => {
-      centerPerson(rootPersonId);
+      focusViewportOnPerson(rootPersonId);
     });
-  }, [rootPersonId, centerPerson, uncollapseImmediateFamily]);
+  }, [rootPersonId, focusViewportOnPerson]);
 
   const handleSearch = (e) => {
     e.preventDefault();
@@ -1269,66 +1405,75 @@ export default function TreeView() {
     const match = people.find((p) => p.name.toLowerCase().includes(q));
     if (!match) return;
 
-    // If an ancestor is collapsed, this person is hidden — reveal them first.
-    uncollapseImmediateFamily(match.id);
-    const ancestors = ancestorsOf(match.id, people);
-    setCollapsedFamilyKeys((prev) => {
-      let changed = false;
-      const next = new Set(prev);
-      for (const ancestorId of [...ancestors, match.id]) {
-        for (const branch of familyKeysFor(people.find((person) => person.id === ancestorId))) {
-          if (next.has(branch)) {
-            next.delete(branch);
-            changed = true;
-          }
-        }
-      }
-      return changed ? next : prev;
-    });
-
+    userHasSelectedRef.current = true;
     setHighlightId(match.id);
-    setSelectedId(match.id); // also surfaces "how you're related" + path highlight
-    setFocusedView(true);
-    // Wait a tick for any expand to re-render, then scroll to it.
-    requestAnimationFrame(() => {
-      const el = cardRefs.current[match.id];
-      el?.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
-    });
+    setSelectedId(match.id);
+    pendingFocusIdRef.current = match.id;
     setTimeout(() => setHighlightId((cur) => (cur === match.id ? null : cur)), 2200);
   };
 
-  const zoomIn = () => setZoom((z) => Math.min(ZOOM_MAX, +(z + ZOOM_STEP).toFixed(2)));
-  const zoomOut = () => setZoom((z) => Math.max(ZOOM_MIN, +(z - ZOOM_STEP).toFixed(2)));
-
-  // Actually fits the whole tree in the viewport, rather than just resetting
-  // to 100% — measures the tree's true (unscaled) size via scrollWidth /
-  // scrollHeight, which CSS transforms don't affect, then picks whichever
-  // scale (width- or height-limited) is smaller so nothing gets clipped.
-  const fitToScreen = () => {
-    const content = containerRef.current;
+  const applyZoomStep = (delta) => {
     const viewport = scrollRef.current;
-    if (!content || !viewport) return;
+    const currentZoom = zoomRef.current;
+    const currentPan = panRef.current;
+    const nextZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, +(currentZoom + delta).toFixed(2)));
+    if (viewport) {
+      const cx = viewport.clientWidth / 2;
+      const cy = viewport.clientHeight / 2;
+      const treeX = (cx - currentPan.x) / currentZoom;
+      const treeY = (cy - currentPan.y) / currentZoom;
+      const nextPan = {
+        x: Math.round(cx - treeX * nextZoom),
+        y: Math.round(cy - treeY * nextZoom),
+      };
+      panRef.current = nextPan;
+      setPan(nextPan);
+    }
+    zoomRef.current = nextZoom;
+    setZoom(nextZoom);
+  };
 
-    const contentW = content.scrollWidth;
-    const contentH = content.scrollHeight;
+  const zoomIn = () => applyZoomStep(ZOOM_STEP);
+  const zoomOut = () => applyZoomStep(-ZOOM_STEP);
+
+  const fitToScreen = useCallback(() => {
+    const viewport = scrollRef.current;
+    if (!viewport || !rows.length) return;
     const viewportW = viewport.clientWidth;
     const viewportH = viewport.clientHeight;
-    if (!contentW || !contentH) return;
+    if (!viewportW || !viewportH) return;
 
-    const scale = Math.min(viewportW / contentW, viewportH / contentH, 1) * 0.94;
-    const nextZoom = Math.max(0.08, +scale.toFixed(3));
-    setZoom(nextZoom);
-
-    // Center horizontally, start from the top so ancestors are visible first.
-    requestAnimationFrame(() => {
-      const scaledW = contentW * nextZoom;
-      viewport.scrollTo({
-        left: Math.max(0, (scaledW - viewportW) / 2),
-        top: 0,
-        behavior: "smooth",
+    const allPositions = [];
+    rows.forEach((row, rowIndex) => {
+      row.people.forEach(({ x }) => {
+        allPositions.push({
+          left: x,
+          right: x + CARD_W,
+          top: rowIndex * ROW_HEIGHT,
+          bottom: rowIndex * ROW_HEIGHT + 146,
+        });
       });
     });
-  };
+    if (!allPositions.length) return;
+
+    const minX = Math.min(...allPositions.map((p) => p.left));
+    const maxX = Math.max(...allPositions.map((p) => p.right));
+    const minY = Math.min(...allPositions.map((p) => p.top));
+    const maxY = Math.max(...allPositions.map((p) => p.bottom));
+    const boxW = Math.max(CARD_W, maxX - minX);
+    const boxH = Math.max(146, maxY - minY);
+
+    const scale = Math.min((viewportW - 80) / boxW, (viewportH - 80) / boxH, 1);
+    const nextZoom = Math.max(ZOOM_MIN, Math.min(1.0, +scale.toFixed(3)));
+    const nextPan = {
+      x: Math.round((viewportW - boxW * nextZoom) / 2 - minX * nextZoom),
+      y: Math.round((viewportH - boxH * nextZoom) / 2 - minY * nextZoom),
+    };
+    zoomRef.current = nextZoom;
+    panRef.current = nextPan;
+    setZoom(nextZoom);
+    setPan(nextPan);
+  }, [rows]);
 
   useLayoutEffect(() => {
     if (!containerRef.current || people.length === 0) return;
@@ -1483,16 +1628,14 @@ export default function TreeView() {
     return () => window.removeEventListener("resize", recompute);
   }, [scopedPeople, edges, rows, zoom, pathEdgeKeys, selectedId, collapsedFamilyKeys]);
 
-  // Start every tree at a predictable, readable scale. People can still use
-  // the Fit control when they want to see an unusually large tree at once.
-  const hasAutoFitted = useRef(false);
-  useEffect(() => {
-    if (hasAutoFitted.current || scopedPeople.length === 0) return;
-    if (!containerRef.current?.scrollWidth) return;
-    hasAutoFitted.current = true;
-    setZoom(0.9);
-    requestAnimationFrame(() => centerPerson(selectedId || rootPersonId));
-  }, [scopedPeople, rows]);
+  // Whenever a focus target is queued (initial load, selecting a person, Back to Me, search, or toggling view),
+  // position the viewport around that person's local family neighborhood as soon as rows are ready.
+  useLayoutEffect(() => {
+    if (!rows.length || !pendingFocusIdRef.current) return;
+    const targetId = pendingFocusIdRef.current;
+    pendingFocusIdRef.current = null;
+    focusViewportOnPerson(targetId);
+  }, [rows, focusViewportOnPerson]);
 
   const familyLabel = (family) => {
     const otherPartners = (family.partner_ids || [])
@@ -1865,7 +2008,10 @@ export default function TreeView() {
               {/* Short family vs Full tree mode */}
               <button
                 type="button"
-                onClick={() => setFocusedView((value) => !value)}
+                onClick={() => {
+                  pendingFocusIdRef.current = selectedId || rootPersonId;
+                  setFocusedView((value) => !value);
+                }}
                 title={focusedView ? "Switch to Full tree mode" : "Switch to Short family mode"}
                 aria-label={focusedView ? "Switch to Full tree mode" : "Switch to Short family mode"}
                 className={`p-1.5 border rounded-lg transition-colors shrink-0 flex items-center justify-center ${
@@ -2016,6 +2162,7 @@ export default function TreeView() {
                     <button
                       type="button"
                       onClick={() => {
+                        pendingFocusIdRef.current = selectedId || rootPersonId;
                         setFocusedView((v) => !v);
                         setMobileToolsOpen(false);
                       }}
@@ -2186,23 +2333,26 @@ export default function TreeView() {
             <div
               ref={scrollRef}
               onMouseDown={handleCanvasMouseDown}
-              onWheel={handleCanvasWheel}
               onTouchStart={handleTouchStart}
               onTouchMove={handleTouchMove}
               onTouchEnd={handleTouchEnd}
               onTouchCancel={handleTouchEnd}
-              className={`flex-1 overflow-auto px-6 lg:px-10 py-8 bg-white touch-none ${
-                isPanning ? "cursor-grabbing select-none" : "cursor-grab"
+              className={`relative flex-1 overflow-hidden bg-white touch-none select-none ${
+                isPanning ? "cursor-grabbing" : "cursor-grab"
               }`}
-              style={{ backgroundImage: "radial-gradient(#DCE3E1 0.7px, transparent 0.7px)", backgroundSize: "16px 16px" }}
+              style={{
+                backgroundImage: "radial-gradient(#DCE3E1 0.7px, transparent 0.7px)",
+                backgroundSize: "16px 16px",
+                backgroundPosition: `${pan.x}px ${pan.y}px`,
+              }}
             >
               <div
                 ref={containerRef}
-                className="relative mx-auto origin-top-left"
+                className="relative origin-top-left will-change-transform"
                 style={{
-                  minWidth: layoutWidth,
-                  minHeight: rows.length * ROW_HEIGHT + 32,
-                  transform: `scale(${zoom})`,
+                  width: layoutWidth,
+                  height: rows.length * ROW_HEIGHT + 32,
+                  transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`,
                 }}
               >
                 <svg
@@ -2270,23 +2420,6 @@ export default function TreeView() {
                       })}
                     </div>
                   ))}
-                  {!focusedView &&
-                    collapseControls.map((control) => (
-                      <button
-                        key={control.key}
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleCollapse(control.key);
-                        }}
-                        title={control.collapsed ? "Show this family's children" : "Hide this family's children"}
-                        aria-label={control.collapsed ? "Show this family's children" : "Hide this family's children"}
-                        className="absolute z-10 flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-white bg-[#174F61] text-white shadow-md hover:bg-[#1C4B3C] focus:outline-none focus:ring-2 focus:ring-[#174F61]/40"
-                        style={{ left: control.x, top: control.y }}
-                      >
-                        {control.collapsed ? <Plus className="h-3.5 w-3.5" /> : <Minus className="h-3.5 w-3.5" />}
-                      </button>
-                    ))}
                 </div>
               </div>
             </div>
@@ -2683,13 +2816,14 @@ export default function TreeView() {
                 type="button"
                 onClick={() => {
                   const targetId = confirmSetMePerson.id;
+                  userHasSelectedRef.current = false;
                   setRootPersonId(targetId);
                   setSelectedId(targetId);
                   setFocusedView(true);
                   setCollapsedFamilyKeys(new Set());
                   uncollapseImmediateFamily(targetId);
                   setConfirmSetMePerson(null);
-                  requestAnimationFrame(() => centerPerson(targetId));
+                  pendingFocusIdRef.current = targetId;
                 }}
                 className="px-4 py-2 text-xs font-semibold text-white bg-[#1C4B3C] hover:bg-[#163C30] rounded-xl shadow-sm transition-colors flex items-center gap-1.5"
               >
